@@ -1539,7 +1539,7 @@ html[data-motion="reduce"] .slide.cur *{animation:none!important}
 .ex-guides{display:grid;grid-template-columns:1fr;gap:12px;margin-top:16px;align-items:start}
 @media (min-width:900px){.ex-guides{grid-template-columns:1fr 1fr}}
 .ex-guides-end{grid-template-columns:1fr!important;margin-top:20px}
-.ex-fold.hint-fold{margin-top:14px}
+.task-hint{margin-top:8px;font-size:12.5px;line-height:1.7;opacity:.82}.task-hint p{margin:0;display:inline}
 .ex-guides .ex-block{margin-top:0}.ex-guides details[open]{grid-column:1/-1}
 .ex-fold{padding:0!important}.ex-fold>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 18px;border-radius:20px}.ex-fold>summary::-webkit-details-marker{display:none}
 .ex-fold>summary .lbl{margin:0}.ex-fold .fold-hint{font-family:var(--f-ui);font-size:12px;color:var(--ink-3);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.ex-fold .fold-hint::after{content:'▾';font-size:15px;transition:transform .2s}.ex-fold[open] .fold-hint::after{transform:rotate(180deg)}.ex-fold[open] .fold-hint{font-size:0}.ex-fold[open] .fold-hint::after{font-size:15px}
