@@ -1953,3 +1953,9 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .foot-s .fs-txt{flex-basis:100%;font-size:12px;line-height:1.7;opacity:.8;text-align:center}
 .foot-s .hub-fedit{padding:3px 10px;font-size:12px}
 @media (max-width:640px){.foot-s .wrap{justify-content:center;text-align:center}.foot-s .fs-main{justify-content:center}}
+
+.cv-ed{border:1.5px solid var(--line);border-radius:16px;padding:12px;margin-bottom:12px;background:var(--surface-2,#faf9ff)}
+.cv-prev{position:relative;aspect-ratio:340/124;max-width:340px;margin:10px 0;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,var(--c),color-mix(in srgb,var(--c) 55%,#000));border:1px solid var(--line)}
+.cv-prev img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cv-ctl{display:flex;flex-direction:column;gap:6px}.cv-r{display:flex;align-items:center;gap:10px;font-size:13px}.cv-r span{width:150px;flex:none}.cv-r input{flex:1;min-width:0}.cv-r b{width:48px;text-align:left;direction:ltr;color:var(--brand)}
+.cv-q{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;color:var(--ink-3)}
