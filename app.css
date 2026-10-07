@@ -1942,3 +1942,14 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .how-feats .flipc{flex:0 0 78%;max-width:320px;scroll-snap-align:center}
 }
 .hub-hero>*{position:relative;z-index:1}
+
+/* تذييل موحّد مضغوط */
+.foot-s{margin-top:34px;padding:12px 0}
+.foot-s .wrap{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 18px;text-align:right}
+.foot-s .fs-main{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;font-size:13.5px}
+.foot-s .fs-main b{font-family:var(--f-display);font-size:15px;color:#fff}.foot-s .fs-t{opacity:.85}
+.foot-s .hub-furl{color:#fff;font-size:13px;opacity:.9}
+.foot-s .soc-row{margin:0;gap:6px}.foot-s .soc-btn{width:30px;height:30px}.foot-s .soc-btn svg{width:15px;height:15px}
+.foot-s .fs-txt{flex-basis:100%;font-size:12px;line-height:1.7;opacity:.8;text-align:center}
+.foot-s .hub-fedit{padding:3px 10px;font-size:12px}
+@media (max-width:640px){.foot-s .wrap{justify-content:center;text-align:center}.foot-s .fs-main{justify-content:center}}
