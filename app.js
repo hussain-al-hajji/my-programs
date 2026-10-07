@@ -1,0 +1,7547 @@
+/* ===== 00-core.js ===== */
+'use strict';
+/* =====================================================================
+   تطبيقات الذكاء الاصطناعي في التجارة الإلكترونية: منصة ورشة تفاعلية
+   ملف واحد قائم بذاته (Vanilla JS) + Firebase Realtime Database
+   ===================================================================== */
+
+// ---------------------------------------------------------------------
+// 1) إعدادات Firebase، التفعيل الحقيقي يعتمد على وجود databaseURL فقط
+// ---------------------------------------------------------------------
+const firebaseConfig = {
+  databaseURL: "https://ai-e-commerce-9af16-default-rtdb.firebaseio.com/",
+  // قيم تطبيق الويب من Project settings ثم Your apps ثم Web app (تفعّل دخول المدرب بحساب Google وحماية البيانات)
+  apiKey: "AIzaSyCHE8F64CR3WBCHF6GK-GCAv-qLVnaveUg",
+  authDomain: "ai-e-commerce-9af16.firebaseapp.com",
+  projectId: "ai-e-commerce-9af16",
+  storageBucket: "ai-e-commerce-9af16.firebasestorage.app",
+  messagingSenderId: "573946136669",
+  appId: "1:573946136669:web:5a81f7e8a837becf1de5b4",
+  measurementId: "G-5BR0B5KLMH",
+  // Firebase App Check (reCAPTCHA v3): الصق «Site key» بعد تسجيل الموقع في App Check، والفراغ يعني غير مفعّل
+  appCheckSiteKey: ""
+};
+// للاختبار الآلي فقط (محاكاة Firebase): لا يُستخدم في التشغيل العادي
+try { if (window.__FB_TEST_CONFIG) Object.assign(firebaseConfig, window.__FB_TEST_CONFIG); } catch (e) {}
+// ?demo=1 في الرابط يفرض وضع المحاكاة المحلي (للمعاينة دون لمس قاعدة البيانات الحقيقية)
+// جذر المنصة: '' في الصفحة الرئيسية و'../' في صفحة دورة (01/، 02/ ...)؛ تضعه صفحة الدورة قبل تحميل app.js
+const SITE_ROOT = (typeof window !== 'undefined' && window.__ROOT) || '';
+const FORCE_DEMO = (function () { try { return /[?&]demo=1/.test(location.search); } catch (e) { return false; } })();
+// وضع المحاكاة المحلي فقط عند طلبه صراحةً (?demo=1) أو عند غياب رابط القاعدة. إذا كان الرابط موجودًا
+// فلا انتقال للتخزين المحلي أبدًا، حتى لو تعذر تحميل مكتبة Firebase أو تأخر الاتصال (يُعرض تنبيه وإعادة محاولة).
+const DEMO_MODE = FORCE_DEMO || !firebaseConfig.databaseURL || firebaseConfig.databaseURL.indexOf('PASTE') !== -1;
+
+const ADMIN_PASS = '2468'; // يُستخدم فقط في وضع المعاينة أو قبل تفعيل Firebase Authentication (عند غياب apiKey)
+const BADGE_THRESHOLD = 0.8;          // 80% لفتح الوسام وتهنئة الإنجاز
+const CONGRATS_DAYS_DEFAULT = 3;      // مدة بقاء التهنئة بعد انتهاء البرنامج
+const MEMBER_NO_FLOOR = 0;            // حد أدنى صريح لرقم العضوية
+let LAB_STAGE_MIN;              // دقائق كل مرحلة في المختبر الختامي
+const MAX_IMG_MB = 5;
+const DEFAULT_GROUPS = 6;
+// ميزات خاصة بهذا المشروع: لا صفحة تعريفية (المنصة التعليمية مباشرة بعد الدخول)
+const HAS_LANDING = false;
+const HOME_LABEL = HAS_LANDING ? 'المنصة التعليمية' : 'الرئيسية'; // زر العودة لرئيسية المنصة
+let ATTEND_DAYS_DEFAULT;        // أيام البرنامج
+let ATTEND_HOURS_DEFAULT;       // ساعات كل يوم
+let CERT_THRESHOLD_DEFAULT;    // نسبة الحضور المطلوبة لشهادة المشاركة
+
+let AXIS_COLORS;
+let UNIT_NAMES;
+let UNIT_KICKERS;
+let UNIT_IDS;
+let SPECIAL_UNIT; // لا فصل خاص: كل الجلسات تُحتسب
+const SLIDE_TYPES = {design:'تصميم حر',opening:'افتتاحية',hook:'افتتاحية بالأرقام',principle:'مبدأ علمي',framework:'إطار عمل',journey:'مسار ورحلة',numbers:'أرقام تهمّك',myth:'خرافة أم حقيقة',scenario:'موقف وقرار',versus:'قبل وبعد',examples:'أمثلة',tools:'أدوات',mistakes:'أخطاء وتصحيحات',checklist:'قائمة تحقق',summary:'خلاصة'};
+const FORMATS = {text:'نصية حرة',mcq:'اختيار من متعدد',truefalse:'صح أم خطأ',fillblank:'إكمال الفراغ',comparePairs:'مقارنة نقيضين',sim:'محاكاة تفاعلية'};
+const FORMAT_MODE = {mcq:'individual',truefalse:'individual',fillblank:'group',comparePairs:'group'};
+
+// ---------------------------------------------------------------------
+// 2) طبقات آمنة للتخزين والتاريخ (بعض البيئات المعزولة ترمي SecurityError)
+// ---------------------------------------------------------------------
+// كل مفاتيح التخزين المحلي تحمل بادئة المشروع: المشاريع المنشورة على النطاق نفسه (github.io) تتشارك
+// التخزين المحلي والكوكيز، فبدون البادئة يرى مشروعٌ هويةَ متدرب وجلسة مدرب مشروعٍ آخر
+let STORE_NS = 'aiec:'; // يصبح 'aiec:<الدورة>:' عند دخول دورة (Course.setup)
+const memStore = {};
+function mkSafeStore(getter, nsf) {
+  nsf = nsf || (() => STORE_NS);
+  return {
+    get(k) { k = nsf() + k; try { const s = getter(); return s ? s.getItem(k) : (k in memStore ? memStore[k] : null); } catch (e) { return k in memStore ? memStore[k] : null; } },
+    set(k, v) { k = nsf() + k; memStore[k] = v; try { const s = getter(); if (s) s.setItem(k, v); } catch (e) {} },
+    del(k) { k = nsf() + k; delete memStore[k]; try { const s = getter(); if (s) s.removeItem(k); } catch (e) {} }
+  };
+}
+const SafeLS = mkSafeStore(() => window.localStorage);
+const SafeSS = mkSafeStore(() => window.sessionStorage);
+const GLS = mkSafeStore(() => window.localStorage, () => 'aiec:'); // تخزين مشترك بين الصفحة الرئيسية والدورات (قاعدة المعاينة المحلية)
+const Cookie = {
+  get(k) { try { const m = document.cookie.match(new RegExp('(?:^|; )' + k + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : null; } catch (e) { return null; } },
+  set(k, v, days = 365) { try { document.cookie = k + '=' + encodeURIComponent(v) + '; max-age=' + (days * 86400) + '; path=/; SameSite=Lax'; } catch (e) {} },
+  del(k) { try { document.cookie = k + '=; max-age=0; path=/'; } catch (e) {} }
+};
+const SafeHist = {
+  push(state, url) { try { history.pushState(state, '', url); return true; } catch (e) { SafeHist._fallback = state; return false; } },
+  replace(state, url) { try { history.replaceState(state, '', url); return true; } catch (e) { SafeHist._fallback = state; return false; } },
+  state() { try { return history.state || SafeHist._fallback || null; } catch (e) { return SafeHist._fallback || null; } }
+};
+function getHashParams() { try { const h = (location.hash || '').replace(/^#/, ''); const o = {}; h.split('&').forEach(p => { const [k, v] = p.split('='); if (k) o[k] = decodeURIComponent(v || ''); }); return o; } catch (e) { return {}; } }
+function buildHash(params) { return '#' + Object.keys(params).filter(k => params[k] != null && params[k] !== '').map(k => k + '=' + encodeURIComponent(params[k])).join('&'); }
+
+// ---------------------------------------------------------------------
+// 3) أدوات عامة
+// ---------------------------------------------------------------------
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+function h(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function stripHtml(s) { const d = document.createElement('div'); d.innerHTML = s || ''; return (d.textContent || '').replace(/\s+/g, ' ').trim(); }
+function genId(p = '') { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function arr(v) { if (!v) return []; if (Array.isArray(v)) return v.filter(x => x != null); if (typeof v === 'object') return Object.keys(v).sort((a, b) => (+a) - (+b)).map(k => v[k]).filter(x => x != null); return []; }
+function ansList(v, n) { if (!v) return n ? new Array(n).fill(null) : []; const keys = Object.keys(v).map(Number).filter(k => !isNaN(k)); const len = n || (keys.length ? Math.max(...keys) + 1 : 0); const out = []; for (let i = 0; i < len; i++) { const x = v[i]; out.push(x === undefined ? null : x); } return out; }
+function clean(o) { return o === undefined ? null : JSON.parse(JSON.stringify(o)); }
+function clip(s, n) { s = String(s || ''); if (s.length <= n) return s; const c = s.slice(0, n); return c.slice(0, Math.max(c.lastIndexOf(' '), n - 20)) + ''; }
+function pad4(n) { return String(n).padStart(4, '0'); }
+function fmtDate(ts) { const d = new Date(ts || Date.now()); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); }
+function fmtTime(ts) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return p(d.getHours()) + ':' + p(d.getMinutes()) + ' · ' + fmtDate(ts); }
+function ago(ts) { const s = Math.max(0, Math.round((Date.now() - ts) / 1000)); if (s < 60) return 'قبل ' + s + ' ث'; if (s < 3600) return 'قبل ' + Math.round(s / 60) + ' د'; if (s < 86400) return 'قبل ' + Math.round(s / 3600) + ' س'; return fmtDate(ts); }
+function mmss(ms) { ms = Math.max(0, ms); const t = Math.ceil(ms / 1000); const m = Math.floor(t / 60), s = t % 60; return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'); }
+function initials(n) { n = (n || '?').trim(); return n.charAt(0); }
+function shade(hex, amt) { // amt: -1..1
+  let c = hex.replace('#', ''); if (c.length === 3) c = c.split('').map(x => x + x).join('');
+  const n = parseInt(c, 16); let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  const f = v => Math.round(amt < 0 ? v * (1 + amt) : v + (255 - v) * amt);
+  return '#' + [f(r), f(g), f(b)].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+}
+function tint(hex, a) { let c = hex.replace('#', ''); const n = parseInt(c, 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
+// ترتيب عشوائي ثابت لكل بذرة (لخلط أسئلة وخيارات التقييم لكل متدرب)
+function seededOrder(n, seed) { let x = 7; for (const ch of String(seed)) x = (x * 31 + ch.charCodeAt(0)) % 1000003; const rnd = () => { x = (x * 9301 + 49297) % 233280; return x / 233280; }; const o = []; for (let i = 0; i < n; i++) o.push(i); for (let i = n - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; }
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+function loadScript(src) {
+  loadScript.cache = loadScript.cache || {};
+  if (loadScript.cache[src]) return loadScript.cache[src];
+  loadScript.cache[src] = new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => { delete loadScript.cache[src]; rej(new Error('تعذر تحميل المكتبة')); }; document.head.appendChild(s); });
+  return loadScript.cache[src];
+}
+function downloadBlob(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
+
+// ---------------------------------------------------------------------
+// 4) قاعدة البيانات، نفس الواجهة البرمجية للوضع الحقيقي ووضع المحاكاة
+// ---------------------------------------------------------------------
+const DB = (function () {
+  const norm = p => String(p || '').replace(/^\/+|\/+$/g, '');
+  // بادئة المسارات: كل بيانات الدورة تحت c/<الدورة>/ ، أما admins وhub فمشتركان بين كل الدورات
+  let PFX = ''; const GLOBAL_ROOTS = { admins: 1, hub: 1, '.info': 1 };
+  const P = p => { p = norm(p); if (!PFX) return p; const r = p.split('/')[0]; return GLOBAL_ROOTS[r] ? p : PFX + p; };
+  // ---- حالة الاتصال والكتابات المعلقة (تعرضها الواجهة وتنبّه عند الإغلاق) ----
+  const status = { ready: false, connected: false, pending: 0, wasOffline: false, lib: true, listeners: [] };
+  const emit = () => status.listeners.forEach(fn => { try { fn(status); } catch (e) { console.error(e); } });
+  // منع أي كتابة على جذر القاعدة، وأي تحديث متعدد المسارات يستبدل عقدة كاملة من المستوى الأعلى دون إذن صريح
+  function guard(op, path, obj, o) {
+    const p = norm(path);
+    if (!p && op !== 'update') throw new Error('DB: ممنوع ' + op + ' على جذر القاعدة');
+    if (op === 'update') Object.keys(obj || {}).forEach(k => {
+      const full = norm((p ? p + '/' : '') + k); if (!full) throw new Error('DB: مفتاح فارغ في التحديث');
+      if (!p && full.indexOf('/') === -1 && !(o && o.allowTopLevel)) throw new Error('DB: استبدال العقدة «' + full + '» كاملة غير مسموح هنا');
+    });
+    if (!status.ready && !(o && o.beforeReady)) { const e = new Error('لم تكتمل قراءة البيانات من الخادم بعد، انتظر لحظات ثم أعد المحاولة'); if (DB.onReject) DB.onReject(e, path); return Promise.reject(e); }
+    return null;
+  }
+  function track(promise, desc, o) {
+    status.pending++; emit();
+    return promise.then(v => { status.pending--; if (!status.pending && status.wasOffline && status.connected) { status.wasOffline = false; if (DB.onSynced) DB.onSynced(); } emit(); return v; },
+      e => { status.pending--; emit(); if (DB.onReject && !(o && o.quiet)) DB.onReject(e, desc); throw e; });
+  }
+  if (!DEMO_MODE) {
+    if (typeof firebase === 'undefined') {
+      // تعذر تحميل مكتبة الاتصال: لا تخزين محلي ولا كتابة، القراءة تنتظر، والكتابة تُرفض برسالة واضحة
+      status.lib = false;
+      const fail = () => Promise.reject(new Error('تعذر تحميل مكتبة الاتصال بقاعدة البيانات'));
+      return { real: true, status, setCourse() {}, unready() {}, onStatus(fn) { status.listeners.push(fn); }, markReady() {}, watch() { return () => {}; }, get() { return new Promise(() => {}); }, set: fail, update: fail, remove: fail, push: fail, transaction: fail, presence: fail, unpresence: fail, now() { return Date.now(); } };
+    }
+    firebase.initializeApp(Object.fromEntries(Object.entries(firebaseConfig).filter(([k, v]) => v && k !== 'appCheckSiteKey')));
+    try { if (typeof firebase.analytics === 'function' && firebaseConfig.measurementId) firebase.analytics(); } catch (e) {}
+    // App Check يُفعَّل قبل أي استخدام للقاعدة أو الدخول، حتى تُرفق كل الطلبات بشهادة أنها من موقعنا الحقيقي
+    if (firebaseConfig.appCheckSiteKey && typeof firebase.appCheck === 'function') {
+      try { if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+        const prov = firebase.appCheck.ReCaptchaV3Provider ? new firebase.appCheck.ReCaptchaV3Provider(firebaseConfig.appCheckSiteKey) : firebaseConfig.appCheckSiteKey;
+        firebase.appCheck().activate(prov, true); } catch (e) { console.warn('App Check', e); }
+    }
+    const db = firebase.database();
+    let offset = 0;
+    db.ref('.info/serverTimeOffset').on('value', s => { offset = s.val() || 0; });
+    db.ref('.info/connected').on('value', s => { const c = !!s.val(); if (!c && status.ready) status.wasOffline = true; status.connected = c; emit(); if (c && status.wasOffline && !status.pending) { status.wasOffline = false; if (DB.onSynced) DB.onSynced(); } });
+    return {
+      real: true, status,
+      setCourse(c) { PFX = c ? 'c/' + c + '/' : ''; }, unready() { status.ready = false; emit(); },
+      onStatus(fn) { status.listeners.push(fn); },
+      markReady() { status.ready = true; emit(); },
+      watch(path, cb, onErr) { const ref = db.ref(P(path)); const fn = s => cb(s.val()); ref.on('value', fn, e => { console.warn('watch', path, e); if (onErr) onErr(e); }); return () => ref.off('value', fn); },
+      get(path) { return db.ref(P(path)).once('value').then(s => s.val()); },
+      set(path, v, o) { const g = guard('set', path, null, o); if (g) return g; return track(db.ref(P(path)).set(clean(v)), path, o); },
+      update(path, obj, o) { const g = guard('update', path, obj, o); if (g) return g; return track(norm(path) ? db.ref(P(path)).update(clean(obj)) : db.ref().update(Object.keys(obj || {}).reduce((m, k) => { m[P(k)] = clean(obj[k]); return m; }, {})), path || Object.keys(obj).join(','), o); },
+      remove(path, o) { const g = guard('remove', path, null, o); if (g) return g; return track(db.ref(P(path)).remove(), path, o); },
+      push(path, v) { const g = guard('push', path); if (g) return g; const r = db.ref(P(path)).push(); return track(r.set(clean(v)), path).then(() => r.key); },
+      transaction(path, fn, o) { const g = guard('transaction', path, null, o); if (g) return g; return track(db.ref(P(path)).transaction(fn).then(r => r.snapshot.val()), path, o); },
+      // سجل حضور مؤقت: يُحذف تلقائيًا من الخادم عند انقطاع اتصال المتصفح أو إغلاقه
+      presence(path, v) { if (!status.ready) return Promise.resolve(); const ref = db.ref(P(path)); return ref.onDisconnect().remove().then(() => ref.set(clean(v))); },
+      unpresence(path) { const ref = db.ref(P(path)); return ref.onDisconnect().cancel().catch(() => {}).then(() => ref.remove()); },
+      now() { return Date.now() + offset; }
+    };
+  }
+  // ---- وضع المحاكاة المحلي (localStorage)، يطلق المراقبات بشكل متزامن فور التسجيل ----
+  const KEY = 'demo_db';
+  let tree = {};
+  try { tree = JSON.parse(GLS.get(KEY) || '{}') || {}; } catch (e) { tree = {}; }
+  const watchers = [];
+  const segs = p => P(p).split('/').filter(Boolean);
+  function getAt(p) { let n = tree; for (const s of segs(p)) { if (n == null || typeof n !== 'object') return null; n = n[s]; } return n === undefined ? null : n; }
+  function setAt(p, v) {
+    const s = segs(p); if (!s.length) { tree = v == null ? {} : clean(v); return; }
+    let n = tree; for (let i = 0; i < s.length - 1; i++) { if (n[s[i]] == null || typeof n[s[i]] !== 'object') n[s[i]] = {}; n = n[s[i]]; }
+    if (v == null) delete n[s[s.length - 1]]; else n[s[s.length - 1]] = clean(v);
+    prune(tree);
+  }
+  function prune(o) { if (!o || typeof o !== 'object') return; Object.keys(o).forEach(k => { if (o[k] && typeof o[k] === 'object') { prune(o[k]); if (!Object.keys(o[k]).length) delete o[k]; } }); }
+  function persist() { try { GLS.set(KEY, JSON.stringify(tree)); } catch (e) { console.warn('local db too large', e); } }
+  function related(a, b) { if (!norm(a) || !norm(b)) return true; a = P(a); b = P(b); return a === b || a.startsWith(b + '/') || b.startsWith(a + '/'); }
+  function notify(changed) { watchers.slice().forEach(w => { if (w.alive && related(w.path, changed)) { try { w.cb(clone(getAt(w.path))); } catch (e) { console.error(e); } } }); }
+  const clone = v => v == null ? null : JSON.parse(JSON.stringify(v));
+  window.addEventListener('storage', e => { if (e.key === 'aiec:' + KEY) { try { tree = JSON.parse(e.newValue || '{}') || {}; } catch (er) {} notify(''); } });
+  status.connected = true;
+  const presencePaths = new Set(); // تُحذف عند إغلاق التبويب (بديل onDisconnect في وضع المحاكاة)
+  window.addEventListener('pagehide', () => { presencePaths.forEach(p => setAt(p, null)); if (presencePaths.size) persist(); });
+  const lguard = (op, path, obj, o) => { const p = norm(path); if (!p && op !== 'update') throw new Error('DB: ممنوع ' + op + ' على جذر القاعدة'); if (op === 'update') Object.keys(obj || {}).forEach(k => { const full = norm((p ? p + '/' : '') + k); if (!full) throw new Error('DB: مفتاح فارغ'); if (!p && full.indexOf('/') === -1 && !(o && o.allowTopLevel)) throw new Error('DB: استبدال العقدة «' + full + '» كاملة غير مسموح هنا'); }); };
+  return {
+    real: false, status,
+    setCourse(c) { PFX = c ? 'c/' + c + '/' : ''; }, unready() { status.ready = false; },
+    onStatus(fn) { status.listeners.push(fn); },
+    markReady() { status.ready = true; },
+    watch(path, cb) { const w = { path, cb, alive: true }; watchers.push(w); try { cb(clone(getAt(path))); } catch (e) { console.error(e); } return () => { w.alive = false; const i = watchers.indexOf(w); if (i > -1) watchers.splice(i, 1); }; },
+    get(path) {
+      // قراءة لمرة واحدة: علم بولياني منفصل بدل استدعاء دالة الإلغاء داخل تعريفها (تفادي TDZ)
+      return new Promise(res => { let called = false; let un = null; un = this.watch(path, v => { if (called) return; called = true; res(v); if (un) un(); }); if (called && un) un(); });
+    },
+    set(path, v, o) { lguard('set', path, null, o); setAt(path, v); persist(); notify(path); return Promise.resolve(); },
+    update(path, obj, o) { lguard('update', path, obj, o); const base = norm(path); Object.keys(obj || {}).forEach(k => setAt(base ? base + '/' + k : k, obj[k])); persist(); Object.keys(obj || {}).forEach(k => notify(base ? base + '/' + k : k)); return Promise.resolve(); },
+    remove(path, o) { lguard('remove', path, null, o); setAt(path, null); persist(); notify(path); return Promise.resolve(); },
+    push(path, v) { const k = genId('k'); return this.set(norm(path) + '/' + k, v).then(() => k); },
+    transaction(path, fn) { const nv = fn(clone(getAt(path))); if (nv !== undefined) { setAt(path, nv); persist(); notify(path); } return Promise.resolve(clone(getAt(path))); },
+    presence(path, v) { if (!status.ready) return Promise.resolve(); presencePaths.add(norm(path)); return this.set(path, v); },
+    unpresence(path) { presencePaths.delete(norm(path)); return this.remove(path); },
+    now() { return Date.now(); }
+  };
+})();
+
+// ---------------------------------------------------------------------
+// 5) نوافذ داخل الصفحة (بدل alert/confirm/prompt الأصلية) + إشعار سريع
+// ---------------------------------------------------------------------
+const UI = {
+  modal(html, opts = {}) {
+    const back = document.createElement('div'); back.className = 'modal-back';
+    back.innerHTML = '<div class="modal ' + (opts.wide ? 'wide' : '') + '" role="dialog">' + html + '</div>';
+    document.body.appendChild(back);
+    const close = () => { back.remove(); if (opts.onClose) opts.onClose(); };
+    if (!opts.sticky) back.addEventListener('click', e => { if (e.target === back) close(); });
+    const api = { el: back.firstChild, close };
+    if (opts.onMount) opts.onMount(api);
+    return api;
+  },
+  alert(msg, title = 'تنبيه') {
+    return new Promise(res => { const m = UI.modal('<h3>' + h(title) + '</h3><div>' + msg + '</div><div class="actions"><button class="btn btn-primary" data-ok>حسنًا</button></div>', { onClose: res }); $('[data-ok]', m.el).onclick = () => m.close(); });
+  },
+  confirm(msg, o = {}) {
+    return new Promise(res => {
+      let done = false; const fin = v => { if (!done) { done = true; res(v); } };
+      const m = UI.modal('<h3>' + h(o.title || 'تأكيد') + '</h3><div>' + msg + '</div><div class="actions"><button class="btn ' + (o.danger ? 'btn-danger' : 'btn-primary') + '" data-ok>' + h(o.ok || 'تأكيد') + '</button><button class="btn btn-ghost" data-no>إلغاء</button></div>', { onClose: () => fin(false) });
+      $('[data-ok]', m.el).onclick = () => { fin(true); m.close(); };
+      $('[data-no]', m.el).onclick = () => m.close();
+    });
+  },
+  prompt(msg, o = {}) {
+    return new Promise(res => {
+      let done = false; const fin = v => { if (!done) { done = true; res(v); } };
+      const m = UI.modal('<h3>' + h(o.title || '') + '</h3><div>' + msg + '</div><div class="field" style="margin-top:12px"><input data-in type="' + (o.type || 'text') + '" inputmode="' + (o.inputmode || 'text') + '" placeholder="' + h(o.placeholder || '') + '" value="' + h(o.value || '') + '"></div><div class="actions"><button class="btn btn-primary" data-ok>' + h(o.ok || 'متابعة') + '</button><button class="btn btn-ghost" data-no>إلغاء</button></div>', { onClose: () => fin(null) });
+      const inp = $('[data-in]', m.el); setTimeout(() => inp.focus(), 50);
+      const ok = () => { fin(inp.value); m.close(); };
+      $('[data-ok]', m.el).onclick = ok; inp.onkeydown = e => { if (e.key === 'Enter') ok(); };
+      $('[data-no]', m.el).onclick = () => m.close();
+    });
+  },
+  toast(msg, ms = 2600) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), ms); }
+};
+/* ===== 00b-course.js ===== */
+// ---------------------------------------------------------------------
+// سياق الدورة: منصة واحدة لعدة دورات. كل دورة لها:
+//   1) إعدادات عامة (courses/<id>/cfg.js): الأسماء والألوان والافتراضيات والأدوات، لا سر فيها
+//   2) سجل عام (registry): نبذة وقائمة المحاور والمخرجات تُعرض في الصفحة التعريفية
+//   3) محتوى سري مشفّر (content/<id>.enc.js): الشرائح والتمارين والقوالب، ومفتاحه في قاعدة البيانات
+//      لا يقرؤه إلا مسجَّل في الدورة والدورة «نشطة» (أو المدرب)، فلا يكفي أن يعرف أحد رابط الملف
+// كل بيانات الدورة في القاعدة تحت c/<id>/، وهي تُمسح بحذف عقدة الدفعة، ولا يرى متدرب بيانات دورة أخرى
+// ---------------------------------------------------------------------
+let COURSE = { axes: [], activities: [], survey: { id: 'survey' }, lab: {}, assessment: { items: [] }, stories: [], guide: null };
+const COURSE_CFGS = {};      // تملؤها courses/<id>/cfg.js
+const COURSE_REGISTRY = {};  // يملؤه registry.js المولَّد عند البناء
+const HUB_DEFAULT_PROFILE = { name: 'حسين الحاجي', title: 'مدرب ومستشار تدريب', bio: 'أقدّم برامج تدريبية تطبيقية تفاعلية للشباب ورواد الأعمال والعاملين في المبيعات والتسويق وإدارة الأعمال، تجمع بين الألعاب والمحاكاة والتمارين الحية والتطبيق المباشر على حالات واقعية.', url: 'www.hussain-al-hajji.com', title2: 'برامج المدرب حسين الحاجي', sub: 'اختر البرنامج الذي يُقدَّم لك اليوم', linkedin: 'https://linkedin.com/in/hussain-al-hajji', x: 'https://x.com/hussain_al_haji', whatsapp: 'https://wa.me/966559668969', email: 'mailto:g.hussainalhajji@gmail.com', footer: '' };
+
+const Course = {
+  cid: '', cfg: null, reg: null,
+  stage: 'boot',   // boot | info | gate | loading | full | error
+  status: null,    // حالة الدورة من الصفحة الرئيسية: hidden | info | active
+  lock: false, hubSeen: false, err: '',
+  // ---- تهيئة الدورة قبل أي استخدام للقاعدة ----
+  setup(cid) {
+    const cfg = COURSE_CFGS[cid]; if (!cfg) throw new Error('دورة غير معروفة: ' + cid);
+    Course.cid = cid; Course.cfg = cfg; Course.reg = COURSE_REGISTRY[cid] || { id: cid };
+    STORE_NS = 'aiec:' + cid + ':'; DB.setCourse(cid);
+    AXIS_COLORS = cfg.AXIS_COLORS; UNIT_NAMES = cfg.UNIT_NAMES; UNIT_KICKERS = cfg.UNIT_KICKERS; UNIT_IDS = cfg.UNIT_IDS; SPECIAL_UNIT = cfg.SPECIAL_UNIT;
+    LAB_STAGE_MIN = cfg.LAB_STAGE_MIN; ATTEND_DAYS_DEFAULT = cfg.ATTEND_DAYS_DEFAULT; ATTEND_HOURS_DEFAULT = cfg.ATTEND_HOURS_DEFAULT; CERT_THRESHOLD_DEFAULT = cfg.CERT_THRESHOLD_DEFAULT;
+    DEFAULT_SITE = cfg.DEFAULT_SITE; DEFAULT_CONGRATS = cfg.DEFAULT_CONGRATS; DEFAULT_CERT = cfg.DEFAULT_CERT; DEFAULT_PDF = cfg.DEFAULT_PDF; REG_DEFAULTS = cfg.REG_DEFAULTS; DEFAULT_PRIVACY = cfg.DEFAULT_PRIVACY;
+    ASSESS_AXIS = cfg.ASSESS_AXIS; EN = cfg.EN; EN_OPTIONS = cfg.EN_OPTIONS; TOOLS = cfg.TOOLS; MATRIX_CRIT = cfg.MATRIX_CRIT; MX_NAMES = cfg.MX_NAMES; FU_ACTIONS = cfg.FU_ACTIONS; DEFAULT_LANDING = cfg.DEFAULT_LANDING;
+    Course.theme(cfg.theme);
+  },
+  theme(t) {
+    t = t || {}; const r = document.documentElement.style;
+    ['brand', 'brand-2', 'brand-3', 'grad', 'grad-warm', 'bg', 'bg-dots', 'ink', 'ink-2'].forEach(k => { if (t[k]) r.setProperty('--' + k, t[k]); });
+    const m = document.querySelector('meta[name="theme-color"]'); if (m && t.themeColor) m.setAttribute('content', t.themeColor);
+  },
+  // ---- فهارس المحتوى الأصلي بعد فك التشفير ----
+  install(sec) {
+    COURSE = Object.assign({ axes: [], activities: [], survey: { id: 'survey' }, lab: {}, assessment: { items: [] }, stories: [], guide: null }, sec);
+    TEMPLATES = sec.templates || [];
+    DEF_AXIS = {}; COURSE.axes.forEach(a => { DEF_AXIS[a.id] = a; });
+    DEF_EX = {}; COURSE.axes.forEach(a => a.exercises.forEach(e => { DEF_EX[e.id] = e; })); COURSE.activities.forEach(e => { DEF_EX[e.id] = e; }); DEF_EX[COURSE.survey.id] = COURSE.survey;
+    SURVEY_ID = COURSE.survey.id;
+    DEF_SLIDE_CHART = {}; COURSE.axes.forEach(a => a.slides.forEach(s => { if (s.chart) DEF_SLIDE_CHART[s.id] = s.chart; }));
+  },
+  // ---- الحالة الفعلية للدورة للمتدربين (قفل الكل يحوّل النشطة إلى تعريفية) ----
+  effective() { const s = Course.status || (DEMO_MODE ? 'active' : 'hidden'); return s === 'active' && Course.lock ? 'info' : s; },
+  onHub(v) { Course.hubSeen = true; v = v || {}; Course.status = v.status || null; Course.hubNode = v; },
+  afterHub() { if (!DB.real) { const sg = JSON.stringify([Course.status, Course.lock, Course.hubNode, Course.stage]); if (sg === Course._hubSig) return; Course._hubSig = sg; } /* المعاينة المحلية: لا نعيد الرسم إن لم تتغير حالة الدورة (مزامنة التبويبات تنادي كل المراقبات) */ if ((Course.stage === 'info' || Course.stage === 'gate') && Course.effective() === 'active') { if (Course.stage === 'info') Course.stage = 'boot'; } if (typeof App !== 'undefined' && App.onData) App.onData(); },
+  // قرار الدخول بعد اكتمال الجلسة وقراءة حالة الدورة: المدرب يدخل دائمًا، والمتدرب إن كانت الدورة نشطة (وإلا صفحة تعريفية فقط)
+  decide() { if (Admin.ok() || Course.effective() === 'active') Course.enter(); else Course.stage = 'info'; },
+  // ---- تحميل الملف المشفّر وفك تشفيره بالمفتاح ----
+  loadEnc() {
+    window.__ENC = window.__ENC || {}; if (window.__ENC[Course.cid]) return Promise.resolve(window.__ENC[Course.cid]);
+    return new Promise((res, rej) => { const s = document.createElement('script'); s.src = SITE_ROOT + 'content/' + Course.cid + '.enc.js?v=' + (Course.reg.v || ''); s.onload = () => (window.__ENC[Course.cid] ? res(window.__ENC[Course.cid]) : rej(new Error('ملف المحتوى فارغ'))); s.onerror = () => rej(new Error('تعذر تحميل ملف المحتوى')); document.head.appendChild(s); });
+  },
+  async decrypt(enc, keyB64) {
+    const b64 = x => Uint8Array.from(atob(x), c => c.charCodeAt(0));
+    if (!(window.crypto && crypto.subtle)) throw new Error('المتصفح لا يدعم فك التشفير. افتح الصفحة من رابط https');
+    const key = await crypto.subtle.importKey('raw', b64(String(keyB64).trim()), 'AES-GCM', false, ['decrypt']);
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(enc.iv) }, key, b64(enc.ct));
+    return JSON.parse(new TextDecoder().decode(plain));
+  },
+  // ---- الدخول إلى محتوى الدورة: يجب أن تسمح القواعد بقراءة المفتاح (مسجَّل في الدورة والدورة نشطة، أو مدرب) ----
+  async enter() {
+    if (Course.stage === 'loading' || Course.stage === 'full') return;
+    Course.stage = 'loading'; Course.err = ''; App.render();
+    let key, denied = false;
+    try { key = await DB.get('key'); } catch (e) { denied = true; }
+    if (DEMO_MODE && !key && !denied) await new Promise(r => { const s = document.createElement('script'); s.src = SITE_ROOT + 'devkeys.js'; s.onload = r; s.onerror = r; document.head.appendChild(s); });
+    if (DEMO_MODE && !key && window.__DEVKEYS && window.__DEVKEYS[Course.cid]) { key = window.__DEVKEYS[Course.cid]; await DB.set('key', key, { beforeReady: true, quiet: true }); }
+    if (denied) { Course.stage = Admin.ok() ? 'error' : 'gate'; Course.err = Admin.ok() ? 'تعذر قراءة مفتاح المحتوى' : ''; App.render(); return; }
+    if (!key) { Course.stage = Admin.ok() ? 'error' : 'gate'; Course.err = Admin.ok() ? 'nokey' : ''; App.render(); return; }
+    try {
+      const enc = await Course.loadEnc(); Course.install(await Course.decrypt(enc, key));
+    } catch (e) { console.error(e); Course.stage = 'error'; Course.err = (e && e.name === 'OperationError') ? 'badkey' : String((e && e.message) || e); App.render(); return; }
+    Course.stage = 'full'; App.dataReady = false; Watch.seen = new Set([...Watch.seen].filter(p => Watch.active[p])); DB.unready(); Presence.curSig = ''; syncWatchers();
+    if (!App.dataReady && Watch.publicPaths.every(x => Watch.seen.has(x))) { App.dataReady = true; DB.markReady(); }
+    App.render();
+  },
+  // انضمام المتدرب إلى الدورة (يكتب سجل العضوية؛ قد يلزم رمز انضمام يضعه المدرب)
+  async join() {
+    const au = authUid() || (DEMO_MODE ? 'demo' : null); if (!au) throw new Error('لا توجد جلسة آمنة، أعد تحميل الصفحة');
+    await DB.set('members/' + au, true, { beforeReady: true, quiet: true });
+  }
+};
+// معرّف قناة عرض الشرائح خاص بكل دورة حتى لا تتداخل نوافذ دورتين مفتوحتين
+function courseBC(name) { try { return new BroadcastChannel(name + '_' + (Course.cid || 'hub')); } catch (e) { return null; } }
+// رابط صفحة دورة (01/ ...) من الصفحة الرئيسية أو من دورة أخرى. في المعاينة المحلية (file) نضيف index.html
+function courseUrl(id) { const r = COURSE_REGISTRY[id]; const no = (r && r.no) || id; return SITE_ROOT + no + '/' + (location.protocol === 'file:' ? 'index.html' : '') + location.search; }
+function homeUrl() { return (SITE_ROOT || './') + (location.protocol === 'file:' ? 'index.html' : '') + location.search; }
+// جزء الدورة في الهاش: صفحة الدورة نفسها تحمل رقمها في المسار فلا حاجة له
+function cparam() { return (typeof window !== 'undefined' && window.__CID) ? '' : 'c=' + Course.cid + '&'; }
+/* ===== 01-icons.js ===== */
+// ---------------------------------------------------------------------
+// قاموس الأيقونات الخام، كل استخدام يبني <svg> ذاتي الاكتفاء (بلا <use>)
+// حتى تظهر الأيقونات داخل صفحات PDF الملتقطة بـ html2canvas.
+// ---------------------------------------------------------------------
+const ICONS = {
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  route: '<circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/>',
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  megaphone: '<path d="M3 11v2a2 2 0 0 0 2 2h2l5 4V5L7 9H5a2 2 0 0 0-2 2z"/><path d="M16 8a5 5 0 0 1 0 8"/><path d="M19 5a9 9 0 0 1 0 14"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  gauge: '<path d="M12 14l4-4"/><path d="M3.3 17a10 10 0 1 1 17.4 0"/><circle cx="12" cy="14" r="1.6"/>',
+  layers: '<path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/>',
+  compass: '<circle cx="12" cy="12" r="10"/><path d="m16.2 7.8-2.1 6.3-6.3 2.1 2.1-6.3z"/>',
+  card: '<rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/><path d="M6 15h4"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
+  check: '<circle cx="12" cy="12" r="10"/><path d="m8 12.5 2.8 2.8L16.5 9"/>',
+  chart: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6" rx="1"/><rect x="12" y="8" width="3" height="10" rx="1"/><rect x="17" y="5" width="3" height="13" rx="1"/>',
+  radar: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12 18.5 5.5"/><circle cx="16" cy="9" r="1.2"/>',
+  loop: '<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18.5 2v4h-4"/><path d="M5.5 22v-4h4"/>',
+  sparkles: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"/><path d="M5 2.5l.6 1.4L7 4.5l-1.4.6L5 6.5l-.6-1.4L3 4.5l1.4-.6z"/>',
+  cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.2a2 2 0 0 0 2 1.6h7.9a2 2 0 0 0 1.9-1.4L22 8H6"/>',
+  phone: '<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/>',
+  bag: '<path d="M6 7h12l1 14H5z"/><path d="M9 7a3 3 0 0 1 6 0"/>',
+  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2a5 5 0 0 1 5.5 4.8"/>',
+  bulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V16h8v-1.3A7 7 0 0 0 12 2z"/>',
+  trophy: '<path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3"/><path d="M7 5H4v2a3 3 0 0 0 3 3"/>',
+  rocket: '<path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2.1-.1-2.9a2.2 2.2 0 0 0-2.9-.1z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.9A12.9 12.9 0 0 1 22 2c0 2.7-.8 7.5-6 11a22.4 22.4 0 0 1-4 2z"/><path d="M9 12H4s.6-3 2-4c1.6-1.1 5 0 5 0"/><path d="M12 15v5s3-.6 4-2c1.1-1.6 0-5 0-5"/>',
+  heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>',
+  star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/>',
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
+  home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  swap: '<path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/>',
+  arrowR: '<path d="M5 12h14"/><path d="m13 5 7 7-7 7"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  play: '<circle cx="12" cy="12" r="10"/><path d="m10 8 6 4-6 4z"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/>',
+  mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/>',
+  linkedin: '<path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/>',
+  x: '<path d="M4 4l16 16"/><path d="M20 4 4 20"/>',
+  xlogo: '<path d="M4 4h4.5L20 20h-4.5z"/><path d="M20 4l-6.6 7.3"/><path d="M4 20l6.6-7.3"/>',
+  instagram: '<rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4.2"/><path d="M17.5 6.5h.01"/>',
+  whatsapp: '<path d="M3 21l1.7-4.8A8.5 8.5 0 1 1 8 19.6z"/><path d="M9 9.5c.3 1.9 2.6 4.3 4.5 4.9l1.2-1.2 2 1-.4 1.5c-3.5.5-7.6-3.6-7.3-7.2l1.5-.4 1 2z"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  store: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 13v8h14v-8"/><path d="M10 21v-5h4v5"/>',
+  truck: '<path d="M1 5h13v11H1z"/><path d="M14 9h4l4 4v3h-8"/><circle cx="5.5" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/>',
+  box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/>',
+  wallet: '<rect x="2" y="6" width="20" height="14" rx="3"/><path d="M16 13h2"/><path d="M6 6V4h12v2"/>',
+  clipboard: '<rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 4V2h6v2"/><path d="m9 13 2 2 4-4"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/>',
+  award: '<circle cx="12" cy="9" r="6"/><path d="m8.5 14-1.5 8 5-3 5 3-1.5-8"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+  login: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'
+};
+const AXIS_ICON_CHOICES = ['store','truck','box','wallet','globe','clipboard','calendar','award','grid','eye','route','alert','megaphone','target','gauge','layers','file','compass','card','shield','check','chart','radar','loop','sparkles','cart','phone','bag','bolt','users','bulb','trophy','rocket','heart','star'];
+AXIS_ICON_CHOICES.splice(0, AXIS_ICON_CHOICES.length, ...new Set(AXIS_ICON_CHOICES.filter(k => ICONS[k])));
+function iconSvg(name, size = 22, color = 'currentColor', sw = 2) {
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="' + sw + '" stroke-linecap="round" stroke-linejoin="round" style="display:block;flex:none">' + (ICONS[name] || ICONS.star) + '</svg>';
+}
+/* ===== 02-charts.js ===== */
+// خط نصوص الرسوم SVG (موحّد مع خطوط الواجهة)
+const FONT_ATTR = "IBM Plex Sans Arabic, Noto Sans Arabic, sans-serif";
+// ---------------------------------------------------------------------
+// مكتبة الرسوم البيانية SVG، كل نص عربي داخل foreignObject مع div حقيقي
+// (التفاف تلقائي + محاذاة يمين صريحة + عرض كامل للصندوق)
+// ---------------------------------------------------------------------
+const Charts = (function () {
+  const W = 600;
+  const FONT = "'IBM Plex Sans Arabic','Noto Sans Arabic',sans-serif";
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function parseItem(raw) {
+    let t = String(raw || '').trim(), danger = false, hi = false;
+    if (t.endsWith('!')) { danger = true; t = t.slice(0, -1).trim(); }
+    if (t.endsWith('*')) { hi = true; t = t.slice(0, -1).trim(); }
+    let label = t, desc = '';
+    const i = t.indexOf('::'); if (i > -1) { label = t.slice(0, i).trim(); desc = t.slice(i + 2).trim(); }
+    return { label, desc, danger, hi };
+  }
+  // تقدير عدد الأسطر (تقدير محافظ لعرض الحرف العربي)
+  function lines(text, width, fs) { const cpl = Math.max(4, Math.floor((width - 16) / (fs * 0.56))); let n = 0; String(text || '').split('\n').forEach(p => { n += Math.max(1, Math.ceil(p.length / cpl)); }); return n; }
+  function fo(x, y, w, hh, inner, o = {}) {
+    const fs = o.fs || 15, color = o.color || '#201C40', weight = o.weight || 600, align = o.align || 'right';
+    return '<foreignObject x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + Math.max(10, w).toFixed(1) + '" height="' + Math.max(10, hh).toFixed(1) + '">' +
+      '<div xmlns="http://www.w3.org/1999/xhtml" dir="rtl" style="width:100%;height:100%;display:flex;flex-direction:column;justify-content:' + (o.valign || 'center') + ';box-sizing:border-box;padding:' + (o.pad == null ? '4px 10px' : o.pad) + ';font-family:' + FONT + ';font-size:' + fs + 'px;line-height:1.55;color:' + color + ';font-weight:' + weight + ';overflow:hidden">' +
+      '<div style="width:100%;text-align:' + align + ';word-wrap:break-word">' + inner + '</div></div></foreignObject>';
+  }
+  function svgWrap(hh, body, c) {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + Math.ceil(hh) + '" width="100%" role="img" style="display:block;overflow:visible">' +
+      '<defs><marker id="ah' + c.id + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="' + c.dark + '"/></marker></defs>' + body + '</svg>';
+  }
+  let uid = 0;
+  function ctx(color) { color = color || '#4C3AA7'; uid++; return { id: 'c' + uid + Math.random().toString(36).slice(2, 5), color, dark: shadeC(color, -0.25), light: tintC(color, 0.12), mid: tintC(color, 0.28) }; }
+  function shadeC(hex, amt) { let c = hex.replace('#', ''); const n = parseInt(c, 16); let r = n >> 16, g = (n >> 8) & 255, b = n & 255; const f = v => Math.max(0, Math.min(255, Math.round(amt < 0 ? v * (1 + amt) : v + (255 - v) * amt))); return 'rgb(' + f(r) + ',' + f(g) + ',' + f(b) + ')'; }
+  function tintC(hex, a) { let c = hex.replace('#', ''); const n = parseInt(c, 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
+  const arrow = (x1, y1, x2, y2, c, dash) => '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="' + c.dark + '" stroke-width="2.4"' + (dash ? ' stroke-dasharray="5 5"' : '') + ' marker-end="url(#ah' + c.id + ')"/>';
+  const rect = (x, y, w, hh, fill, stroke, r = 14, extra = '') => '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + hh.toFixed(1) + '" rx="' + r + '" fill="' + fill + '"' + (stroke ? ' stroke="' + stroke + '" stroke-width="1.6"' : '') + extra + '/>';
+  const badge = (cx, cy, n, c, r = 13) => '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + c.color + '" stroke="#fff" stroke-width="2.5"/>' + '<text x="' + cx + '" y="' + (cy + 4.8) + '" text-anchor="middle" font-family="' + FONT_ATTR + '" font-size="13" font-weight="700" fill="#fff">' + n + '</text>';
+  const fmtNum = v => { const n = Number(v); return isFinite(n) ? n.toLocaleString('en-US') : esc(v); };
+  const itemHtml = (it, fs) => esc(it.label) + (it.desc ? '<div style="font-weight:400;color:#4E4A70;font-size:' + (fs - 2) + 'px;margin-top:2px">' + esc(it.desc) + '</div>' : '');
+  const boxFill = (it, c) => it.danger ? ['#FDECEC', '#E5484D'] : it.hi ? [c.color, c.color] : ['#FFFFFF', c.mid];
+  const boxInk = (it) => it.hi ? '#FFFFFF' : it.danger ? '#A12A2E' : '#201C40';
+
+  // ---------- flow (أفقي متعرّج من اليمين) ----------
+  function flow(items, c) {
+    const its = items.map(parseItem); const n = its.length;
+    const long = its.some(i => (i.label + i.desc).length > 22);
+    const per = n <= 4 ? n : (long ? 3 : 4);
+    const gap = 34, bw = (W - 20 - gap * (per - 1)) / per;
+    const bh = Math.max(66, ...its.map(i => lines(i.label, bw, 15) * 23 + (i.desc ? lines(i.desc, bw, 13) * 20 : 0) + 22));
+    const rows = Math.ceil(n / per), rg = 36;
+    let body = '', pos = [];
+    its.forEach((it, i) => {
+      const r = Math.floor(i / per), k = i % per; const rtl = r % 2 === 0;
+      const col = rtl ? k : (per - 1 - k);
+      const x = W - 10 - bw - col * (bw + gap); const y = 14 + r * (bh + rg);
+      pos.push({ x, y });
+      const [fill, stroke] = boxFill(it, c);
+      body += rect(x, y, bw, bh, fill, stroke, 16);
+      body += fo(x, y, bw, bh, itemHtml(it, 15), { color: boxInk(it), fs: 15, pad: '6px 12px 6px 10px' });
+      body += badge(x + bw - 4, y + 2, i + 1, c, 11);
+    });
+    for (let i = 0; i < n - 1; i++) {
+      const a = pos[i], b = pos[i + 1];
+      if (Math.abs(a.y - b.y) < 1) { const goLeft = b.x < a.x; body += goLeft ? arrow(a.x - 3, a.y + bh / 2, b.x + bw + 5, b.y + bh / 2, c) : arrow(a.x + bw + 3, a.y + bh / 2, b.x - 5, b.y + bh / 2, c); }
+      else body += arrow(a.x + bw / 2, a.y + bh + 3, b.x + bw / 2, b.y - 5, c);
+    }
+    return svgWrap(28 + rows * bh + (rows - 1) * rg, body, c);
+  }
+  // ---------- vflow (عمودي) ----------
+  function vflow(items, c) {
+    const its = items.map(parseItem); const bw = 440, x = (W - bw) / 2; let y = 8, body = '';
+    its.forEach((it, i) => {
+      const bh = Math.max(52, lines(it.label, bw - 40, 16) * 25 + (it.desc ? lines(it.desc, bw - 40, 13) * 20 : 0) + 18);
+      const [fill, stroke] = boxFill(it, c);
+      body += rect(x, y, bw, bh, fill, stroke, 16);
+      body += fo(x, y, bw - 34, bh, itemHtml(it, 16), { fs: 16, color: boxInk(it), pad: '4px 14px 4px 10px' });
+      body += badge(x + bw - 20, y + bh / 2, i + 1, c, 12);
+      y += bh;
+      if (i < its.length - 1) { body += arrow(W / 2, y + 3, W / 2, y + 27, c); y += 32; }
+    });
+    return svgWrap(y + 8, body, c);
+  }
+  // ---------- funnel ----------
+  function funnel(items, c) {
+    const its = items.map(parseItem); const n = its.length; const vals = its.map(i => parseFloat(String(i.desc).replace(/,/g, '')));
+    const hasVals = vals.every(v => isFinite(v)); const max = hasVals ? Math.max(...vals) : 1;
+    const rh = 50, gap = 8; let body = '';
+    its.forEach((it, i) => {
+      const ratio = hasVals ? Math.max(0.28, vals[i] / max) : (1 - i * (0.62 / Math.max(1, n - 1)));
+      const w = 560 * ratio, x = (W - w) / 2, y = 6 + i * (rh + gap);
+      const col = shadeC(c.color, -0.05 + i * (0.5 / n) - 0.1);
+      body += '<path d="M' + x.toFixed(1) + ' ' + y + 'H' + (x + w).toFixed(1) + 'L' + (x + w - 10).toFixed(1) + ' ' + (y + rh) + 'H' + (x + 10).toFixed(1) + 'Z" fill="' + (i === n - 1 ? c.dark : col) + '" opacity="' + (1 - i * 0.04) + '"/>';
+      let pct = '';
+      if (hasVals && i > 0 && vals[i - 1] > 0) pct = ' <span style="opacity:.85;font-weight:500">(' + Math.round(vals[i] / vals[i - 1] * 100) + '%)</span>';
+      const val = hasVals ? '<b style="direction:ltr;unicode-bidi:isolate">' + fmtNum(vals[i]) + '</b> · ' : '';
+      body += fo(x + 8, y, w - 16, rh, val + esc(it.label) + pct, { color: '#fff', fs: 14.5, align: 'center', pad: '2px 6px' });
+    });
+    return svgWrap(12 + n * (rh + gap), body, c);
+  }
+  // ---------- cards ----------
+  function cards(items, c) {
+    const its = items.map(parseItem); const n = its.length;
+    const cols = n <= 4 ? n : (n === 5 || n === 6 ? 3 : (n <= 8 ? 4 : 5));
+    const gap = 12, cw = (W - 12 - gap * (cols - 1)) / cols;
+    const split = it => { const m = it.label.match(/^(\S+)\s+(.*)$/); if (m && /[^؀-ۿa-zA-Z0-9]/.test(m[1]) && !/[؀-ۿ]/.test(m[1])) return { emo: m[1], text: m[2] }; return { emo: '', text: it.label }; };
+    const ch = Math.max(92, ...its.map(it => { const s = split(it); return (s.emo ? 40 : 10) + lines(s.text, cw, 15) * 23 + (it.desc ? lines(it.desc, cw, 13) * 20 : 0) + 18; }));
+    const rows = Math.ceil(n / cols); let body = '';
+    its.forEach((it, i) => {
+      const r = Math.floor(i / cols), k = i % cols; const x = W - 6 - cw - k * (cw + gap), y = 6 + r * (ch + gap);
+      const s = split(it);
+      body += rect(x, y, cw, ch, c.light, c.mid, 18);
+      body += rect(x, y, cw, 6, c.color, null, 3);
+      const inner = (s.emo ? '<div style="font-size:26px;line-height:1.2;margin-bottom:4px">' + esc(s.emo) + '</div>' : '') + '<div style="font-weight:700">' + esc(s.text) + '</div>' + (it.desc ? '<div style="font-weight:400;font-size:13px;color:#4E4A70">' + esc(it.desc) + '</div>' : '');
+      body += fo(x, y + 4, cw, ch - 4, inner, { fs: 15, pad: '6px 12px' });
+    });
+    return svgWrap(12 + rows * ch + (rows - 1) * gap, body, c);
+  }
+  // ---------- compare (عمودان متقابلان) ----------
+  function compare(items, c) {
+    const groups = items.map(g => { const i = g.indexOf('::'); return { title: (i > -1 ? g.slice(0, i) : g).trim(), list: (i > -1 ? g.slice(i + 2) : '').split(';').map(s => s.trim()).filter(Boolean) }; }).slice(0, 2);
+    while (groups.length < 2) groups.push({ title: '', list: [] });
+    const cw = 262, vs = 36; const xs = [W - 6 - cw, 6];
+    const cols2 = [c.color, '#201C40'];
+    let body = '', maxH = 0;
+    groups.forEach((g, gi) => {
+      const x = xs[gi]; let y = 58;
+      g.list.forEach(t => { const bh = lines(t, cw - 16, 14.5) * 22 + 14; y += bh + 6; });
+      maxH = Math.max(maxH, y);
+    });
+    groups.forEach((g, gi) => {
+      const x = xs[gi]; const col = cols2[gi];
+      body += rect(x, 4, cw, maxH + 6, gi === 0 ? c.light : '#F1F0F6', gi === 0 ? c.mid : '#DFDCEB', 20);
+      body += rect(x, 4, cw, 46, col, null, 20) + rect(x, 30, cw, 20, col, null, 0);
+      body += fo(x, 4, cw, 46, esc(g.title), { color: '#fff', fs: 16, weight: 700, pad: '4px 14px' });
+      let y = 58;
+      g.list.forEach(t => { const bh = lines(t, cw - 16, 14.5) * 22 + 14; body += rect(x + 8, y, cw - 16, bh, '#fff', null, 12); body += fo(x + 8, y, cw - 16, bh, esc(t), { fs: 14.5, weight: 500, pad: '4px 12px' }); y += bh + 6; });
+    });
+    const cy = 4 + (maxH + 6) / 2;
+    body += '<circle cx="' + (W / 2) + '" cy="' + cy + '" r="' + (vs / 2 + 4) + '" fill="#fff" stroke="' + c.mid + '" stroke-width="2"/>';
+    body += fo(W / 2 - 24, cy - 16, 48, 32, 'مقابل', { fs: 11.5, weight: 700, align: 'center', pad: '0', color: c.dark });
+    return svgWrap(maxH + 16, body, c);
+  }
+  // ---------- hub (عنصر مركزي + عمودان يمين ويسار) ----------
+  function hub(items, c) {
+    const center = parseItem(items[0]); const its = items.slice(1).map(parseItem);
+    const R = 62, SAFE = R + 20; const cx = W / 2;
+    const colW = W / 2 - SAFE - 6;
+    const right = its.filter((_, i) => i % 2 === 0), left = its.filter((_, i) => i % 2 === 1);
+    const bhOf = it => Math.max(46, lines(it.label, colW, 14.5) * 22 + 16);
+    const colH = list => list.reduce((s, it) => s + bhOf(it) + 10, -10);
+    const H = Math.max(2 * R + 30, colH(right), colH(left)) + 20; const cy = H / 2;
+    let body = '';
+    const place = (list, xBox, side) => {
+      let y = (H - colH(list)) / 2;
+      list.forEach(it => {
+        const bh = bhOf(it); const midY = y + bh / 2;
+        const ex = side === 'r' ? xBox : xBox + colW; const ang = Math.atan2(midY - cy, ex - cx);
+        body += '<line x1="' + (cx + Math.cos(ang) * (R + 2)).toFixed(1) + '" y1="' + (cy + Math.sin(ang) * (R + 2)).toFixed(1) + '" x2="' + ex.toFixed(1) + '" y2="' + midY.toFixed(1) + '" stroke="' + c.mid + '" stroke-width="2" stroke-dasharray="4 4"/>';
+        const [fill, stroke] = boxFill(it, c);
+        body += rect(xBox, y, colW, bh, fill, stroke, 14);
+        body += fo(xBox, y, colW, bh, itemHtml(it, 14.5), { fs: 14.5, color: boxInk(it) });
+        y += bh + 10;
+      });
+    };
+    place(right, cx + SAFE, 'r'); place(left, 6, 'l');
+    body += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (R + 8) + '" fill="' + c.light + '"/>';
+    body += '<circle cx="' + cx + '" cy="' + cy + '" r="' + R + '" fill="' + c.color + '"/>';
+    body += fo(cx - R + 8, cy - R + 8, 2 * R - 16, 2 * R - 16, esc(center.label), { color: '#fff', fs: center.label.length > 14 ? 13 : 17, weight: 800, align: 'center', pad: '0' });
+    return svgWrap(H, body, c);
+  }
+  // ---------- cycle (مسار حلقي بعمودين بدل التوزيع الدائري) ----------
+  function cycle(items, c) {
+    const its = items.map(parseItem); const n = its.length;
+    const rightN = Math.ceil(n / 2); const right = its.slice(0, rightN), left = its.slice(rightN).reverse();
+    const colW = 220, bh = 50, gap = 14; const rows = rightN;
+    const H = 30 + rows * (bh + gap);
+    const xr = W - 20 - colW, xl = 20;
+    let body = '';
+    const tx1 = xl + colW / 2, tx2 = xr + colW / 2;
+    body += '<rect x="' + tx1 + '" y="' + (18 + bh / 2) + '" width="' + (tx2 - tx1) + '" height="' + ((rows - 1) * (bh + gap)) + '" rx="30" fill="none" stroke="' + c.mid + '" stroke-width="10"/>';
+    const midY = 18 + bh / 2 + ((rows - 1) * (bh + gap)) / 2;
+    body += '<circle cx="' + (W / 2) + '" cy="' + midY + '" r="34" fill="' + c.color + '"/>';
+    body += '<path d="M' + (W / 2 + 14) + ' ' + (midY - 8) + 'a15 15 0 1 1 -4 -9" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/><path d="M' + (W / 2 + 8) + ' ' + (midY - 22) + 'l6 5-7 4" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>';
+    const draw = (it, x, y, num) => { body += rect(x, y, colW, bh, '#fff', c.color, 14); body += fo(x, y, colW - 30, bh, esc(it.label), { fs: lines(it.label, colW - 30, 14.5) > 2 ? 12.5 : 14.5 }); body += badge(x + colW - 16, y + bh / 2, num, c, 12); };
+    right.forEach((it, i) => draw(it, xr, 18 + i * (bh + gap), i + 1));
+    const off = rows - left.length;
+    left.forEach((it, i) => draw(it, xl, 18 + (i + off) * (bh + gap), n - i));
+    // أسهم الاتجاه على المسار
+    body += arrow(tx2 + 18, 18 + bh + 2, tx2 + 18, 18 + bh + gap - 1, c);
+    return svgWrap(H + 10, body, c);
+  }
+  // ---------- steps (قائمة خطوات مرقّمة) ----------
+  function steps(items, c) {
+    const its = items.map(parseItem); const n = its.length; const cols = n > 4 ? 2 : 1;
+    const gap = 12, cw = (W - 12 - gap * (cols - 1)) / cols;
+    const bhOf = it => Math.max(54, lines(it.label, cw - 56, 15) * 23 + (it.desc ? lines(it.desc, cw - 56, 13.5) * 21 : 0) + 18);
+    const rows = Math.ceil(n / cols); let body = '', y = 6;
+    for (let r = 0; r < rows; r++) {
+      const rowItems = its.slice(r * cols, r * cols + cols); const rh = Math.max(...rowItems.map(bhOf));
+      rowItems.forEach((it, k) => {
+        const x = W - 6 - cw - k * (cw + gap);
+        body += rect(x, y, cw, rh, '#fff', c.mid, 16);
+        body += rect(x + cw - 46, y, 46, rh, c.light, null, 16);
+        body += badge(x + cw - 23, y + rh / 2, r * cols + k + 1, c, 14);
+        body += fo(x, y, cw - 50, rh, '<div style="font-weight:700">' + esc(it.label) + '</div>' + (it.desc ? '<div style="font-weight:400;color:#4E4A70;font-size:13.5px">' + esc(it.desc) + '</div>' : ''), { fs: 15, pad: '4px 12px' });
+      });
+      y += rh + gap;
+    }
+    return svgWrap(y, body, c);
+  }
+  // ---------- bars (أعمدة أفقية تدعم القيم السالبة) ----------
+  function bars(items, c) {
+    const its = items.map(parseItem); const vals = its.map(i => parseFloat(i.desc) || 0);
+    const neg = vals.some(v => v < 0); const maxAbs = Math.max(1, ...vals.map(Math.abs));
+    const labW = 170, area = W - labW - 70, rh = 38, gap = 10; let body = '';
+    const zeroX = neg ? 50 + area / 2 : 50 + area;
+    its.forEach((it, i) => {
+      const y = 6 + i * (rh + gap), v = vals[i];
+      const len = (Math.abs(v) / maxAbs) * (neg ? area / 2 : area);
+      body += fo(W - labW, y, labW, rh, esc(it.label), { fs: 14 });
+      const x = v >= 0 ? zeroX - len : zeroX;
+      const col = v < 0 ? '#E5484D' : c.color;
+      body += rect(neg ? x : zeroX - len, y + 6, Math.max(2, len), rh - 12, col, null, 8);
+      const tx = (v >= 0 ? zeroX - len : zeroX + len);
+      const vtxt = (v > 0 && neg ? '+' : '') + v;
+      body += '<text x="' + (v >= 0 ? tx - 6 : tx + 6).toFixed(1) + '" y="' + (y + rh / 2 + 5) + '" text-anchor="' + (v >= 0 ? 'end' : 'start') + '" font-family="' + FONT_ATTR + '" font-size="14" font-weight="700" fill="' + col + '">' + esc(vtxt) + (neg ? '%' : '') + '</text>';
+    });
+    if (neg) body += '<line x1="' + zeroX + '" y1="0" x2="' + zeroX + '" y2="' + (its.length * (rh + gap)) + '" stroke="#807D9C" stroke-width="1.5" stroke-dasharray="3 3"/>';
+    return svgWrap(8 + its.length * (rh + gap), body, c);
+  }
+  // ---------- matrix 2×2 ----------
+  function matrix(items, c) {
+    const xl = items[0], yl = items[1]; const q = items.slice(2, 6).map(parseItem);
+    const gx = 60, gy = 10, cw = (W - gx - 10) / 2, chh = 110; let body = '';
+    const pos = [[gx + cw, gy], [gx, gy], [gx + cw, gy + chh], [gx, gy + chh]];
+    q.forEach((it, i) => {
+      const [x, y] = pos[i]; const good = /✓/.test(it.label);
+      body += rect(x + 4, y + 4, cw - 8, chh - 8, good ? c.color : (i < 2 ? c.light : '#F1F0F6'), good ? null : c.mid, 16);
+      body += fo(x + 4, y + 4, cw - 8, chh - 8, esc(it.label), { color: good ? '#fff' : '#201C40', fs: 15, weight: 700, align: 'center' });
+    });
+    body += arrow(W - 6, gy + 2 * chh + 16, gx + 4, gy + 2 * chh + 16, c);
+    body += fo(gx, gy + 2 * chh + 20, W - gx - 6, 30, esc(xl), { fs: 13, weight: 700, color: c.dark, align: 'center' });
+    body += arrow(40, gy + 2 * chh - 2, 40, gy + 4, c);
+    body += '<g transform="rotate(-90 22 ' + (gy + chh) + ')">' + fo(22 - chh, gy + chh - 14, 2 * chh, 28, esc(yl), { fs: 13, weight: 700, color: c.dark, align: 'center', pad: '0' }) + '</g>';
+    return svgWrap(gy + 2 * chh + 56, body, c);
+  }
+  // ---------- balance (ميزان) ----------
+  function balance(items, c) {
+    const a = parseItem(items[0]), b = parseItem(items[1] || ''); let body = '';
+    body += '<path d="M300 40 L300 190" stroke="#201C40" stroke-width="6" stroke-linecap="round"/><path d="M250 196 H350" stroke="#201C40" stroke-width="8" stroke-linecap="round"/>';
+    body += '<path d="M110 62 L490 62" stroke="#201C40" stroke-width="5" stroke-linecap="round"/><circle cx="300" cy="40" r="12" fill="' + c.color + '"/>';
+    body += '<path d="M150 62 L100 130 M150 62 L200 130 M450 62 L400 130 M450 62 L500 130" stroke="#807D9C" stroke-width="2"/>';
+    body += '<path d="M80 130 Q150 170 220 130 Z" fill="' + c.color + '"/><path d="M380 130 Q450 170 520 130 Z" fill="#201C40"/>';
+    body += fo(40, 150, 220, 70, esc(a.label), { fs: 16, weight: 700, align: 'center', color: c.dark });
+    body += fo(340, 150, 220, 70, esc(b.label), { fs: 16, weight: 700, align: 'center' });
+    body += '<text x="300" y="120" text-anchor="middle" font-size="26">⚖️</text>';
+    return svgWrap(226, body, c);
+  }
+  // ---------- timeline (مبكر/مناسب/متأخر) ----------
+  function timeline(items, c) {
+    const its = items.map(parseItem); const n = its.length; let body = '';
+    body += '<line x1="30" y1="70" x2="570" y2="70" stroke="#DFDCEB" stroke-width="10" stroke-linecap="round"/>';
+    its.forEach((it, i) => {
+      const cxp = W - 60 - i * ((W - 120) / Math.max(1, n - 1));
+      body += '<circle cx="' + cxp + '" cy="70" r="' + (it.hi ? 22 : 15) + '" fill="' + (it.hi ? c.color : '#E5484D') + '" stroke="#fff" stroke-width="4"/>';
+      body += fo(cxp - 90, 8, 180, 44, esc(it.label), { fs: it.hi ? 16 : 14.5, weight: 700, align: 'center', color: it.hi ? c.dark : '#A12A2E' });
+      body += fo(cxp - 90, 96, 180, 48, esc(it.desc), { fs: 13.5, weight: 500, align: 'center', color: '#4E4A70' });
+    });
+    return svgWrap(150, body, c);
+  }
+  // ---------- gap (المتوقع مقابل الفعلي) ----------
+  function gap(items, c) {
+    const [top, g, bottom, result] = items.map(s => parseItem(s).label); let body = '';
+    body += rect(150, 10, 430, 48, c.color, null, 14) + fo(150, 10, 430, 48, esc(top), { color: '#fff', fs: 16, weight: 700 });
+    body += rect(290, 120, 290, 48, '#201C40', null, 14) + fo(290, 120, 290, 48, esc(bottom), { color: '#fff', fs: 16, weight: 700 });
+    body += '<line x1="220" y1="64" x2="220" y2="114" stroke="#E5484D" stroke-width="3" stroke-dasharray="5 4" marker-end="url(#ah' + c.id + ')"/>';
+    body += fo(10, 66, 200, 46, '↕ ' + esc(g), { color: '#E5484D', fs: 15, weight: 800 });
+    if (result) { body += arrow(284, 144, 200, 144, c); body += rect(10, 120, 186, 48, '#FDECEC', '#E5484D', 14) + fo(10, 120, 186, 48, esc(result), { color: '#A12A2E', fs: 14, weight: 700 }); }
+    return svgWrap(176, body, c);
+  }
+  // ---------- equation ----------
+  function equation(items, c) {
+    const its = items.map(s => String(s).trim()); const res = its.filter(s => s.startsWith('=')).map(s => s.replace(/^=\s*/, ''))[0] || '';
+    const parts = its.filter(s => !s.startsWith('='));
+    const n = parts.length; const opW = 26; const bw = Math.min(150, (W - 12 - opW * (n - 1)) / n);
+    const bh = Math.max(56, ...parts.map(p => lines(p, bw, 15) * 23 + 14)); let body = '';
+    const total = n * bw + (n - 1) * opW; let x = W - (W - total) / 2 - bw;
+    parts.forEach((p, i) => {
+      body += rect(x, 8, bw, bh, c.light, c.mid, 14) + fo(x, 8, bw, bh, esc(p), { fs: 15, weight: 700, align: 'center' });
+      if (i < n - 1) body += '<text x="' + (x - opW / 2) + '" y="' + (8 + bh / 2 + 8) + '" text-anchor="middle" font-family="' + FONT_ATTR + '" font-size="24" font-weight="700" fill="' + c.dark + '">+</text>';
+      x -= bw + opW;
+    });
+    const rw = 360, rh = Math.max(56, lines(res, rw, 17) * 26 + 14);
+    body += '<text x="300" y="' + (bh + 44) + '" text-anchor="middle" font-family="' + FONT_ATTR + '" font-size="28" font-weight="700" fill="' + c.dark + '">=</text>';
+    body += rect((W - rw) / 2, bh + 56, rw, rh, c.color, null, 16) + fo((W - rw) / 2, bh + 56, rw, rh, esc(res), { color: '#fff', fs: 17, weight: 800, align: 'center' });
+    return svgWrap(bh + 64 + rh, body, c);
+  }
+  // ---------- tree (شجرة قرار) ----------
+  function tree(items, c) {
+    const root = parseItem(items[0]).label; const br = items.slice(1).map(parseItem); const n = br.length;
+    const bw = (W - 12 - 12 * (n - 1)) / n; const rw = 300; let body = '';
+    body += rect((W - rw) / 2, 6, rw, 50, '#201C40', null, 16) + fo((W - rw) / 2, 6, rw, 50, esc(root), { color: '#fff', fs: 16, weight: 800, align: 'center' });
+    const bh = Math.max(46, ...br.map(b => lines(b.label, bw, 14.5) * 22 + 14)); const rh2 = Math.max(56, ...br.map(b => lines(b.desc, bw, 14) * 22 + 14));
+    br.forEach((b, i) => {
+      const x = W - 6 - bw - i * (bw + 12); const mx = x + bw / 2;
+      body += '<path d="M300 56 C300 80 ' + mx + ' 70 ' + mx + ' 100" fill="none" stroke="' + c.mid + '" stroke-width="2.5"/>';
+      body += rect(x, 100, bw, bh, c.light, c.mid, 14) + fo(x, 100, bw, bh, esc(b.label), { fs: 14.5, weight: 700, align: 'center' });
+      body += arrow(mx, 100 + bh + 2, mx, 100 + bh + 22, c);
+      body += rect(x, 126 + bh, bw, rh2, c.color, null, 14) + fo(x, 126 + bh, bw, rh2, esc(b.desc), { color: '#fff', fs: 14, weight: 700, align: 'center' });
+    });
+    return svgWrap(132 + bh + rh2, body, c);
+  }
+  // ---------- table (HTML) ----------
+  function table(items, c) {
+    const rows = items.map(r => r.split(';').map(s => s.trim()));
+    const head = rows[0], body = rows.slice(1);
+    return '<div class="chart-table" style="overflow-x:auto"><table style="width:100%;border-collapse:separate;border-spacing:0;font-family:' + FONT + ';font-size:14.5px;border-radius:16px;overflow:hidden;border:1px solid ' + c.mid + '">' +
+      '<thead><tr>' + head.map(x => '<th style="background:' + c.color + ';color:#fff;padding:10px 12px;text-align:right;font-weight:700">' + esc(x) + '</th>').join('') + '</tr></thead><tbody>' +
+      body.map((r, i) => '<tr>' + r.map((x, j) => '<td style="padding:9px 12px;text-align:right;background:' + (i % 2 ? '#fff' : c.light) + ';' + (j === 0 ? 'font-weight:700;' : '') + (j === r.length - 1 && r.length === 2 ? 'color:' + c.dark + ';font-weight:600;' : '') + '">' + esc(x) + '</td>').join('') + '</tr>').join('') +
+      '</tbody></table></div>';
+  }
+  // ---------- donut (توزيع نسب مع مفتاح) ----------
+  function donut(items, c) {
+    const its = items.map(parseItem); const vals = its.map(i => Math.max(0, parseFloat(String(i.desc).replace(/[^\d.]/g, '')) || 0)); const tot = vals.reduce((a, b) => a + b, 0) || 1;
+    const cx = 150, cy = 130, R = 104, r = 62; let a0 = -Math.PI / 2, body = '';
+    const pal = k => k === 0 ? c.color : shadeC(c.color, k % 2 ? 0.35 + k * 0.06 : -0.25 + k * 0.05);
+    its.forEach((it, k) => {
+      const a1 = a0 + vals[k] / tot * Math.PI * 2; const big = a1 - a0 > Math.PI ? 1 : 0;
+      const p = (ang, rr) => (cx + rr * Math.cos(ang)).toFixed(1) + ' ' + (cy + rr * Math.sin(ang)).toFixed(1);
+      body += '<path d="M' + p(a0, R) + ' A' + R + ' ' + R + ' 0 ' + big + ' 1 ' + p(a1, R) + ' L' + p(a1, r) + ' A' + r + ' ' + r + ' 0 ' + big + ' 0 ' + p(a0, r) + 'Z" fill="' + pal(k) + '" stroke="#fff" stroke-width="3"/>';
+      a0 = a1;
+    });
+    const main = its[0]; body += fo(cx - 58, cy - 34, 116, 68, '<b style="font-size:26px;direction:ltr;unicode-bidi:isolate">' + Math.round(vals[0] / tot * 100) + '%</b><div style="font-size:12px;font-weight:500">' + esc(main ? main.label : '') + '</div>', { align: 'center', fs: 14, pad: '0' });
+    const lx = 300, lh = 36; const y0 = cy - (its.length * lh) / 2;
+    its.forEach((it, k) => { const y = y0 + k * lh; body += rect(W - 20 - 14, y + 10, 14, 14, pal(k), null, 4) + fo(lx, y, W - 40 - lx, lh, esc(it.label) + ' <b style="direction:ltr;unicode-bidi:isolate">' + Math.round(vals[k] / tot * 100) + '%</b>', { fs: 14, weight: 600 }); });
+    return svgWrap(Math.max(262, its.length * lh + 20), body, c);
+  }
+  // ---------- pyramid (مستويات من القمة إلى القاعدة) ----------
+  function pyramid(items, c) {
+    const its = items.map(parseItem); const n = its.length; const lh = 62, gap = 6, topW = 150, baseW = 560; let body = '';
+    its.forEach((it, k) => {
+      const w1 = topW + (baseW - topW) * (k / n), w2 = topW + (baseW - topW) * ((k + 1) / n); const y = 6 + k * (lh + gap);
+      const col = it.hi ? c.color : shadeC(c.color, -0.2 + k * (0.75 / n));
+      body += '<path d="M' + ((W - w1) / 2).toFixed(1) + ' ' + y + 'H' + ((W + w1) / 2).toFixed(1) + 'L' + ((W + w2) / 2).toFixed(1) + ' ' + (y + lh) + 'H' + ((W - w2) / 2).toFixed(1) + 'Z" fill="' + col + '"/>';
+      const ink = k / n < 0.5 || it.hi ? '#fff' : '#201C40';
+      body += fo((W - w2) / 2 + 22, y, w2 - 44, lh, '<b>' + esc(it.label) + '</b>' + (it.desc ? '<div style="font-weight:400;font-size:12.5px;opacity:.9">' + esc(it.desc) + '</div>' : ''), { align: 'center', fs: 14.5, color: ink, pad: '2px 4px' });
+    });
+    return svgWrap(12 + n * (lh + gap), body, c);
+  }
+  // ---------- venn (نقطة التقاء) ----------
+  function venn(items, c) {
+    const center = (items.find(x => String(x).trim().startsWith('=')) || '').replace(/^\s*=\s*/, ''); const its = items.filter(x => !String(x).trim().startsWith('=')).map(parseItem).slice(0, 3);
+    const three = its.length === 3; const R = three ? 108 : 118; const pts = three ? [[220, 120], [380, 120], [300, 250]] : [[225, 140], [375, 140]];
+    const fills = [c.color, shadeC(c.color, 0.45), '#201C40']; let body = '';
+    pts.forEach((p, k) => { body += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + R + '" fill="' + fills[k] + '" fill-opacity="' + (k === 2 ? .16 : .2) + '" stroke="' + fills[k] + '" stroke-width="2.5"/>'; });
+    const lp = three ? [[118, 64], [342, 64], [230, 282]] : [[105, 108], [355, 108]];
+    its.forEach((it, k) => { body += fo(lp[k][0], lp[k][1], 140, 64, '<b>' + esc(it.label) + '</b>' + (it.desc ? '<div style="font-weight:400;font-size:12px">' + esc(it.desc) + '</div>' : ''), { align: 'center', fs: 14.5, color: k === 2 ? '#201C40' : c.dark, pad: '0' }); });
+    const cy = three ? 165 : 140;
+    if (center) body += rect(300 - 62, cy - 22, 124, 44, c.color, null, 22) + fo(300 - 62, cy - 22, 124, 44, esc(center), { align: 'center', fs: 13.5, weight: 800, color: '#fff', pad: '0 6px' });
+    return svgWrap(three ? 370 : 270, body, c);
+  }
+  const KINDS = { flow, vflow, funnel, cards, compare, hub, cycle, steps, bars, matrix, balance, timeline, gap, equation, tree, table, donut, pyramid, venn };
+  function render(chart, color) {
+    if (!chart || !KINDS[chart.kind]) return '';
+    try { return KINDS[chart.kind](chart.items || [], ctx(color)); } catch (e) { console.error('chart', chart, e); return ''; }
+  }
+  return { render, KINDS, parseItem };
+})();
+/* ===== 03-scenes.js ===== */
+// ---------------------------------------------------------------------
+// مكتبة المشاهد التعبيرية (Scenes): أسلوب مسطّح موحّد، شخصيات وروبوتات ومتاجر وعناصر رمزية للتجارة الإلكترونية
+// لا تحتوي على أي نص، فقط أشكال، لتبقى سليمة في كل الأحجام وفي ملفات PDF
+// ---------------------------------------------------------------------
+const Scenes = (function () {
+  const SK = '#F2C9A5', SKD = '#D9A57F', HAIR = '#2E2B45', INK = '#201C40';
+  function lt(hex, a) { const n = parseInt(hex.replace('#', ''), 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
+  function dk(hex, amt) { const n = parseInt(hex.replace('#', ''), 16); const f = v => Math.round(v * (1 - amt)); return 'rgb(' + f(n >> 16) + ',' + f((n >> 8) & 255) + ',' + f(n & 255) + ')'; }
+  const bg = (c, alt) => '<rect width="400" height="260" fill="' + lt(c, .08) + '"/>' +
+    '<path d="M' + (alt ? '40' : '20') + ' 190 C 60 90 170 40 260 60 S 400 120 380 210 S 200 270 120 250 S 0 250 20 190Z" fill="' + lt(c, .14) + '"/>' +
+    '<circle cx="' + (alt ? 350 : 60) + '" cy="46" r="22" fill="' + lt(c, .18) + '"/><circle cx="' + (alt ? 40 : 360) + '" cy="220" r="12" fill="' + lt(c, .22) + '"/>' +
+    '<g fill="' + lt(c, .25) + '">' + [0, 1, 2, 3].map(i => '<circle cx="' + (300 + i * 12) + '" cy="' + (alt ? 222 : 30) + '" r="2.5"/>').join('') + '</g>';
+  const ground = () => '<ellipse cx="200" cy="238" rx="150" ry="10" fill="rgba(32,28,64,.07)"/>';
+  function phone(x, y, s, screen, c) {
+    return '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')">' +
+      '<rect x="0" y="0" width="92" height="170" rx="16" fill="' + INK + '"/>' +
+      '<rect x="6" y="10" width="80" height="150" rx="10" fill="#fff"/>' +
+      '<rect x="34" y="4" width="24" height="3" rx="1.5" fill="#3E3A60"/>' +
+      '<g transform="translate(6 10)">' + (screen || '') + '</g></g>';
+  }
+  function person(x, y, c, o = {}) {
+    const shirt = o.shirt || c; const flip = o.flip ? -1 : 1;
+    return '<g transform="translate(' + x + ' ' + y + ') scale(' + flip + ' 1)">' +
+      '<rect x="-17" y="60" width="13" height="52" rx="6" fill="' + INK + '"/><rect x="3" y="60" width="13" height="52" rx="6" fill="' + INK + '"/>' +
+      '<rect x="-25" y="12" width="50" height="60" rx="20" fill="' + shirt + '"/>' +
+      '<rect x="-8" y="2" width="16" height="16" rx="6" fill="' + SKD + '"/>' +
+      '<circle cx="0" cy="-10" r="17" fill="' + SK + '"/>' +
+      '<path d="M-17 -12 C-18 -32 18 -34 17 -12 C12 -22 -6 -24 -17 -12Z" fill="' + HAIR + '"/>' +
+      '<circle cx="-5" cy="-9" r="1.8" fill="' + INK + '"/><circle cx="6" cy="-9" r="1.8" fill="' + INK + '"/>' +
+      (o.mood === 'sad' ? '<path d="M-5 1 Q0 -3 5 1" stroke="' + INK + '" stroke-width="1.8" fill="none" stroke-linecap="round"/>' : '<path d="M-5 -1 Q0 4 5 -1" stroke="' + INK + '" stroke-width="1.8" fill="none" stroke-linecap="round"/>') +
+      (o.arm === 'up' ? '<path d="M20 22 Q38 6 34 -14" stroke="' + shirt + '" stroke-width="11" fill="none" stroke-linecap="round"/><circle cx="34" cy="-16" r="6" fill="' + SK + '"/>'
+        : o.arm === 'point' ? '<path d="M20 24 Q40 26 52 14" stroke="' + shirt + '" stroke-width="11" fill="none" stroke-linecap="round"/><circle cx="54" cy="12" r="6" fill="' + SK + '"/>'
+          : '<path d="M20 24 Q34 40 26 54" stroke="' + shirt + '" stroke-width="11" fill="none" stroke-linecap="round"/><circle cx="25" cy="56" r="6" fill="' + SK + '"/>') +
+      '<path d="M-20 24 Q-32 44 -22 56" stroke="' + shirt + '" stroke-width="11" fill="none" stroke-linecap="round"/><circle cx="-21" cy="57" r="6" fill="' + SK + '"/>' +
+      '</g>';
+  }
+  const miniPhone = (x, y, c) => '<g transform="translate(' + x + ' ' + y + ')"><rect width="20" height="34" rx="5" fill="' + INK + '"/><rect x="2.5" y="4" width="15" height="26" rx="3" fill="' + lt(c, .5) + '"/></g>';
+  const cardsList = c => [0, 1, 2].map(i => '<rect x="6" y="' + (26 + i * 36) + '" width="68" height="30" rx="6" fill="' + lt(c, .12) + '"/><rect x="10" y="' + (30 + i * 36) + '" width="22" height="22" rx="5" fill="' + lt(c, .45) + '"/><rect x="36" y="' + (33 + i * 36) + '" width="32" height="5" rx="2.5" fill="' + lt(c, .5) + '"/><rect x="36" y="' + (42 + i * 36) + '" width="20" height="5" rx="2.5" fill="' + lt(c, .3) + '"/>').join('');
+  const header = c => '<rect x="0" y="0" width="80" height="20" rx="8" fill="' + c + '"/><rect x="8" y="7" width="30" height="6" rx="3" fill="#fff" opacity=".8"/>';
+  const btn = (c, y = 128) => '<rect x="8" y="' + y + '" width="64" height="16" rx="8" fill="' + c + '"/>';
+  const cart = (x, y, c, s = 1) => '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path d="M0 0h8l7 30h30l6-22H12" fill="none" stroke="' + INK + '" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="4" width="30" height="20" rx="4" fill="' + c + '"/><circle cx="18" cy="38" r="4.5" fill="' + INK + '"/><circle cx="40" cy="38" r="4.5" fill="' + INK + '"/></g>';
+  const bubble = (x, y, c, w = 60, icon = '') => '<g transform="translate(' + x + ' ' + y + ')"><rect width="' + w + '" height="30" rx="12" fill="#fff" stroke="' + lt(c, .5) + '" stroke-width="2"/><path d="M14 30 l-4 9 12-9z" fill="#fff"/><rect x="10" y="9" width="' + (w - 30) + '" height="5" rx="2.5" fill="' + lt(c, .6) + '"/><rect x="10" y="17" width="' + (w - 42) + '" height="5" rx="2.5" fill="' + lt(c, .35) + '"/>' + icon + '</g>';
+  const warn = (x, y, s = 1) => '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path d="M14 0 L28 24 H0Z" fill="#F34D00" stroke="#201C40" stroke-width="2" stroke-linejoin="round"/><rect x="12.6" y="8" width="2.8" height="8" rx="1.4" fill="#201C40"/><circle cx="14" cy="19.5" r="1.6" fill="#201C40"/></g>';
+  const check = (x, y, r, c) => '<g transform="translate(' + x + ' ' + y + ')"><circle r="' + r + '" fill="' + c + '"/><path d="M' + (-r * .45) + ' 0 L' + (-r * .1) + ' ' + (r * .35) + ' L' + (r * .5) + ' ' + (-r * .35) + '" fill="none" stroke="#fff" stroke-width="' + (r * .22) + '" stroke-linecap="round" stroke-linejoin="round"/></g>';
+  const shieldS = (x, y, s, c) => '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path d="M30 0 L58 10 V30 C58 50 30 62 30 62 C30 62 2 50 2 30 V10Z" fill="' + c + '"/><path d="M30 6 L52 14 V30 C52 45 30 55 30 55Z" fill="#fff" opacity=".18"/><rect x="21" y="26" width="18" height="15" rx="3" fill="#fff"/><path d="M24 26 v-4 a6 6 0 0 1 12 0 v4" fill="none" stroke="#fff" stroke-width="3"/></g>';
+  const barsS = (x, y, c, vals = [18, 30, 24, 40]) => '<g transform="translate(' + x + ' ' + y + ')">' + vals.map((v, i) => '<rect x="' + (i * 14) + '" y="' + (44 - v) + '" width="10" height="' + v + '" rx="3" fill="' + (i === vals.length - 1 ? c : lt(c, .45)) + '"/>').join('') + '</g>';
+  const pin = (x, y, c) => '<g transform="translate(' + x + ' ' + y + ')"><path d="M0 0 C-10 -10 -10 -24 0 -24 C10 -24 10 -10 0 0Z" fill="' + c + '"/><circle cx="0" cy="-15" r="4" fill="#fff"/></g>';
+  const gear = (x, y, r, c) => { let t = ''; for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; t += '<rect x="' + (-r * .18) + '" y="' + (-r * 1.25) + '" width="' + (r * .36) + '" height="' + (r * .5) + '" rx="2" fill="' + c + '" transform="rotate(' + (i * 45) + ')"/>'; } return '<g transform="translate(' + x + ' ' + y + ')">' + t + '<circle r="' + r + '" fill="' + c + '"/><circle r="' + (r * .4) + '" fill="#fff"/></g>'; };
+  const magnifier = (x, y, s, c) => '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><circle cx="0" cy="0" r="18" fill="' + lt(c, .15) + '" stroke="' + INK + '" stroke-width="5"/><path d="M13 13 L28 28" stroke="' + INK + '" stroke-width="7" stroke-linecap="round"/></g>';
+
+  const S = {};
+  const building = (x, y, w, h, c, wins = 3) => '<g transform="translate(' + x + ' ' + y + ')"><rect width="' + w + '" height="' + h + '" rx="6" fill="' + c + '"/>' + Array.from({ length: wins * 3 }, (_, k) => '<rect x="' + (8 + (k % 3) * ((w - 16) / 3)) + '" y="' + (10 + Math.floor(k / 3) * 22) + '" width="' + ((w - 16) / 3 - 6) + '" height="12" rx="2" fill="#fff" opacity=".7"/>').join('') + '</g>';
+  const doc = (x, y, c, s = 1, lines = 4) => '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><rect width="64" height="82" rx="8" fill="#fff" stroke="' + lt(c, .5) + '" stroke-width="2.5"/><rect x="10" y="10" width="26" height="6" rx="3" fill="' + c + '"/>' + Array.from({ length: lines }, (_, k) => '<rect x="10" y="' + (26 + k * 11) + '" width="' + (44 - (k % 2) * 12) + '" height="5" rx="2.5" fill="' + lt(c, .3) + '"/>').join('') + '</g>';
+  const node = (x, y, c, r = 16, t = '') => '<g transform="translate(' + x + ' ' + y + ')"><circle r="' + r + '" fill="' + c + '" stroke="#fff" stroke-width="3"/>' + (t ? '<text y="5" text-anchor="middle" font-size="13" font-weight="700" fill="#fff" font-family="IBM Plex Sans Arabic">' + t + '</text>' : '') + '</g>';
+  const line = (x1, y1, x2, y2, c) => '<path d="M' + x1 + ' ' + y1 + ' L' + x2 + ' ' + y2 + '" stroke="' + c + '" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 7" fill="none"/>';
+  const arrowC = (x, y, c, rot = 0) => '<g transform="translate(' + x + ' ' + y + ') rotate(' + rot + ')"><path d="M0 0h40" stroke="' + c + '" stroke-width="6" stroke-linecap="round"/><path d="M30 -10 L44 0 L30 10" fill="none" stroke="' + c + '" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></g>';
+  const GOLD = '#FF6B35', NAVY = '#231C63';
+  // الحساب منظومة: مبنى + أشخاص بأدوار مختلفة
+  S.org = c => bg(c) + ground() + building(150, 54, 100, 160, c, 4) + person(90, 130, GOLD, { arm: 'up' }) + person(310, 130, NAVY, { flip: true, arm: 'point' }) + person(200, 150, dk(c, .1), {}).replace('</g>', '</g>') + bubble(60, 40, c, 50) + bubble(300, 50, GOLD, 50);
+  // خريطة التأثير: عقد وخطوط
+  S.map = c => bg(c, 1) + ground() + line(200, 120, 90, 70, c) + line(200, 120, 320, 70, c) + line(200, 120, 110, 190, c) + line(200, 120, 300, 190, c) + node(200, 120, c, 26) + node(90, 70, GOLD, 18) + node(320, 70, NAVY, 18) + node(110, 190, lt(c, .7), 16) + node(300, 190, '#6F6F6F', 16) + '<g transform="translate(176 96)"><circle cx="24" cy="24" r="0"/></g>' + magnifier(340, 150, 1, c);
+  // الأولوية والقرار: لوحة أولويات وسهم
+  S.priority = c => bg(c) + ground() + '<rect x="60" y="50" width="150" height="130" rx="14" fill="#fff" stroke="' + lt(c, .4) + '" stroke-width="2.5"/>' + [0, 1, 2].map(i => '<g transform="translate(76 ' + (66 + i * 38) + ')"><circle r="10" cx="10" cy="10" fill="' + [c, GOLD, '#6F6F6F'][i] + '"/><rect x="30" y="4" width="' + (90 - i * 20) + '" height="12" rx="6" fill="' + lt(c, .3) + '"/></g>').join('') + person(290, 126, c, { arm: 'point' }) + '<g transform="translate(222 80)">' + arrowC(0, 0, GOLD) + '</g>';
+  // قيمة: ميزان + ماسة
+  S.value = c => bg(c, 1) + ground() + '<g transform="translate(200 70)"><path d="M0 0v110" stroke="' + INK + '" stroke-width="5"/><path d="M-90 20 H90" stroke="' + INK + '" stroke-width="5"/><path d="M-90 20 l-24 56 h48z M90 20 l-24 56 h48z" fill="' + lt(c, .25) + '" stroke="' + INK + '" stroke-width="3"/><rect x="-30" y="108" width="60" height="10" rx="4" fill="' + INK + '"/></g><path d="M162 112 l14 -14 h20 l14 14 -24 30z" fill="' + GOLD + '" stroke="#fff" stroke-width="2"/>' + doc(70, 96, c, .7, 3) + check(330, 70, 18, '#00A653');
+  // عرض: وثيقة وشرائح
+  S.offer = c => bg(c) + ground() + '<g transform="translate(70 50)"><rect width="170" height="110" rx="12" fill="#fff" stroke="' + lt(c, .5) + '" stroke-width="3"/><rect x="14" y="14" width="80" height="10" rx="5" fill="' + c + '"/>' + barsS(100, 38, c, [20, 34, 26, 48]).replace('translate(100 38)', 'translate(96 36)') + '<rect x="14" y="70" width="70" height="8" rx="4" fill="' + lt(c, .3) + '"/><rect x="14" y="86" width="50" height="8" rx="4" fill="' + lt(c, .3) + '"/></g><path d="M155 160 v34 M120 194 h70" stroke="' + INK + '" stroke-width="5" stroke-linecap="round"/>' + person(310, 124, GOLD, { arm: 'point' }) + check(260, 60, 14, '#00A653');
+  // تبنٍّ: خطوات سلّم
+  S.adopt = c => bg(c, 1) + ground() + [0, 1, 2, 3].map(i => '<rect x="' + (60 + i * 62) + '" y="' + (170 - i * 34) + '" width="58" height="' + (44 + i * 34) + '" rx="8" fill="' + lt(c, .25 + i * .2) + '"/>').join('') + person(106, 78, c, { arm: 'up' }) + '<g transform="translate(300 40)">' + check(0, 0, 18, '#00A653') + '</g>' + '<path d="M80 150 q60 -60 150 -60" stroke="' + GOLD + '" stroke-width="4" stroke-dasharray="6 7" fill="none"/>';
+  // إدارة مستمرة: حلقة
+  S.ongoing = c => bg(c) + ground() + '<circle cx="200" cy="125" r="62" fill="none" stroke="' + lt(c, .35) + '" stroke-width="14"/><path d="M200 63 a62 62 0 0 1 58 40" fill="none" stroke="' + c + '" stroke-width="14" stroke-linecap="round"/><path d="M142 170 a62 62 0 0 1 -4 -60" fill="none" stroke="' + GOLD + '" stroke-width="14" stroke-linecap="round"/><path d="M252 100 l12 -2 -2 12" fill="none" stroke="' + c + '" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>' + person(70, 128, c, { arm: 'point' }) + person(332, 128, NAVY, { flip: true, arm: 'up' });
+  // شركاء: مصافحة (شخصان ومنتصف)
+  S.partners = c => bg(c, 1) + ground() + person(110, 120, c, { arm: 'point' }) + person(290, 120, GOLD, { flip: true, arm: 'point' }) + '<g transform="translate(200 160)"><circle r="12" fill="' + c + '"/><circle r="12" cx="14" fill="' + GOLD + '" opacity=".9"/></g>' + [[200, 60], [160, 40], [240, 40]].map(([x, y], i) => '<path transform="translate(' + (x - 12) + ' ' + y + ')" d="M0 6 C0 -2 10 -4 12 4 C14 -4 24 -2 24 6 C24 14 12 20 12 22 C12 20 0 14 0 6Z" fill="' + [c, GOLD, NAVY][i] + '"/>').join('');
+  // نمو: أعمدة صاعدة وسهم
+  S.growth = c => bg(c) + ground() + [0, 1, 2, 3, 4].map(i => '<rect x="' + (80 + i * 48) + '" y="' + (190 - (28 + i * 22)) + '" width="34" height="' + (28 + i * 22) + '" rx="6" fill="' + (i === 4 ? GOLD : lt(c, .3 + i * .14)) + '"/>').join('') + '<path d="M70 150 L160 110 L220 126 L330 50" stroke="' + c + '" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M312 48 h22 v22" fill="none" stroke="' + c + '" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>';
+  // قرار: بوابات
+  S.decision = c => bg(c, 1) + ground() + [0, 1, 2, 3].map(i => '<g transform="translate(' + (50 + i * 80) + ' 60)"><rect width="56" height="130" rx="8" fill="' + lt(c, .2) + '" stroke="' + (i < 2 ? c : '#9C9AB2') + '" stroke-width="3"/><rect x="' + (i < 2 ? 36 : 6) + '" y="10" width="14" height="110" rx="4" fill="' + (i < 2 ? lt(c, .6) : '#6F6F6F') + '"/><circle cx="28" cy="70" r="8" fill="' + (i < 2 ? '#00A653' : GOLD) + '"/></g>').join('') + person(46, 176, c, { arm: 'up' }).replace(/scale\(1 1\)/, 'scale(.6 .6)');
+  // تفاوض: طاولة وشخصان وميزان صغير
+  S.negotiate = c => bg(c) + ground() + person(110, 112, c, { arm: 'point' }) + person(290, 112, GOLD, { flip: true, arm: 'point' }) + '<rect x="70" y="170" width="260" height="14" rx="7" fill="' + INK + '"/><rect x="100" y="184" width="10" height="40" fill="' + INK + '"/><rect x="290" y="184" width="10" height="40" fill="' + INK + '"/>' + doc(168, 118, c, .55, 3) + bubble(80, 36, c, 56) + bubble(270, 36, GOLD, 56);
+  // اعتراض: درع وعلامة استفهام
+  S.objection = c => bg(c, 1) + ground() + shieldS(150, 60, 1.6, c) + '<text x="200" y="150" text-anchor="middle" font-size="64" font-weight="900" fill="#fff" font-family="Cairo">؟</text>' + person(76, 128, GOLD, { arm: 'up', mood: 'sad' }) + person(332, 128, NAVY, { flip: true, arm: 'point' }) + check(330, 50, 14, '#00A653');
+  // قياس: لوحة مؤشرات
+  S.measure = c => bg(c) + ground() + '<rect x="70" y="46" width="260" height="150" rx="14" fill="#fff" stroke="' + lt(c, .4) + '" stroke-width="3"/>' + '<g transform="translate(90 64)">' + barsS(0, 0, c, [30, 52, 38, 66]).replace('translate(0 0)', 'translate(0 0)') + '</g><circle cx="270" cy="110" r="36" fill="none" stroke="' + lt(c, .3) + '" stroke-width="12"/><path d="M270 74 a36 36 0 0 1 34 46" fill="none" stroke="' + GOLD + '" stroke-width="12" stroke-linecap="round"/><rect x="90" y="150" width="90" height="8" rx="4" fill="' + lt(c, .3) + '"/><rect x="90" y="166" width="60" height="8" rx="4" fill="' + lt(c, .3) + '"/>' + magnifier(340, 190, .8, c);
+  // فجوات: فجوة بين منحدرين
+  S.gaps = c => bg(c, 1) + ground() + '<path d="M40 150 H160 V190 H40Z" fill="' + lt(c, .3) + '"/><path d="M240 110 H360 V190 H240Z" fill="' + lt(c, .5) + '"/>' + '<path d="M160 150 L240 110" stroke="' + GOLD + '" stroke-width="5" stroke-dasharray="7 8" fill="none"/>' + warn(188, 108, 1.3) + person(100, 56, c, { arm: 'up' }) + check(320, 70, 16, '#00A653');
+  // دورة تحسين: ثلاث أسهم دائرية + ترس
+  S.cycle = c => bg(c) + ground() + gear(200, 124, 36, c) + '<g fill="none" stroke="' + GOLD + '" stroke-width="8" stroke-linecap="round"><path d="M110 124 a90 90 0 0 1 90 -80"/><path d="M290 124 a90 90 0 0 1 -90 80"/></g><path d="M196 36 l14 8 -14 8" fill="none" stroke="' + GOLD + '" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M204 212 l-14 -8 14 -8" fill="none" stroke="' + GOLD + '" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>' + check(340, 60, 14, '#00A653');
+  S.mistakes = c => bg(c, 1) + ground() + warn(110, 80, 2) + person(250, 126, c, { mood: 'sad', arm: 'point' }) + '<path d="M60 200 q40 -20 80 0" stroke="' + lt(c, .5) + '" stroke-width="3" stroke-dasharray="4 5" fill="none"/>';
+  S.tools = c => bg(c) + ground() + gear(130, 120, 36, c) + gear(200, 150, 24, GOLD) + doc(250, 80, c, .9, 4) + magnifier(330, 190, .8, c);
+  S.idea = c => bg(c) + ground() + person(120, 126, c, { arm: 'up' }) + '<g transform="translate(250 60)"><circle r="36" fill="' + lt(GOLD, .35) + '"/><path d="M-14 8 q-12 -22 14 -30 q26 8 14 30z" fill="' + GOLD + '"/><rect x="-8" y="10" width="16" height="9" rx="3" fill="' + INK + '"/></g>' + doc(300, 120, c, .8, 3);
+  // ---- مشاهد ورشة الذكاء الاصطناعي في التجارة الإلكترونية ----
+  const robot = (x, y, c, s = 1, o = {}) => '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')">' +
+    '<line x1="0" y1="-62" x2="0" y2="-48" stroke="' + INK + '" stroke-width="4" stroke-linecap="round"/><circle cx="0" cy="-66" r="6" fill="' + GOLD + '"/>' +
+    '<rect x="-34" y="-48" width="68" height="50" rx="16" fill="#fff" stroke="' + INK + '" stroke-width="4"/>' +
+    '<rect x="-24" y="-38" width="48" height="28" rx="10" fill="' + INK + '"/><circle cx="-10" cy="-24" r="5" fill="' + (o.eye || '#7CF5E1') + '"/><circle cx="10" cy="-24" r="5" fill="' + (o.eye || '#7CF5E1') + '"/>' +
+    '<rect x="-28" y="8" width="56" height="54" rx="14" fill="' + c + '"/><circle cx="0" cy="30" r="9" fill="#fff" opacity=".85"/><circle cx="0" cy="30" r="4" fill="' + GOLD + '"/>' +
+    '<path d="M-28 18 Q-46 30 -40 48" stroke="' + c + '" stroke-width="10" fill="none" stroke-linecap="round"/>' +
+    (o.wave ? '<path d="M28 18 Q50 6 48 -14" stroke="' + c + '" stroke-width="10" fill="none" stroke-linecap="round"/><circle cx="48" cy="-17" r="7" fill="#fff" stroke="' + INK + '" stroke-width="3"/>' : '<path d="M28 18 Q46 30 40 48" stroke="' + c + '" stroke-width="10" fill="none" stroke-linecap="round"/>') +
+    '<rect x="-20" y="60" width="12" height="20" rx="5" fill="' + INK + '"/><rect x="8" y="60" width="12" height="20" rx="5" fill="' + INK + '"/></g>';
+  const spark = (x, y, c, s = 1) => '<path transform="translate(' + x + ' ' + y + ') scale(' + s + ')" d="M10 0 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3z" fill="' + c + '"/>';
+  // موظف ذكي يعمل بجانب صاحب المتجر
+  S.robot = c => bg(c) + ground() + person(110, 120, NAVY, { arm: 'point' }) + robot(270, 140, c, 1, { wave: 1 }) + bubble(300, 30, c, 70) + spark(60, 40, GOLD, 1.2) + spark(350, 150, c, .9) + barsS(40, 180, GOLD, [10, 18, 14, 26]);
+  // اكتشاف السوق: متجر ومكبّر ومنحنى صاعد
+  S.market = c => bg(c, 1) + ground() + '<g transform="translate(60 70)"><rect width="150" height="120" rx="14" fill="#fff" stroke="' + lt(c, .5) + '" stroke-width="3"/><path d="M0 34 H150" stroke="' + lt(c, .4) + '" stroke-width="3"/><path d="M0 0 h150 v20 q-18 16 -37 0 q-19 16 -38 0 q-19 16 -38 0 q-18 16 -37 0z" fill="' + c + '"/>' +
+    [0, 1, 2].map(i => '<rect x="' + (14 + i * 44) + '" y="52" width="34" height="34" rx="8" fill="' + lt(i === 1 ? GOLD : c, .45) + '"/>').join('') + '</g>' +
+    '<path d="M230 190 L270 150 L300 165 L350 100" stroke="' + GOLD + '" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="350" cy="100" r="7" fill="' + GOLD + '"/>' + magnifier(300, 70, 1.3, c) + robot(330, 190, c, .55);
+  // الوكيل: سلسلة خطوات تتحرك آليًا
+  S.agent = c => bg(c) + ground() + robot(70, 150, c, .8) + [0, 1, 2, 3].map(i => '<g transform="translate(' + (140 + i * 62) + ' ' + (110 - (i % 2) * 24) + ')"><rect width="48" height="48" rx="12" fill="' + (i === 3 ? GOLD : lt(c, .25 + i * .15)) + '" stroke="' + INK + '" stroke-width="2.5"/></g>' + (i < 3 ? '<path d="M' + (190 + i * 62) + ' ' + (134 - (i % 2) * 24) + ' L' + (200 + i * 62) + ' ' + (134 - ((i + 1) % 2) * 24) + '" stroke="' + INK + '" stroke-width="3" stroke-dasharray="4 4"/>' : '')).join('') + gear(190, 60, 14, lt(c, .6)) + check(350, 70, 14, '#00A653') + doc(300, 160, c, .7, 3);
+  // مصنع الأفكار: مصباح وتروس وبطاقات
+  S.factory = c => bg(c, 1) + ground() + gear(110, 150, 34, c) + gear(165, 110, 22, GOLD) + '<g transform="translate(260 70)"><circle r="44" fill="' + lt(GOLD, .3) + '"/><path d="M-18 10 q-16 -28 18 -40 q34 12 18 40z" fill="' + GOLD + '"/><rect x="-10" y="14" width="20" height="11" rx="4" fill="' + INK + '"/></g>' +
+    [0, 1, 2].map(i => '<rect x="' + (220 + i * 40) + '" y="150" width="32" height="44" rx="7" fill="#fff" stroke="' + lt(c, .6) + '" stroke-width="2.5" transform="rotate(' + (i * 8 - 8) + ' ' + (236 + i * 40) + ' 172)"/>').join('') + spark(60, 50, c, 1) + spark(340, 40, GOLD, 1.1);
+  // الإطلاق: صاروخ وتقويم 30 يومًا وعميل أول
+  S.launch = c => bg(c) + ground() + '<g transform="translate(110 40) rotate(20)"><path d="M30 0 C55 25 55 80 45 110 H15 C5 80 5 25 30 0Z" fill="#fff" stroke="' + INK + '" stroke-width="4"/><circle cx="30" cy="45" r="11" fill="' + c + '"/><path d="M15 85 L0 115 L18 108Z M45 85 L60 115 L42 108Z" fill="' + c + '"/><path d="M18 112 Q30 150 42 112Z" fill="' + GOLD + '"/></g>' +
+    '<g transform="translate(220 60)"><rect width="120" height="110" rx="14" fill="#fff" stroke="' + lt(c, .5) + '" stroke-width="3"/><rect width="120" height="28" rx="14" fill="' + c + '"/>' + Array.from({ length: 12 }, (_, i) => '<rect x="' + (12 + (i % 4) * 26) + '" y="' + (38 + Math.floor(i / 4) * 22) + '" width="18" height="14" rx="4" fill="' + (i === 11 ? GOLD : lt(c, .3)) + '"/>').join('') + '</g>' + person(330, 200, GOLD, { flip: true, arm: 'up' }).replace(/translate\(330 200\)/, 'translate(330 200) scale(.6)') + check(240, 200, 14, '#00A653');
+  S.hero = () => {
+    const c = '#4C3AA7', a = GOLD, n = NAVY;
+    return '<defs><linearGradient id="hg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E6E3F4"/><stop offset=".6" stop-color="#FFFFFF"/><stop offset="1" stop-color="#FFE3D6"/></linearGradient></defs><rect width="1200" height="380" fill="url(#hg)"/>' +
+      '<circle cx="1080" cy="60" r="120" fill="' + lt(c, .1) + '"/><circle cx="120" cy="330" r="150" fill="' + lt(a, .1) + '"/>' +
+      building(60, 120, 120, 220, lt(c, .55), 5) + building(200, 170, 96, 170, lt(n, .5), 4) + building(900, 100, 130, 240, lt(c, .55), 5) + building(1050, 160, 100, 180, lt(a, .75), 4) +
+      '<g transform="translate(470 40)"><rect width="300" height="200" rx="22" fill="#fff" stroke="' + lt(c, .4) + '" stroke-width="3"/><rect x="24" y="24" width="140" height="14" rx="7" fill="' + c + '"/>' + [30, 56, 40, 80, 62].map((v, i) => '<rect x="' + (28 + i * 34) + '" y="' + (150 - v) + '" width="22" height="' + v + '" rx="5" fill="' + (i === 4 ? a : lt(c, .45)) + '"/>').join('') + '<circle cx="236" cy="104" r="40" fill="none" stroke="' + lt(c, .3) + '" stroke-width="14"/><path d="M236 64 a40 40 0 0 1 38 52" fill="none" stroke="' + a + '" stroke-width="14" stroke-linecap="round"/></g>' +
+      '<g transform="translate(350 280) scale(1.5)">' + person(0, 0, c, { arm: 'point' }) + '</g><g transform="translate(850 280) scale(1.5)">' + person(0, 0, a, { flip: true, arm: 'point' }) + '</g>' +
+      '<path d="M120 345 C 380 300, 620 360, 1100 330" stroke="' + lt(c, .3) + '" stroke-width="10" fill="none" stroke-linecap="round"/>' + check(720, 262, 30, '#00A653') +
+      [[960, 70], [230, 90], [1040, 300], [450, 330]].map(([x, y], i) => '<g transform="translate(' + x + ' ' + y + ')"><path d="M10 0 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3z" fill="' + [a, c, n, a][i] + '"/></g>').join('');
+  };
+  function render(key, color, o = {}) {
+    const fn = S[key] || S.idea;
+    const vb = key === 'hero' ? '0 0 1200 380' : '0 0 400 260';
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + vb + '" width="100%" role="img" aria-hidden="true" style="display:block' + (o.style ? ';' + o.style : '') + '">' + fn(color || '#4C3AA7') + '</svg>';
+  }
+  return { render, keys: Object.keys(S) };
+})();
+/* ===== 04-state.js ===== */
+// ---------------------------------------------------------------------
+// الحالة الحية من قاعدة البيانات + دمج المحتوى (الافتراضي في الكود + التراكب من Firebase)
+// المصفوفة الأصلية COURSE لا تُعدَّل أبدًا؛ كل تعديل يُحفظ كتراكب منفصل.
+// ---------------------------------------------------------------------
+const Store = {
+  removed: { axes: {}, ex: {} }, presence: {}, invite: null,
+  contentAxes: {}, contentEx: {}, addedAxes: {}, addedEx: {}, visibility: {}, enabled: {}, order: [],
+  site: {}, groupsOn: true, groupCount: DEFAULT_GROUPS, groupNames: {}, assign: {}, users: {}, posts: {}, reveal: {},
+  labTimers: {}, labAnswers: {}, broadcast: null, resetStamp: 0, registered: 0, ready: false,
+  contentLab: null, contentAssess: null, contentStories: {}, addedStories: {}, storyOrder: [], storyLikes: {}, exOrder: {}, assess: {}, assessCfg: {}, attendance: {}, attCfg: {}
+};
+let DEFAULT_SITE;
+let DEFAULT_CONGRATS;
+let DEFAULT_CERT;
+let DEFAULT_PDF;
+
+// فهارس المحتوى الأصلي: تُبنى بعد فك تشفير محتوى الدورة (Course.index)
+let DEF_AXIS = {}, DEF_EX = {}, SURVEY_ID = 'survey', DEF_SLIDE_CHART = {};
+
+const Content = {
+  site() { return Object.assign({}, DEFAULT_SITE, Store.site.home || {}); },
+  congrats() { const c = Object.assign({}, DEFAULT_CONGRATS, Store.site.congrats || {}); c.paragraphs = arr(c.paragraphs); return c; },
+  cert() { const c = Object.assign({}, DEFAULT_CERT, Store.site.cert || {}); c.paragraphs = arr(c.paragraphs); return c; },
+  doc(kind) { return kind === 'cert' ? Content.cert() : Content.congrats(); },
+  guide() { const g = Object.assign({}, COURSE.guide || { objectives: [], methodology: [], days: [[], []] }, (Store.site && Store.site.guide) || {}); g.objectives = arr(g.objectives); g.methodology = arr(g.methodology); g.days = arr(g.days).map(arr); while (g.days.length < Math.max(2, (COURSE.guide && COURSE.guide.days || []).length)) g.days.push([]); return g; },
+  unitName(n) { const u = (Store.site.units || {})[n]; return (u && u.name) || UNIT_NAMES[n] || ''; },
+  unitKicker(n) { const u = (Store.site.units || {})[n]; return (u && u.kicker) || UNIT_KICKERS[n] || ''; },
+  // قصص النجاح: الافتراضي في الكود + تراكب + إضافات + ترتيب + إظهار
+  storyIds() {
+    const all = COURSE.stories.map(x => x.id).concat(Object.keys(Store.addedStories || {}).sort((x, y) => (Store.addedStories[x].ts || 0) - (Store.addedStories[y].ts || 0)));
+    const saved = arr(Store.storyOrder).filter(id => all.indexOf(id) > -1); return saved.concat(all.filter(id => saved.indexOf(id) === -1));
+  },
+  story(id) {
+    const def = COURSE.stories.find(x => x.id === id), added = (Store.addedStories || {})[id]; if (!def && !added) return null;
+    const ov = def ? (Store.contentStories || {})[id] : null;
+    const st = Object.assign({ numbers: [], lessons: [], sources: [], color: 0, scene: 'idea' }, def || {}, ov || {}, added || {}, { id, _added: !def, _modified: !!ov });
+    st.numbers = arr(st.numbers); st.lessons = arr(st.lessons); st.sources = arr(st.sources); st._hidden = Content.isHidden(id); return st;
+  },
+  stories(o = {}) { return Content.storyIds().map(Content.story).filter(x => x && (o.all || !x._hidden)); },
+  lab() {
+    const ov = Store.contentLab || {}; const L = Object.assign({}, COURSE.lab, ov);
+    L.stages = arr(L.stages).map(x => Object.assign({ icon: '📌', title: '', task: '' }, x));
+    L.minutes = Math.max(1, parseInt(L.minutes, 10) || 10); L._modified = !!Store.contentLab; return L;
+  },
+  assess() {
+    const ov = Store.contentAssess || {}; const A = Object.assign({}, COURSE.assessment, ov);
+    A.items = arr(A.items).map(it => Object.assign({}, it, { options: arr(it.options) })); A.format = 'mcq'; A.id = 'assess'; A._modified = !!Store.contentAssess; return A;
+  },
+  // أقسام الصفحة الرئيسية: أقسام مدمجة + أقسام مخصّصة يضيفها الأدمن، بترتيب وإظهار مستقلين
+  homeSections(o = {}) {
+    const custom = (Store.site && Store.site.sections) || {};
+    const all = HOME_BUILTINS.map(b => b.key).concat(Object.keys(custom).sort((x, y) => (custom[x].ts || 0) - (custom[y].ts || 0)));
+    const saved = arr(Store.site && Store.site.homeOrder).filter(k => all.indexOf(k) > -1);
+    const ids = saved.concat(all.filter(k => saved.indexOf(k) === -1));
+    return ids.map(k => {
+      const b = HOME_BUILTINS.find(x => x.key === k); const lab = ((Store.site && Store.site.labels) || {})[k] || {};
+      const sec = b ? Object.assign({}, b, { builtin: true }, lab) : Object.assign({ type: 'text' }, custom[k], { key: k, builtin: false });
+      sec._hidden = Content.isHidden('home_' + k); return sec;
+    }).filter(x => o.all || !x._hidden);
+  },
+  // showConsent / showFollow: إظهار خانتي الموافقة في نموذج التسجيل (يتحكم بهما المدرب)
+  privacy() { const p = Object.assign({ showConsent: true, showFollow: true }, DEFAULT_PRIVACY, (Store.site && Store.site.privacy) || {}); p.showConsent = p.showConsent !== false; p.showFollow = p.showFollow !== false && !!String(p.followup || '').trim(); return p; },
+  pdf() { return Object.assign({}, DEFAULT_PDF, Store.site.pdf || {}); },
+  courseTitle() { const el = document.getElementById('brandTitle'); return (el && el.textContent.trim()) || Content.site().headerTitle; },
+  isHidden(id) { return Store.visibility && Store.visibility[id] === false; },
+  isEnabled(id) { return !(Store.enabled && Store.enabled[id] === false); },
+  color(a) { return AXIS_COLORS[((a && a.color) || 0) % AXIS_COLORS.length]; },
+  isRemoved(kind, id) { return !!(Store.removed && Store.removed[kind] && Store.removed[kind][id]); },
+  mergeAxis(id) {
+    const def = DEF_AXIS[id], added = Store.addedAxes[id];
+    if ((!def && !added) || Content.isRemoved('axes', id)) return null;
+    let a;
+    if (def) {
+      const ov = Store.contentAxes[id];
+      a = Object.assign({}, def, ov || {}, { id, _modified: !!ov, _added: false });
+      a.exercises = undefined;
+    } else {
+      a = Object.assign({ unit: 0, color: 0, icon: 'star', slides: [], highlights: [] }, added, { id, _added: true, _modified: false });
+    }
+    a.highlights = arr(a.highlights);
+    a.slides = arr(a.slides).map((s, i) => { const o = Object.assign({}, s); o.points = arr(o.points); o.items = arr(o.items); if (!o.id) o.id = id + 'x' + i; if (DEF_SLIDE_CHART[o.id]) o.chart = DEF_SLIDE_CHART[o.id]; return o; });
+    a._hidden = Content.isHidden(id); a._disabled = !Content.isEnabled(id);
+    return a;
+  },
+  axisIds() {
+    const all = COURSE.axes.map(a => a.id).concat(Object.keys(Store.addedAxes || {}).sort((x, y) => ((Store.addedAxes[x].ts || 0) - (Store.addedAxes[y].ts || 0))));
+    const saved = arr(Store.order).filter(id => all.indexOf(id) > -1);
+    return saved.concat(all.filter(id => saved.indexOf(id) === -1)); // أي محور جديد يُلحق بالنهاية تلقائيًا
+  },
+  axes(o = {}) { return Content.axisIds().map(Content.mergeAxis).filter(a => a && (o.all || !a._hidden)); },
+  eligibleAxes() { return Content.axes().filter(a => !a._disabled); },
+  axis(id) { return Content.mergeAxis(id); },
+  mergeEx(id) {
+    const def = DEF_EX[id], added = Store.addedEx[id];
+    if ((!def && !added) || Content.isRemoved('ex', id)) return null;
+    const ax = def ? def.axis : added && added.axis; if (ax && Content.isRemoved('axes', ax)) return null;
+    let e;
+    if (def) { const ov = Store.contentEx[id]; e = Object.assign({}, def, ov || {}, { id, _modified: !!ov, _added: false }); }
+    else e = Object.assign({ format: 'text', mode: 'individual', steps: [] }, added, { id, _added: true, _modified: false });
+    e.steps = arr(e.steps); e.rates = arr(e.rates); e.items = arr(e.items).map(it => Object.assign({}, it, it.options ? { options: arr(it.options) } : {}));
+    if (FORMAT_MODE[e.format]) e.mode = FORMAT_MODE[e.format];
+    e._rawMode = e.mode; // النوع المحفوظ فعلًا (يستعمله نموذج التعديل حتى لا يُحفظ «فردي» بالخطأ أثناء تعطيل المجموعات)
+    // تعطيل وضع المجموعات: تصير تمارين المجموعات فردية (لا اختيار مجموعة، والتصنيف «فردي»)
+    if (e.mode === 'group' && !Groups.enabled()) { e.mode = 'individual'; e._groupsOff = true; e.steps = e.steps.filter(s => !/مجموع/.test(s)); }
+    e._hidden = Content.isHidden(id);
+    return e;
+  },
+  ex(id) { return Content.mergeEx(id); },
+  exIdsOf(axisId) {
+    const def = DEF_AXIS[axisId] ? DEF_AXIS[axisId].exercises.map(e => e.id) : [];
+    const added = Object.keys(Store.addedEx || {}).filter(k => Store.addedEx[k].axis === axisId).sort((x, y) => (Store.addedEx[x].ts || 0) - (Store.addedEx[y].ts || 0));
+    return Content.applyOrder(def.concat(added), axisId);
+  },
+  applyOrder(ids, key) { const saved = arr((Store.exOrder || {})[key]).filter(id => ids.indexOf(id) > -1); return saved.concat(ids.filter(id => saved.indexOf(id) === -1)); },
+  exercisesOf(axisId, o = {}) { return Content.exIdsOf(axisId).map(Content.mergeEx).filter(e => e && (o.all || !e._hidden)); },
+  activities(o = {}) {
+    const ids = COURSE.activities.map(a => a.id).concat(Object.keys(Store.addedEx || {}).filter(k => Store.addedEx[k].kind === 'activity').sort((x, y) => (Store.addedEx[x].ts || 0) - (Store.addedEx[y].ts || 0)));
+    return Content.applyOrder(ids, '_acts').map(Content.mergeEx).filter(e => e && (o.all || !e._hidden));
+  },
+  survey(o = {}) { const s = Content.mergeEx(SURVEY_ID); return (o.all || !s._hidden) ? s : null; },
+  axisOfEx(id) { const e = DEF_EX[id]; if (e && e.axis) return e.axis; const a = Store.addedEx[id]; return a && a.axis ? a.axis : null; },
+  allExercises() { // كل التمارين في مكان واحد (للتصدير والإشعارات)
+    const list = [];
+    Content.axes({ all: true }).forEach(a => Content.exercisesOf(a.id, { all: true }).forEach(e => list.push({ e, a, section: a.title })));
+    Content.activities({ all: true }).forEach(e => list.push({ e, a: null, section: 'أنشطة الطاقة' }));
+    list.push({ e: Content.survey({ all: true }), a: null, section: 'ختام البرنامج' });
+    return list;
+  },
+  exTitle(id) { const e = Content.ex(id); return e ? e.title : id; }
+};
+
+const HOME_BUILTINS = [
+  { key: 'stories', icon: '🌟', kicker: 'من الواقع العملي', title: '🌟 قصص نجاح ملهمة' },
+  { key: 'assess', icon: '📋', kicker: 'قياس المعرفة', title: '📋 التقييم القبلي والبعدي' },
+  { key: 'activities', icon: '⚡', kicker: 'طاقة وتعارف بين الفقرات', title: '⚡ أنشطة الطاقة وكسر الجمود' },
+  { key: 'axes', icon: '🗺️', kicker: 'خارطة البرنامج', title: '🗺️ محاور البرنامج' },
+  { key: 'lab', icon: '🧪', kicker: 'مشروع تطبيقي شامل', title: '' },
+  { key: 'survey', icon: '🎓', kicker: 'نهاية الرحلة', title: '🎓 ختام البرنامج' },
+  { key: 'leaderboard', icon: '🏆', kicker: 'التحفيز', title: '🏆 لوحة الصدارة' },
+  { key: 'tools', icon: '🧰', kicker: 'تبقى معك بعد البرنامج', title: '🧰 صندوق الأدوات ومكتبة القوالب' }
+];
+const SECTION_TYPES = { text: 'نص منسّق', video: 'فيديو', image: 'صورة وإعلان', cta: 'بطاقة رابط / زر' };
+
+// ---------- تقييم البرنامج بعد التدريب (نجوم + مؤشر صافي التوصية) ----------
+const SurveyStats = {
+  of(posts, e) {
+    e = e || Content.survey({ all: true }); const rates = (e && e.rates) || []; const list = Object.keys(posts || {}).filter(k => k !== 'admin').map(k => posts[k]).filter(Boolean); // تقييم المتدربين فقط
+    const avgs = rates.map((_, i) => { const v = list.map(p => +((p.ratings || {})[i])).filter(x => x >= 1 && x <= 5); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; });
+    const np = list.map(p => p.nps).filter(x => x !== undefined && x !== null && x !== '').map(Number);
+    const prom = np.filter(x => x >= 9).length, det = np.filter(x => x <= 6).length;
+    const all = avgs.filter(x => x != null); const overall = all.length ? all.reduce((a, b) => a + b, 0) / all.length : null;
+    return { n: list.length, rates, avgs, overall, npsN: np.length, prom, pass: np.length - prom - det, det, nps: np.length ? Math.round((prom - det) / np.length * 100) : null, texts: list.filter(p => p.text) };
+  }
+};
+
+// ---------- التقييم القبلي والبعدي ----------
+const Assess = {
+  cfg() { return Object.assign({ pre: 'open', post: 'closed', reveal: false }, Store.assessCfg || {}); },
+  isOpen(ph) { return Assess.cfg()[ph] === 'open'; },
+  rec(ph, uid) { return ((Store.assess || {})[ph] || {})[uid] || null; },
+  score(answers) { const A = Content.assess(); const a = ansList(answers, A.items.length); return A.items.reduce((n, it, i) => n + (a[i] != null && +a[i] === +it.answer ? 1 : 0), 0); },
+  list(ph) { const o = (Store.assess || {})[ph] || {}; return Object.keys(o).filter(u => o[u] && o[u].done).map(u => Object.assign({ uid: u }, o[u], { score: Assess.score(o[u].answers) })); },
+  avg(ph) { const l = Assess.list(ph); const n = Content.assess().items.length || 1; return l.length ? l.reduce((s, x) => s + x.score, 0) / l.length / n * 100 : null; },
+  perQuestion(ph) { const A = Content.assess(); const l = Assess.list(ph); return A.items.map((it, i) => { const ans = l.filter(x => { const a = ansList(x.answers, A.items.length); return a[i] != null; }); const ok = ans.filter(x => +ansList(x.answers, A.items.length)[i] === +it.answer).length; return l.length ? Math.round(ok / l.length * 100) : null; }); }
+};
+
+// ---------- الحضور وشهادة المشاركة ----------
+const Attend = {
+  cfg() { const c = Object.assign({ days: ATTEND_DAYS_DEFAULT, hours: ATTEND_HOURS_DEFAULT, threshold: CERT_THRESHOLD_DEFAULT, codes: {} }, Store.attCfg || {}); c.days = Math.max(1, Math.min(10, +c.days || ATTEND_DAYS_DEFAULT)); c.hours = Math.max(1, +c.hours || ATTEND_HOURS_DEFAULT); c.threshold = Math.max(0, Math.min(100, +c.threshold || 0)); c.codes = c.codes || {}; const sec = (Store.secure && Store.secure.attcodes) || {}; c.codes = Object.assign({}, c.codes); Object.keys(sec).forEach(k => { c.codes[k] = Object.assign({}, c.codes[k], { code: (sec[k] || {}).code }); }); return c; },
+  // تسجيل الحضور وشهادة المشاركة ميزتان اختياريتان (قد تتولاهما الجهة الراعية)؛ الشهادة تعتمد على الحضور
+  // الافتراضي: غير مفعّلتين حتى يفعّلهما المدرب من لوحة الإدارة
+  on() { return (Store.attCfg || {}).enabled === true; },
+  certOn() { return Attend.on() && (Store.attCfg || {}).cert === true; },
+  days() { const out = []; for (let i = 1; i <= Attend.cfg().days; i++) out.push(i); return out; },
+  hoursOf(uid, d) { const man = ((Store.attendance || {})[uid] || {})['d' + d]; if (man != null) return Math.max(0, Math.min(Attend.cfg().hours, +man || 0)); return ((Store.checkins || {})['d' + d] || {})[uid] ? Attend.cfg().hours : 0; }, // الساعات اليدوية من المدرب تتقدم على تسجيل الرمز
+  pct(uid) { const c = Attend.cfg(); const tot = c.days * c.hours; const got = Attend.days().reduce((s, d) => s + Attend.hoursOf(uid, d), 0); return tot ? Math.round(got / tot * 100) : 0; },
+  eligible(uid) { return Attend.pct(uid) >= Attend.cfg().threshold; },
+  openDays() { if (!Attend.on()) return []; const c = Attend.cfg(); return Attend.days().filter(d => c.codes['d' + d] && c.codes['d' + d].open); },
+  holders() { if (!Attend.certOn()) return []; return Object.keys(Store.users || {}).filter(Attend.eligible).map(u => Object.assign({ uid: u }, Store.users[u])); }
+};
+
+// ---------- حقول التسجيل (قابلة للتحكم من لوحة الإدارة) ----------
+let REG_DEFAULTS;
+const REG_TYPES = { text: 'نص قصير', textarea: 'نص طويل', select: 'قائمة اختيار', email: 'بريد إلكتروني', tel: 'رقم هاتف', number: 'رقم' };
+const RegFields = {
+  all() {
+    const cfg = (Store.site && Store.site.regFields) || {}; const fc = cfg.fields || {};
+    const keys = Object.keys(REG_DEFAULTS).concat(Object.keys(fc).filter(k => !REG_DEFAULTS[k]));
+    const saved = arr(cfg.order).filter(k => keys.indexOf(k) > -1); const order = saved.concat(keys.filter(k => saved.indexOf(k) === -1));
+    return order.map(k => { const f = Object.assign({}, REG_DEFAULTS[k] || {}, fc[k] || {}, { key: k, builtin: !!REG_DEFAULTS[k] }); f.options = arr(f.options); if (k === 'name') { f.visible = true; f.required = true; } return f; }).filter(f => !f.deleted);
+  },
+  visible() { return RegFields.all().filter(f => f.visible); },
+  // قيمة الحقل لمستخدم: الاسم والمسمى في الجذر، والبقية في f/
+  val(u, k) { if (!u) return ''; if (k === 'name' || k === 'role') return u[k] || ''; return (u.f && u.f[k]) != null ? u.f[k] : (u[k] || ''); },
+  input(f, v, prefix) {
+    const id = prefix + f.key; const req = f.required ? ' <span class="req">*</span>' : ' <span class="muted">(اختياري)</span>';
+    let el;
+    if (f.type === 'select') el = '<select id="' + id + '" data-keep="' + id + '" data-rf="' + f.key + '"><option value="">اختر</option>' + f.options.map(o => '<option ' + (o === v ? 'selected' : '') + '>' + h(o) + '</option>').join('') + '</select>';
+    else if (f.type === 'textarea') el = '<textarea id="' + id + '" data-keep="' + id + '" data-rf="' + f.key + '" rows="2" placeholder="' + h(f.ph || '') + '">' + h(v || '') + '</textarea>';
+    else el = '<input id="' + id + '" data-keep="' + id + '" data-rf="' + f.key + '" type="' + (f.type === 'number' ? 'number' : f.type === 'email' ? 'email' : f.type === 'tel' ? 'tel' : 'text') + '" value="' + h(v || '') + '" placeholder="' + h(f.ph || '') + '"' + (f.key === 'name' ? ' autocomplete="name"' : '') + '>';
+    return '<div class="field"><label>' + h(f.label) + req + '</label>' + el + '</div>';
+  },
+  collect(root, prefix) {
+    const out = { f: {} }; let err = '';
+    RegFields.visible().forEach(f => { const el = document.getElementById(prefix + f.key); const v = el ? el.value.trim() : ''; if (f.required && !v && !err) err = 'أكمل حقل «' + f.label + '».'; if (f.type === 'email' && v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) && !err) err = 'صيغة البريد الإلكتروني غير صحيحة.'; if (f.key === 'name' || f.key === 'role') out[f.key] = v; else out.f[f.key] = v; });
+    if (out.name != null && out.name.length < 2 && !err) err = 'اكتب اسمك الكامل.';
+    return { data: out, err };
+  }
+};
+let DEFAULT_PRIVACY;
+
+// ---------- المجموعات ----------
+const Groups = {
+  enabled() { return Store.groupsOn !== false; }, // وضع المجموعات العام (الأصل مفعّل)
+  count() { const n = parseInt(Store.groupCount, 10); return isFinite(n) && n >= 2 ? Math.min(30, n) : DEFAULT_GROUPS; },
+  list() { const out = []; for (let i = 1; i <= Groups.count(); i++) out.push(i); return out; },
+  label(n) { if (!(+n > 0)) return 'الإدارة'; // مفتاح مشاركة الإدارة (admin) في التمارين الجماعية
+    const nm = Store.groupNames && Store.groupNames[n]; return nm ? 'مجموعة ' + n + ' · ' + nm : 'مجموعة ' + n; },
+  assignedOf(uid) { const v = Store.assign && Store.assign[uid]; return v ? +v : null; },
+  membersOf(n) { return Object.keys(Store.assign || {}).filter(u => +Store.assign[u] === +n); },
+  anyAssign() { return Object.keys(Store.assign || {}).length > 0; }
+};
+
+// ---------- الهوية المحلية (طبقات حفظ متعددة) ----------
+// ---------- مدة الجلسة: يبقى المتدرب والمدرب داخل المنصة 72 ساعة من آخر استخدام، ثم يُطلب دخول جديد ----------
+const Session = {
+  TTL: 72 * 3600 * 1000, KEY: 'ec_last', expired: false, _t: 0,
+  last() { return +SafeLS.get(Session.KEY) || 0; },
+  over() { const t = Session.last(); return t > 0 && Date.now() - t > Session.TTL; },
+  touch(force) { const n = Date.now(); if (!force && n - Session._t < 60000) return; Session._t = n; SafeLS.set(Session.KEY, String(n)); },
+  // عند الإقلاع: إن انقضت المدة نمسح هوية الجهاز (يُسجَّل الخروج من Firebase لاحقًا في authInit)
+  boot() { if (Session.over()) { Session.expired = Session.notice = true; Me.clear(); SafeSS.del('ec_admin'); SafeSS.del('ec_preview'); } Session.touch(true); },
+  // الصفحة المفتوحة طويلًا دون استخدام: نتحقق عند العودة إليها أو عند أول نقرة
+  check() { if (Session.over()) { location.reload(); return false; } Session.touch(); return true; }
+};
+
+const Me = {
+  data: null, guest: false,
+  load() {
+    const tryParse = s => { try { const o = JSON.parse(s); return o && o.uid ? o : null; } catch (e) { return null; } };
+    let d = tryParse(SafeLS.get('ec_me')) || tryParse(SafeSS.get('ec_me'));
+    Cookie.del('ec_me'); // الهوية لم تعد تُحفظ في كوكي (كانت تُرسل مع كل طلب ويقرؤها أي موقع على النطاق نفسه)
+    const hp = getHashParams();
+    // لم يعد مُعرّف المتدرب يوضع في الرابط (كان يتسرب عند مشاركة الروابط)؛ الهوية من التخزين المحلي والجلسة فقط
+    Me.data = d;
+    Me.guest = !d && (SafeLS.get('ec_guest') === '1' || SafeSS.get('ec_guest') === '1');
+    if (d && !d._fromHash) Me.save(d);
+    return d;
+  },
+  // هوية الإدارة: المدرب يتصفح المنصة ويشارك في كل التمارين باسم «الإدارة» (هوية في الذاكرة فقط، لا تُحفظ على الجهاز
+  // ولا تُكتب في users). عند خروجه تعود هوية المتدرب المحفوظة على الجهاز إن وُجدت.
+  ADMIN_UID: 'admin',
+  sync() {
+    const adm = Admin.ok(); const cur = Me.data && Me.data.admin;
+    if (adm && !cur) { Me._stash = { data: Me.data, guest: Me.guest }; Me.data = { uid: Me.ADMIN_UID, name: 'الإدارة', role: 'المدرب', admin: true }; Me.guest = false; }
+    else if (!adm && cur) { const st = Me._stash; Me._stash = null; Me.data = st ? st.data : null; Me.guest = st ? st.guest : false; if (!st) Me.load(); }
+  },
+  isAdmin() { return !!(Me.data && Me.data.admin); },
+  save(d) {
+    if (d && d.admin) { Me.data = d; return; }
+    if (Me.isAdmin()) { Me._stash = { data: d, guest: false }; return; }
+    Me.data = d; Me.guest = false; const s = JSON.stringify(d);
+    SafeLS.set('ec_me', s); SafeSS.set('ec_me', s);
+    SafeLS.del('ec_guest'); SafeSS.del('ec_guest');
+    Router.syncHash();
+  },
+  clear() {
+    Me.data = null; Me.guest = false;
+    SafeLS.del('ec_me'); SafeSS.del('ec_me'); SafeLS.del('ec_guest'); SafeSS.del('ec_guest');
+    Router.syncHash();
+  },
+  setGuest() { Me.data = null; Me.guest = true; SafeLS.set('ec_guest', '1'); SafeSS.set('ec_guest', '1'); },
+  uid() { return Me.data ? Me.data.uid : null; },
+  isReg() { return !!(Me.data && Me.data.uid); },
+  group() { return Me.data && Me.data.group ? +Me.data.group : null; },
+  setGroup(n) { if (!Me.data) return; if (Me.isAdmin()) { UI.toast('تشارك الإدارة باسمها دون الانضمام لمجموعة'); return; } Me.data.group = n; Me.save(Me.data); DB.update('users/' + Me.data.uid, { group: n, gkey: 'g' + n }); }
+};
+
+// ---------- الإنجاز والأوسمة ----------
+const Progress = {
+  exDone(e, uid) {
+    const ps = Store.posts[e.id]; if (!ps || !uid) return false;
+    if (e.mode === 'group' || e._groupsOff) { if (e._groupsOff && ps[uid]) return true; return Object.keys(ps).some(k => ps[k] && ps[k].members && ps[k].members[uid]); }
+    if (e.format === 'mcq') { const a = ansList(ps[uid] && ps[uid].answers, e.items.length); return !!ps[uid] && a.every(v => v !== null && v !== ''); }
+    return !!ps[uid];
+  },
+  // يستثني تمامًا: المحاور المخفية، المحاور المعطلة، والتمارين المخفية
+  forUser(uid) {
+    const axes = Content.eligibleAxes().map(a => {
+      const exs = Content.exercisesOf(a.id); const done = exs.filter(e => Progress.exDone(e, uid)).length;
+      return { a, total: exs.length, done, pct: exs.length ? done / exs.length : 0 };
+    });
+    const total = axes.reduce((s, x) => s + x.total, 0), done = axes.reduce((s, x) => s + x.done, 0);
+    return { axes, total, done, pct: total ? done / total : 0 };
+  },
+  achievers() { return Object.keys(Store.users || {}).filter(u => Progress.forUser(u).pct >= BADGE_THRESHOLD).map(u => Object.assign({ uid: u }, Store.users[u])); }
+};
+
+// ---------- الإعجابات: تخزين مؤقت موحّد + دالة تبديل واحدة لكل السياقات ----------
+const Likes = {
+  cache: {},
+  count(path, likesObj) { const c = Likes.cache[path]; const base = Object.assign({}, likesObj || {}); if (c) Object.keys(c).forEach(u => { if (c[u]) base[u] = true; else delete base[u]; }); return base; },
+  toggle(path, likesObj) {
+    const uid = Me.uid(); if (!uid) { UI.toast('الإعجاب متاح للمسجلين فقط'); return; }
+    const cur = Likes.count(path, likesObj); const on = !cur[uid];
+    Likes.cache[path] = Object.assign(Likes.cache[path] || {}, { [uid]: on });
+    DB.set(path + '/likes/' + uid, on ? true : null).then(() => { delete Likes.cache[path]; });
+    return on;
+  },
+  btn(path, likesObj) {
+    const l = Likes.count(path, likesObj); const n = Object.keys(l).length; const mine = Me.uid() && l[Me.uid()];
+    return '<button class="like-btn ' + (mine ? 'on' : '') + '" data-like="' + h(path) + '" ' + (Me.isReg() ? '' : 'disabled title="للمسجلين فقط"') + '>👍 <span class="num">' + n + '</span></button>';
+  }
+};
+/* ===== 04b-sponsor.js ===== */
+// ---------------------------------------------------------------------
+// ميزات الجهة الراعية: الاهتمام ببرامج الدعم، رابط المشرف، الدفعات، والتسميات الإنجليزية للتقرير
+// ---------------------------------------------------------------------
+// لا جهة راعية افتراضيًا في هذا المشروع: نموذج الاهتمام ببرامج الدعم يظهر فقط إذا أضاف المدرب برامج من لوحة الإدارة
+const DEFAULT_LEADS = {
+  axis: '',
+  intro: 'هل ترغب في أن يتواصل معك فريق الجهة الراعية بخصوص برنامج دعم يناسب احتياجك؟ اختر ما يهمك، وسنرفع اهتمامك إلى الجهة المنظمة.',
+  consent: 'أوافق على مشاركة بياناتي واهتماماتي مع الجهة الراعية للتواصل معي بخصوص البرامج المختارة',
+  programs: []
+};
+const Leads = {
+  on() { return Leads.cfg().programs.length > 0; },
+  cfg() { const c = Object.assign({}, DEFAULT_LEADS, (Store.site && Store.site.leads) || {}); c.programs = arr(c.programs); return c; },
+  list() { const o = Store.leads || {}; return Object.keys(o).filter(u => o[u] && arr(o[u].programs).length).map(u => Object.assign({ uid: u }, o[u], { programs: arr(o[u].programs) })); },
+  byProgram(list) { const c = {}; (list || Leads.list()).forEach(l => l.programs.forEach(p => { c[p] = (c[p] || 0) + 1; })); return c; }
+};
+function leadFormHtml(where) {
+  const c = Leads.cfg(); if (!c.programs.length) return '';
+  const head = '<div class="lead-box"><div class="lead-head"><span class="lead-ico">🤝</span><div><h3>مهتم ببرامج الدعم؟</h3><p>' + h(c.intro) + '</p></div></div>';
+  if (!Me.isReg()) return head + '<div class="locked-note">🔒 للمسجلين فقط</div></div>';
+  const cur = (Store.leads || {})[Me.uid()]; const editing = UIState.editing['lead'];
+  if (cur && arr(cur.programs).length && !editing) return head + '<div class="lead-done">✅ سُجّل اهتمامك بـ: <b>' + arr(cur.programs).map(h).join('، ') + '</b><div class="muted" style="font-size:12.5px">' + ago(cur.ts || 0) + ' · وسيلة التواصل: ' + h(cur.method || '') + ' ' + h(cur.contact || '') + '</div><div class="row" style="margin-top:8px"><button class="btn btn-soft btn-xs" data-act="lead-edit">✏️ تعديل</button><button class="btn btn-ghost btn-xs" data-act="lead-withdraw">سحب الاهتمام</button></div></div></div>';
+  const u = Store.users[Me.uid()] || {}; const email = RegFields.val(u, 'email'), phone = RegFields.val(u, 'phone');
+  const sel = arr(cur && cur.programs);
+  return head + '<div class="lead-progs">' + c.programs.map((p, i) => '<label class="lead-prog"><input type="checkbox" data-lead-p="' + i + '" ' + (sel.indexOf(p) > -1 ? 'checked' : '') + '><span>' + h(p) + '</span></label>').join('') + '</div>' +
+    '<div class="field"><label>ما احتياجك باختصار؟ (اختياري)</label><textarea id="leadNeed_' + where + '" data-keep="lead-need-' + where + '" rows="2" placeholder="مثال: دعم لإطلاق متجري أو تدريب فريقي على الذكاء الاصطناعي">' + h((cur && cur.need) || '') + '</textarea></div>' +
+    '<div class="grid2"><div class="field"><label>وسيلة التواصل المفضلة</label><select id="leadMethod_' + where + '"><option>هاتف</option><option ' + ((cur && cur.method) === 'واتساب' ? 'selected' : '') + '>واتساب</option><option ' + ((cur && cur.method) === 'بريد إلكتروني' ? 'selected' : '') + '>بريد إلكتروني</option></select></div><div class="field"><label>رقم الهاتف أو البريد</label><input id="leadContact_' + where + '" data-keep="lead-contact-' + where + '" value="' + h((cur && cur.contact) || phone || email || '') + '"></div></div>' +
+    '<label class="consent"><input type="checkbox" id="leadConsent_' + where + '"> <span>' + h(c.consent) + '</span></label><button class="btn btn-primary btn-sm" data-act="lead-save" data-w="' + where + '">🤝 أرسل اهتمامي</button></div>';
+}
+
+// ---------- رابط المشرف (قراءة فقط) ----------
+// الرمز محفوظ في عقدة secure (للمدرب فقط). المشرف لا يقرأ البيانات الخام؛ يقرأ لقطة جاهزة ينشرها المدرب في monitorData/<الرمز>
+const Monitor = {
+  cfg() { return Object.assign({ enabled: false, token: '' }, (Store.secure && Store.secure.monitor) || {}); },
+  _last: '',
+  async publish(force) {
+    const c = Monitor.cfg(); if (!Admin.ok() || !c.enabled || !c.token || !App.dataReady) return;
+    let html = ''; try { html = monitorBody(); } catch (e) { console.warn(e); return; }
+    if (!force && html === Monitor._last) return; Monitor._last = html;
+    try { await DB.set('monitorData/' + c.token, { html, ts: DB.now() }, { quiet: true }); } catch (e) { console.warn('monitor publish', e); }
+  }, url() { const c = Monitor.cfg(); return location.origin + location.pathname + '#' + cparam() + 'v=monitor&id=' + encodeURIComponent(c.token); } };
+
+// ---------- الدفعات ----------
+const Cohort = {
+  cur() { return Object.assign({ name: 'الدفعة الأولى', start: '', end: '' }, Store.cohortCfg || {}); },
+  list() { const o = Store.cohortIndex || {}; return Object.keys(o).map(k => Object.assign({ id: k }, o[k])).sort((a, b) => (a.closedAt || 0) - (b.closedAt || 0)); }
+};
+
+// ---------- ربط أسئلة التقييم بالمحاور (للتوصيات الآلية) ----------
+let ASSESS_AXIS;
+
+// ---------- تسميات إنجليزية للتقرير المؤسسي ----------
+let EN;
+let EN_OPTIONS;
+function enOpt(v) { return EN_OPTIONS[v] || v; }
+/* ===== 05-common.js ===== */
+// ---------------------------------------------------------------------
+// الموجّه (History API) + الهيكل العام + مكوّنات مشتركة
+// ---------------------------------------------------------------------
+const UIState = { deck: {}, openAcc: new Set(), openDrop: new Set(), draft: {}, fbSel: {}, editing: {}, modelShown: {}, bellOpen: false };
+// دخول المدرب: بحساب Firebase Authentication عند تفعيله (والتحقق من عقدة admins/<uid>)، وإلا بالرمز السري في المعاينة
+const AUTH = { enabled: false, resolved: true, user: null, isAdmin: false };
+const Admin = {
+  ok() { return AUTH.enabled ? AUTH.isAdmin : SafeSS.get('ec_admin') === '1'; },
+  preview() { return false; }, // أُلغي وضع «المعاينة كمتدرب»: المدرب يتصفح المنصة بحسابه مع إتاحة كل التمارين
+  ctl() { return Admin.ok(); }
+};
+
+const Router = {
+  cur: { view: 'home' },
+  parse() {
+    const st = SafeHist.state(); if (st && st.view) return st;
+    const hp = getHashParams(); const o = { view: hp.v || 'home' }; if (hp.id) o.id = hp.id; if (hp.from) o.from = hp.from; if (hp.axis) o.axis = hp.axis;
+    // رابط عميق إلى شريحة بعينها: #v=axis&id=<المحور>&s=<رقم الشريحة من 0>
+    if ((o.view === 'axis' || o.view === 'show') && o.id && /^\d{1,4}$/.test(hp.s || '')) { o.s = +hp.s; Router.applySlide(o); App._sScroll = o.view === 'axis'; }
+    return o;
+  },
+  // يضبط الشريحة الحالية في المشغّل من معامل s (يُقصّ لاحقًا على عدد الشرائح عند الرسم)
+  applySlide(st) { if (st && st.id && st.s != null && (st.view === 'axis' || st.view === 'show')) { UIState.deck[st.id] = Math.max(0, +st.s || 0); SafeLS.set('ec_deck_' + st.id, String(UIState.deck[st.id])); } },
+  url(st) { const p = { c: window.__CID ? '' : (Course.cid || ''), v: st.view !== 'home' ? st.view : '', id: st.id || '', from: st.from || '', axis: st.axis || '', s: (st.view === 'axis' || st.view === 'show') && st.s != null ? st.s : '' }; return location.pathname + location.search + buildHash(p); },
+  go(view, params = {}, o = {}) {
+    const st = Object.assign({ view }, params);
+    Router.cur = st; if (st.s != null) { Router.applySlide(st); App._sScroll = view === 'axis'; }
+    if (o.replace) SafeHist.replace(st, Router.url(st)); else SafeHist.push(st, Router.url(st));
+    App.render(true);
+    try { window.scrollTo({ top: 0, behavior: o.smooth ? 'smooth' : 'auto' }); } catch (e) { window.scrollTo(0, 0); }
+  },
+  syncHash() { SafeHist.replace(Router.cur, Router.url(Router.cur)); },
+  // وجهة زر الرجوع المرئي تُشتق من بيانات العنصر الحالي نفسه
+  backOf(st) {
+    switch (st.view) {
+      case 'ex': { const ax = Content.axisOfEx(st.id); return ax ? { view: 'axis', id: ax } : { view: 'home' }; }
+      case 'axis': case 'lab': case 'account': case 'admin': case 'assess': case 'story': case 'tools': case 'followup': return { view: 'home' };
+      case 'storyEdit': return { view: 'admin' };
+      case 'secEdit': case 'labEdit': case 'assessEdit': return { view: 'admin' };
+      case 'exEdit': return st.from === 'axisEdit' && st.axis ? { view: 'axisEdit', id: st.axis } : { view: 'admin' };
+      case 'axisEdit': case 'actEdit': return { view: 'admin' };
+      default: return null;
+    }
+  }
+};
+window.addEventListener('popstate', e => { Router.cur = (e.state && e.state.view) ? e.state : Router.parse(); Router.applySlide(Router.cur); App.render(true); });
+
+// ---------- الهيكل العام ----------
+const Layout = {
+  topbar() {
+    const s = Content.site(); const me = Me.data;
+    return '<header class="topbar"><div class="wrap">' +
+      // الشعار يقود دائمًا إلى الصفحة التعريفية؛ العنوان الكامل يظهر فيها فقط، وفي بقية الصفحات كلمة «الواجهة»
+      '<div class="brand' + (!HAS_LANDING || App.onLanding ? '' : ' brand-min') + '" data-go="' + (HAS_LANDING ? 'landing' : 'home') + '" title="' + (HAS_LANDING ? 'الصفحة التعريفية بالبرنامج' : 'الرئيسية') + '" role="link" tabindex="0"><div class="brand-logo">' + iconSvg('sparkles', 22, '#fff', 2.2) + '</div><div class="brand-text">' + (!HAS_LANDING || App.onLanding ? '<div class="brand-title" id="brandTitle">' + h(s.headerTitle) + '</div><div class="brand-sub">' + h(s.headerSub) + '</div>' : '<div class="brand-title brand-short">الواجهة</div>') + '</div></div>' +
+      '<div class="top-actions"><button class="icon-btn" data-act="hub-home" title="برامج المدرب" aria-label="برامج المدرب">' + iconSvg('grid', 18) + '</button>' + Layout.actions() +
+      '</div></div></header>';
+  },
+  // أزرار أعلى الصفحة حسب الدور: المدرب (لوحة التحكم)، المتدرب (حسابي)، الزائر (تسجيل دخول)، والباقي أيقونات بلا نص
+  actions() {
+    const me = Me.data; const onLogin = !me && !Me.guest && !Admin.ok();
+    const out = '<button class="icon-btn" data-act="' + (Admin.ok() ? 'admin-exit' : 'logout') + '" title="تسجيل الخروج" aria-label="تسجيل الخروج">' + iconSvg('logout', 18) + '</button>';
+    if (Admin.ok()) return '<button class="btn btn-primary btn-sm cp-btn" data-go="admin" title="لوحة التحكم">' + iconSvg('gear', 16, '#fff') + '<span class="lbl">لوحة التحكم</span></button>' + Translate.button() + out;
+    if (me) return '<button class="user-chip" data-go="account" title="حسابي، ' + h(me.name) + '"><span class="av">' + iconSvg('user', 16, '#fff') + '</span><span class="uc-txt"><span class="nm">' + h(String(me.name || '').trim().split(/\s+/)[0]) + '</span><span class="uc-sub">حسابي</span></span></button>' + Translate.button() + out;
+    if (Me.guest) return Translate.button() + '<button class="btn btn-primary btn-sm" data-act="guest-login" title="تسجيل الدخول">' + iconSvg('login', 16, '#fff') + '<span class="lbl">تسجيل دخول</span></button>';
+    return onLogin && App.onLanding ? Translate.button() + '<button class="btn btn-primary btn-sm top-cta" data-act="open-login"><span class="cta-l">الدخول للمنصة التعليمية</span><span class="cta-s">الدخول</span> <span class="lp-arrow">‹</span></button>' : Translate.button();
+  },
+  banners() {
+    let out = '';
+    const st = DB.status; if (st && DB.real && st.ready && (!st.connected || st.pending > 0)) out += '<div class="banner banner-offline">' + (!st.connected ? '📡 <b>انقطع الاتصال بالخادم.</b> ' : '⏳ ') + (st.pending ? '<span class="num">' + st.pending + '</span> تعديل بانتظار الحفظ، لا تغلق الصفحة حتى يعود الاتصال.' : 'ستُحفظ أي تعديلات تلقائيًا عند عودة الاتصال.') + '</div>';
+    if (App.inIframe) out += '<div class="banner banner-iframe">الصفحة معروضة داخل إطار مضمَّن؛ لتجربة أفضل افتحها مستقلة. <a class="btn btn-sm btn-primary" href="' + h(location.href) + '" target="_blank" rel="noopener">فتح في تبويب مستقل</a></div>';
+    // تسجيل الحضور: شريط يظهر للمسجلين عندما يفتح المدرب تسجيل حضور يوم ما
+    if (Me.isReg() && ADMIN_VIEWS.indexOf(Router.cur.view) === -1) Attend.openDays().forEach(d => {
+      const done = Attend.hoursOf(Me.uid(), d) > 0;
+      out += '<div class="banner banner-checkin">' + (done ? '✅ تم تسجيل حضورك في <b>اليوم ' + d + '</b>' : '📍 تسجيل الحضور مفتوح، <b>اليوم ' + d + '</b>: <input data-keep="checkin-' + d + '" id="checkin' + d + '" inputmode="numeric" maxlength="6" placeholder="رمز الحضور" class="num"><button class="btn btn-sm btn-primary" data-act="checkin" data-d="' + d + '">تسجيل</button>') + '</div>';
+    });
+    const b = Store.broadcast;
+    if (b && b.text && SafeLS.get('ec_bc_closed') !== String(b.id)) out += '<div class="banner banner-broadcast">📣 <span>' + h(b.text) + '</span><button class="x" data-act="bc-close" data-id="' + h(b.id) + '" title="إغلاق">✕</button></div>';
+    return out;
+  },
+  footer() {
+    const s = Content.site();
+    const url = s.footerUrl ? (/^https?:\/\//.test(s.footerUrl) ? s.footerUrl : 'https://' + s.footerUrl) : '';
+    const soc = [];
+    const wa = v => { if (/^https?:\/\//.test(v)) return v; const d = String(v).replace(/[^\d]/g, ''); return 'https://wa.me/' + d; };
+    const mail = v => /^mailto:/.test(v) ? v : 'mailto:' + v.trim();
+    const norm = v => /^https?:\/\//.test(v) ? v : 'https://' + v.replace(/^\/+/, '');
+    if (s.linkedin) soc.push(['linkedin', norm(s.linkedin), 'LinkedIn']);
+    if (s.x) soc.push(['xlogo', norm(s.x), 'X']);
+    if (s.instagram) soc.push(['instagram', norm(s.instagram), 'Instagram']);
+    if (s.whatsapp) soc.push(['whatsapp', wa(s.whatsapp), 'WhatsApp']);
+    if (s.email) soc.push(['mail', mail(s.email), 'Email']);
+    return '<footer class="footer"><div class="wrap"><div class="nm">' + h(s.footerName) + '</div><div class="bio">' + h(s.footerBio) + '</div>' +
+      (url ? '<a href="' + h(url) + '" target="_blank" rel="noopener">' + h(s.footerUrl) + '</a>' : '') +
+      (soc.length ? '<div class="socials">' + soc.map(x => '<a href="' + h(x[1]) + '" target="_blank" rel="noopener" title="' + x[2] + '">' + iconSvg(x[0], 18, '#fff') + '</a>').join('') + '</div>' : '') +
+      '</div></footer>';
+  },
+  crumbs(extra = '') {
+    const b = Router.backOf(Router.cur);
+    return '<div class="crumbs">' + (b ? '<button class="back-btn" data-back>› رجوع</button>' : '') + '<button class="back-btn" data-go="home">' + iconSvg('home', 15) + ' ' + HOME_LABEL + '</button>' + extra + '</div>';
+  }
+};
+
+// احترام إعداد «تقليل الحركة» في نظام الجهاز (لا قائمة إعدادات عرض داخل المنصة)
+(function () { const set = () => { let red = false; try { red = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {} document.documentElement.setAttribute('data-motion', red ? 'reduce' : 'normal'); }; set(); try { window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', set); } catch (e) {} })();
+
+// ---------- الترجمة الآلية (Google Translate)، تُحمَّل عند الطلب فقط ----------
+// المحتوى الأصلي عربي بالكامل؛ الزر يترجم الصفحة الحالية وكل ما يُرسم لاحقًا، و«العربية» تعيدها كما كانت.
+const Translate = {
+  LANGS: [['en', 'English'], ['fr', 'Français'], ['ur', 'اردو'], ['hi', 'हिन्दी'], ['tl', 'Filipino'], ['ml', 'മലയാളം'], ['es', 'Español'], ['tr', 'Türkçe']],
+  cur() { const m = (Cookie.get('googtrans') || '').match(/^\/ar\/([a-zA-Z-]+)$/); return m ? m[1] : 'ar'; },
+  button() { const c = Translate.cur(); return '<button class="icon-btn notranslate" translate="no" data-act="translate" title="' + (c === 'ar' ? 'ترجمة آلية للمحتوى عبر Google Translate' : 'العودة إلى العربية') + '" aria-label="ترجمة">' + iconSvg('globe', 18) + '</button>'; },
+  load() {
+    if (Translate._loaded) return; Translate._loaded = true;
+    if (!document.getElementById('gt_el')) { const d = document.createElement('div'); d.id = 'gt_el'; d.style.display = 'none'; document.body.appendChild(d); }
+    window.gtInit = () => { try { new google.translate.TranslateElement({ pageLanguage: 'ar', autoDisplay: false }, 'gt_el'); } catch (e) {} };
+    loadScript('https://translate.google.com/translate_a/element.js?cb=gtInit').catch(() => { Translate._loaded = false; UI.alert('تعذر تحميل خدمة الترجمة. تحقق من الاتصال بالإنترنت.'); });
+  },
+  setCookie(v) {
+    const host = location.hostname; const parts = host.split('.');
+    const doms = ['', host]; if (parts.length > 1) doms.push('.' + parts.slice(-2).join('.'));
+    doms.forEach(dm => { try { document.cookie = 'googtrans=' + (v || '') + ';path=/' + (dm ? ';domain=' + dm : '') + (v ? '' : ';max-age=0'); } catch (e) {} });
+  },
+  set(lang) {
+    if (lang === 'ar') { Translate.setCookie(''); location.reload(); return; }
+    Translate.setCookie('/ar/' + lang);
+    const combo = document.querySelector('.goog-te-combo');
+    if (combo) { combo.value = lang; combo.dispatchEvent(new Event('change')); UI.toast('🌐 جارٍ الترجمة'); App.render(); }
+    else { Translate.load(); UI.toast('🌐 جارٍ تحميل الترجمة'); let n = 0; const t = setInterval(() => { const cb = document.querySelector('.goog-te-combo'); if (cb || ++n > 40) { clearInterval(t); if (cb) { cb.value = lang; cb.dispatchEvent(new Event('change')); } App.render(); } }, 250); }
+  },
+  menu() {
+    const c = Translate.cur();
+    const m = UI.modal('<h3>🌐 الترجمة الآلية</h3><p class="muted" style="font-family:var(--f-ui);font-size:13.5px">المحتوى الأصلي للمنصة باللغة العربية. اختر لغة لترجمة الصفحة آليًا عبر Google Translate (قد لا تكون الترجمة الآلية دقيقة تمامًا في المصطلحات).</p><div class="lang-grid notranslate" translate="no">' +
+      '<button class="btn ' + (c === 'ar' ? 'btn-primary' : 'btn-soft') + '" data-lang="ar">العربية (الأصل)</button>' + Translate.LANGS.map(([k, n]) => '<button class="btn ' + (c === k ? 'btn-primary' : 'btn-ghost') + '" data-lang="' + k + '">' + n + '</button>').join('') + '</div>');
+    $$('[data-lang]', m.el).forEach(b => b.onclick = () => { m.close(); Translate.set(b.getAttribute('data-lang')); });
+  },
+  boot() { if (Translate.cur() !== 'ar') Translate.load(); }
+};
+
+// ---------- إعادة رسم تحافظ على المدخلات والتركيز ----------
+function preserveRender(root, html) {
+  const keep = {}; $$('[data-keep]', root).forEach(el => { keep[el.getAttribute('data-keep')] = el.isContentEditable ? { html: el.innerHTML } : { v: el.value }; });
+  const act = document.activeElement; const actKey = act && act.getAttribute && act.getAttribute('data-keep');
+  let sel = null; if (actKey && act.selectionStart != null) sel = [act.selectionStart, act.selectionEnd];
+  root.innerHTML = html;
+  $$('[data-keep]', root).forEach(el => { const k = keep[el.getAttribute('data-keep')]; if (!k) return; if (k.html != null) el.innerHTML = k.html; else if (el.type !== 'file') el.value = k.v; });
+  if (actKey) { const el = $('[data-keep="' + actKey + '"]', root); if (el) { el.focus(); if (sel && el.setSelectionRange) try { el.setSelectionRange(sel[0], sel[1]); } catch (e) {} } }
+}
+
+// ---------- تنسيق نصوص الشرائح تلقائيًا ----------
+function boldTerm(text) { // يبرز المصطلح قبل ":" أو "-" تلقائيًا
+  const t = String(text || ''); const m = t.match(/^(.{2,70}?)(\s*[:：]\s*|\s+-\s+|\s+-\s+)(.+)$/);
+  return m ? '<b>' + h(m[1]) + '</b>' + h(m[2]) + h(m[3]) : h(t);
+}
+function withLede(html) { // أول جملة من الفقرة بخط عريض
+  if (!html) return '';
+  const d = document.createElement('div'); d.innerHTML = html; const p = d.querySelector('p') || d;
+  const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT); const tn = walker.nextNode();
+  if (!tn) return html;
+  const m = tn.nodeValue.match(/^(.*?[.؟?!:،](?=\s|$))(\s*)([\s\S]*)$/);
+  if (!m || m[1].length < 8) { if (p.firstChild === tn || true) { const b = document.createElement('span'); b.className = 'lede'; tn.parentNode.insertBefore(b, tn); b.appendChild(tn); } return d.innerHTML; }
+  const b = document.createElement('span'); b.className = 'lede'; b.textContent = m[1];
+  tn.parentNode.insertBefore(b, tn); tn.nodeValue = m[2] + m[3];
+  return d.innerHTML;
+}
+function richHtml(v) { if (!v) return ''; return /<[a-z][\s\S]*>/i.test(v) ? sanitize(v) : h(v).replace(/\n/g, '<br>'); }
+function sanitize(html) { // تنظيف محتوى المحرر: التحليل داخل <template> (خامل لا يحمّل صورًا ولا ينفّذ شيئًا)
+  const t = document.createElement('template'); t.innerHTML = String(html || '');
+  t.content.querySelectorAll('script,style,iframe,object,embed,frame,frameset,form,input,button,textarea,select,base,link,meta,svg,math,template,noscript').forEach(x => x.remove());
+  t.content.querySelectorAll('*').forEach(el => { [...el.attributes].forEach(a => { const n = a.name.toLowerCase(); const v = String(a.value || '').replace(/[\u0000- ]/g, '').toLowerCase();
+    if (/^on/.test(n) || n === 'srcdoc' || n === 'style' && /expression|url\(/.test(v) || /(^|:)(href|src|action|formaction|xlink:href)$/.test(n) && /^(javascript|vbscript|data):/.test(v)) el.removeAttribute(a.name); }); });
+  return t.innerHTML;
+}
+
+// ---------- الفيديو المضمَّن ----------
+function toEmbed(url) {
+  if (!url) return null; const u = String(url).trim(); let m;
+  if ((m = u.match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/))) return 'https://www.youtube.com/embed/' + m[1];
+  if ((m = u.match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)/))) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+  if ((m = u.match(/drive\.google\.com\/(?:open|uc)\?(?:.*&)?id=([A-Za-z0-9_-]+)/))) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+  return null;
+}
+function mediaHtml(s) {
+  let out = '';
+  if (s.videoUrl) { const em = toEmbed(s.videoUrl); out += em ? '<div class="video-box"><iframe src="' + h(em) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>' : '<div class="slide-links"><a class="btn btn-ghost btn-sm" href="' + h(s.videoUrl) + '" target="_blank" rel="noopener">' + iconSvg('play', 16) + ' مشاهدة الفيديو</a></div>'; }
+  if (s.srcUrl) out += '<div class="slide-links"><a class="btn btn-soft btn-sm" href="' + h(/^https?:/.test(s.srcUrl) ? s.srcUrl : 'https://' + s.srcUrl) + '" target="_blank" rel="noopener">' + iconSvg('link', 15) + ' ' + h(s.srcLabel || 'مصدر للتوسع') + '</a></div>';
+  return out;
+}
+
+// ---------- عرض شريحة ----------
+function renderSlide(s, a, i, n, cur) {
+  const html = renderSlideBase(s, a, i, n, cur);
+  // السؤال الحي (إن وُجد) يُضاف داخل حاوية الشريحة بعد محتواها، فيظهر في ملء الشاشة ونافذة العرض أيضًا
+  const lv = s && s.live ? LiveSlides.html(s, a, i) : '';
+  return lv ? html.replace(/^<div class="slide /, '<div class="slide has-live ').replace(/<\/div>\s*$/, lv + '</div>') : html;
+}
+function renderSlideBase(s, a, i, n, cur) {
+  const col = Content.color(a); const type = SLIDE_TYPES[s.type] ? s.type : 'principle';
+  if (type === 'design') return DesignKit.render(s, a, i, n, cur, col);
+  const head = '<div class="slide-top"><span class="slide-type"><span class="st-ico">' + (SLIDE_ICONS[type] || '•') + '</span>' + h(SLIDE_TYPES[type]) + '</span><span class="slide-prog"><i style="width:' + ((i + 1) / n * 100).toFixed(1) + '%"></i></span><span class="slide-no num">' + String(i + 1).padStart(2, '0') + '<small>/' + String(n).padStart(2, '0') + '</small></span></div>';
+  const wrap = (inner, cls) => '<div class="slide slide-' + type + (cur ? ' cur' : '') + (cls ? ' ' + cls : '') + '" style="--ac:' + col + ';--acg:' + tint(col, .1) + ';--acd:' + shade(col, -0.35) + '"><span class="slide-wm num" aria-hidden="true">' + String(i + 1).padStart(2, '0') + '</span><div class="slide-in">' + head +
+    (s.image ? '<img class="slide-img" src=\"' + imgSrc(s.image) + '\" alt="">' : '') + '<h2>' + h(s.title) + '</h2>' + inner + '</div></div>';
+  if (SK_TYPES.indexOf(type) > -1) {
+    const chart = s.chart ? '<div class="slide-visual sk-chart">' + Charts.render(s.chart, col) + '</div>' : '';
+    return wrap((chart ? '<div class="sk-split"><div class="sk-main">' + SlideKit[type](s, a, i, col) + '</div>' + chart + '</div>' : SlideKit[type](s, a, i, col)) + mediaHtml(s), chart ? 'vis-chart' : '');
+  }
+  let text = '', visual = '';
+  const chart = s.chart ? Charts.render(s.chart, col) : '';
+  const rule = s.rule ? '<div class="rule-box"><span class="lbl">' + (type === 'opening' || type === 'summary' ? '📌 قاعدة تذكّرها' : '💡 الفكرة الذهبية') + '</span>' + richHtml(s.rule) + '</div>' : '';
+  if (type === 'opening' || type === 'summary') {
+    text = '<div class="slide-text">' + withLede(richHtml(s.text)) + '</div>' + rule;
+    visual = chart || Scenes.render(a.scene || 'idea', col, type === 'summary' ? { style: 'max-width:300px;margin:0 auto' } : {});
+  } else if (type === 'principle') {
+    text = '<div class="slide-text">' + richHtml(s.intro) + '</div>' + (s.points && s.points.length ? '<ul class="points">' + s.points.map((p, k) => '<li style="--i:' + k + '"><span class="n num">' + (k + 1) + '</span><span>' + boldTerm(p) + '</span></li>').join('') + '</ul>' : '') + rule;
+    visual = chart || Scenes.render(a.scene || 'idea', col);
+  } else {
+    const cls = type === 'mistakes' ? 'mis' : type === 'tools' ? 'tool' : 'ex';
+    text = '<div class="pairs ' + cls + '-list">' + (s.items || []).map((it, k) => { const j = String(it).indexOf('::'); const hd = j > -1 ? it.slice(0, j) : it, bd = j > -1 ? it.slice(j + 2) : ''; return '<div class="pair ' + cls + '" style="--i:' + k + '"><div class="h">' + (cls === 'mis' ? '<span class="pm">✕</span>' : cls === 'tool' ? '<span class="pm">🛠</span>' : '<span class="pm num">' + (k + 1) + '</span>') + '<span>' + h(hd.trim()) + '</span></div>' + (bd ? '<div class="b">' + (cls === 'mis' ? '<span class="pm ok">✓</span>' : '') + '<span>' + h(bd.trim()) + '</span></div>' : '') + '</div>'; }).join('') + '</div>' + rule;
+    visual = chart || Scenes.render(type === 'mistakes' ? 'mistakes' : type === 'tools' ? 'tools' : (a.scene || 'idea'), col);
+  }
+  const many = (s.items || []).length + (s.points || []).length;
+  return wrap('<div class="slide-grid"><div>' + text + mediaHtml(s) + '</div><div class="slide-visual">' + visual + '</div></div>', (chart ? 'vis-chart' : 'vis-scene') + (many > 4 ? ' many' : ''));
+}
+
+// ---------- محرر النص المنسّق (contenteditable) ----------
+// نمط ثابت: تتبّع آخر نطاق تحديد داخل المحرر واستعادته عند استخدام أي أداة،
+// دون أي preventDefault على عناصر التحكم الأصلية (القوائم المنسدلة، منتقي اللون وغيرها).
+const RTE = {
+  ranges: {},
+  html(key, value, ph = '') {
+    return '<div class="rte" data-rte="' + h(key) + '"><div class="rte-bar">' +
+      '<select data-rte-cmd="fontSize" title="حجم الخط"><option value="">الحجم</option><option value="2">صغير</option><option value="3">عادي</option><option value="4">متوسط</option><option value="5">كبير</option><option value="6">كبير جدًا</option></select>' +
+      '<input type="color" data-rte-cmd="foreColor" value="#4C3AA7" title="لون النص">' +
+      '<span class="sep"></span><button type="button" data-rte-btn="bold" title="عريض"><b>B</b></button><button type="button" data-rte-btn="italic" title="مائل"><i>I</i></button><button type="button" data-rte-btn="underline" title="تسطير"><u>U</u></button>' +
+      '<span class="sep"></span><button type="button" data-rte-btn="justifyRight" title="محاذاة يمين">يمين</button><button type="button" data-rte-btn="justifyCenter" title="توسيط">≡</button><button type="button" data-rte-btn="justifyLeft" title="محاذاة يسار">يسار</button>' +
+      '<span class="sep"></span><button type="button" data-rte-btn="insertUnorderedList" title="قائمة نقطية">•</button><button type="button" data-rte-btn="insertOrderedList" title="قائمة رقمية">1.</button>' +
+      '<span class="sep"></span><button type="button" data-rte-btn="removeFormat" title="مسح التنسيق">⌫</button>' +
+      '</div><div class="rte-area" contenteditable="true" dir="rtl" data-rte-area="' + h(key) + '" data-ph="' + h(ph) + '">' + (value ? sanitize(richHtml(value)) : '') + '</div></div>';
+  },
+  track(area) { try { const sel = window.getSelection(); if (sel.rangeCount && area.contains(sel.anchorNode)) RTE.ranges[area.getAttribute('data-rte-area')] = sel.getRangeAt(0).cloneRange(); } catch (e) {} },
+  restore(key, area) {
+    const r = RTE.ranges[key]; area.focus();
+    try { const sel = window.getSelection(); sel.removeAllRanges(); if (r) sel.addRange(r); else { const rr = document.createRange(); rr.selectNodeContents(area); rr.collapse(false); sel.addRange(rr); } } catch (e) {}
+  },
+  mount(root) {
+    $$('[data-rte-area]', root).forEach(area => { ['keyup', 'mouseup', 'input', 'focus', 'touchend'].forEach(ev => area.addEventListener(ev, () => RTE.track(area))); });
+    $$('[data-rte]', root).forEach(box => {
+      const key = box.getAttribute('data-rte'); const area = $('[data-rte-area]', box);
+      $$('[data-rte-btn]', box).forEach(b => b.addEventListener('click', () => { RTE.restore(key, area); try { document.execCommand(b.getAttribute('data-rte-btn'), false, null); if (b.getAttribute('data-rte-btn') === 'removeFormat') document.execCommand('unlink', false, null); } catch (e) {} RTE.track(area); }));
+      $$('[data-rte-cmd]', box).forEach(ctrl => ctrl.addEventListener('change', () => { const v = ctrl.value; if (!v) return; RTE.restore(key, area); try { document.execCommand('styleWithCSS', false, ctrl.getAttribute('data-rte-cmd') === 'foreColor'); document.execCommand(ctrl.getAttribute('data-rte-cmd'), false, v); } catch (e) {} RTE.track(area); if (ctrl.tagName === 'SELECT') ctrl.value = ''; }));
+    });
+  },
+  val(root, key) { const a = $('[data-rte-area="' + key + '"]', root); if (!a) return ''; const v = sanitize(a.innerHTML).trim(); return stripHtml(v) ? v : ''; }
+};
+
+// ---------- الصور: ضغط تلقائي عند الرفع + حفظ في مسار مستقل media/ يُحمَّل عند الحاجة ----------
+// المحتوى يحمل مرجعًا قصيرًا «media:المعرف» بدل الصورة نفسها، فتبقى مزامنة المحتوى خفيفة وسريعة.
+const MediaCache = {
+  data: {}, pending: {},
+  get(id) {
+    if (MediaCache.data[id] !== undefined) return MediaCache.data[id];
+    if (!MediaCache.pending[id]) { MediaCache.pending[id] = DB.get('media/' + id).then(v => { MediaCache.data[id] = v || ''; App.onData(); }); }
+    return '';
+  },
+  async loadAll() { const all = (await DB.get('media')) || {}; Object.keys(all).forEach(k => { MediaCache.data[k] = all[k]; }); }
+};
+function imgSrc(v) { if (!v) return ''; v = String(v); v = v.indexOf('media:') === 0 ? MediaCache.get(v.slice(6)) : v; return String(v || '').replace(/"/g, '%22').replace(/</g, '%3C').replace(/>/g, '%3E').replace(/'/g, '%27'); }
+function compressImage(file, o = {}) {
+  const max = o.max || 1600, q = o.q || 0.82;
+  return new Promise((res, rej) => {
+    const rd = new FileReader(); rd.onerror = rej;
+    rd.onload = () => { const im = new Image(); im.onerror = () => res(rd.result); im.onload = () => {
+      const keepPng = /png|gif|svg/.test(file.type) && file.size < 350 * 1024 && im.width <= max; if (keepPng) return res(rd.result);
+      const k = Math.min(1, max / Math.max(im.width, im.height)); const c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+      const x = c.getContext('2d'); if (/png|gif/.test(file.type)) { x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); } x.drawImage(im, 0, 0, c.width, c.height);
+      let out = c.toDataURL('image/webp', q); if (out.indexOf('data:image/webp') !== 0) out = c.toDataURL('image/jpeg', q); res(out.length < rd.result.length ? out : rd.result); }; im.src = rd.result; };
+    rd.readAsDataURL(file);
+  });
+}
+const ImgPick = {
+  data: {},
+  html(key, current) {
+    ImgPick.data[key] = current || '';
+    return '<div class="img-pick" data-img="' + h(key) + '"><img class="thumb" data-img-thumb alt=""><label class="btn btn-ghost btn-sm">📷 اختيار صورة<input type="file" accept="image/*" hidden data-img-file></label><button type="button" class="btn btn-danger btn-xs" data-img-clear>إزالة</button><span class="err" data-img-err></span></div>';
+  },
+  mount(root) {
+    $$('[data-img]', root).forEach(box => {
+      const key = box.getAttribute('data-img'); const th = $('[data-img-thumb]', box), err = $('[data-img-err]', box);
+      const show = () => { const v = imgSrc(ImgPick.data[key]); if (v) { th.src = v; th.style.display = ''; } else { th.removeAttribute('src'); th.style.display = 'none'; } };
+      show(); if (String(ImgPick.data[key] || '').indexOf('media:') === 0) setTimeout(show, 900);
+      $('[data-img-file]', box).addEventListener('change', async e => {
+        const f = e.target.files && e.target.files[0]; err.textContent = ''; if (!f) return;
+        if (!/^image\//.test(f.type)) { err.textContent = 'نوع الملف غير صالح، الصور فقط.'; e.target.value = ''; return; }
+        if (f.size > MAX_IMG_MB * 1024 * 1024) { err.textContent = 'تجاوز الحجم المسموح (' + MAX_IMG_MB + ' ميجابايت كحد أقصى).'; e.target.value = ''; return; }
+        err.textContent = '⏳ جارٍ ضغط الصورة ورفعها';
+        try {
+          const data = await compressImage(f, key === 'brandLogo' ? { max: 800 } : {});
+          if (key === 'brandLogo') { ImgPick.data[key] = data; }
+          else { const id = genId('img'); await DB.set('media/' + id, data); MediaCache.data[id] = data; ImgPick.data[key] = 'media:' + id; }
+          err.textContent = '✅ ' + Math.round(f.size / 1024) + ' KB إلى ' + Math.round(data.length * 0.75 / 1024) + ' KB بعد الضغط'; show();
+        } catch (x) { err.textContent = 'تعذر معالجة الصورة.'; }
+      });
+      $('[data-img-clear]', box).addEventListener('click', () => { ImgPick.data[key] = ''; show(); });
+    });
+  },
+  val(key) { return ImgPick.data[key] || ''; }
+};
+/* ===== 05b-slides.js ===== */
+// ---------------------------------------------------------------------
+// أنماط الشرائح الإبداعية: افتتاحية بالأرقام، خرافة أم حقيقة، موقف وقرار، أرقام تهمّك،
+// إطار عمل، قائمة تحقق، قبل وبعد، ومسار رحلة، مع تفاعلات تُحفظ حالتها في UIState
+// صيغة العناصر في ملفات المحتوى: سطر لكل عنصر وأجزاؤه مفصولة بـ ::
+// ---------------------------------------------------------------------
+const SLIDE_ICONS = { design: '🎨', opening: '🎬', principle: '🧠', examples: '🔎', mistakes: '⚠️', tools: '🧰', summary: '🎯', hook: '⚡', myth: '🃏', scenario: '🧭', numbers: '📊', framework: '🧩', checklist: '✅', versus: '🔁', journey: '🛤️' };
+const SlideKit = {
+  ui(key) { return (UIState.slideUI = UIState.slideUI || {})[key]; },
+  set(key, v) { (UIState.slideUI = UIState.slideUI || {})[key] = v; },
+  parts(it) { return String(it || '').split('::').map(x => x.trim()); },
+  sid(s, a, i) { return (s.id || (a.id + 's' + (i + 1))); },
+  checks(sid) { try { return JSON.parse(SafeLS.get('ec_chk_' + sid) || '{}') || {}; } catch (e) { return {}; } },
+  // ---- كل نمط يعيد HTML محتوى الشريحة كاملًا (بعد العنوان) ----
+  hook(s, a, i, col) {
+    const big = String(s.big || '').trim();
+    return '<div class="sk-hook"><div class="sk-hook-num"><div class="sk-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="bg"/><circle cx="60" cy="60" r="52" class="fg" style="--p:' + (/%/.test(big) && parseFloat(big) ? Math.min(100, parseFloat(big)) : 100) + '"/></svg><b class="num">' + h(big) + '</b></div>' + (s.label ? '<div class="sk-hook-lbl">' + h(s.label) + '</div>' : '') + (s.src ? '<div class="sk-src">المصدر: ' + h(s.src) + '</div>' : '') + '</div>' +
+      '<div class="sk-hook-txt"><div class="slide-text">' + withLede(richHtml(s.text)) + '</div>' + (s.rule ? '<div class="sk-ask"><span>🎤 سؤال للقاعة</span>' + richHtml(s.rule) + '</div>' : '') + '</div></div>';
+  },
+  myth(s, a, i) {
+    const sid = SlideKit.sid(s, a, i);
+    return (s.intro ? '<div class="slide-text">' + richHtml(s.intro) + '</div>' : '') + '<div class="sk-myths">' + arr(s.items).map((it, k) => { const [m, f] = SlideKit.parts(it); const on = SlideKit.ui(sid + ':m' + k);
+      return '<button class="sk-flip ' + (on ? 'on' : '') + '" data-act="sk-flip" data-k="' + h(sid + ':m' + k) + '" aria-pressed="' + (on ? 'true' : 'false') + '"><span class="sk-face front"><em>خرافة شائعة</em><b>«' + h(m) + '»</b><small>اضغط لتكشف الحقيقة</small></span><span class="sk-face back"><em>الحقيقة</em><b>' + h(f || '') + '</b></span></button>'; }).join('') + '</div>' + SlideKit.rule(s);
+  },
+  scenario(s, a, i) {
+    const sid = SlideKit.sid(s, a, i); const pick = SlideKit.ui(sid + ':pick');
+    const opts = arr(s.items).map(it => { let t = String(it); const best = t.trim().startsWith('*'); if (best) t = t.trim().slice(1); const [o, fb] = SlideKit.parts(t); return { o, fb, best }; });
+    return '<div class="sk-scn"><div class="sk-scn-case"><span class="sk-tag">📍 الموقف</span>' + richHtml(s.text) + '</div><div class="sk-scn-q">ماذا تفعل؟ اختر قرارك:</div><div class="sk-opts">' +
+      opts.map((x, k) => { const chosen = pick === k; const cls = pick == null ? '' : (x.best ? 'best' : chosen ? 'wrong' : 'dim');
+        return '<button class="sk-opt ' + cls + (chosen ? ' chosen' : '') + '" data-act="sk-pick" data-k="' + h(sid) + '" data-i="' + k + '"><span class="sk-l">' + LETTERS[k] + '</span><span class="grow"><b>' + h(x.o) + '</b>' + (pick != null && (chosen || x.best) && x.fb ? '<small>' + (x.best ? '✅ ' : '⚠️ ') + h(x.fb) + '</small>' : '') + '</span></button>'; }).join('') + '</div>' +
+      (pick != null ? SlideKit.rule(s) + '<button class="btn btn-ghost btn-xs" data-act="sk-pick" data-k="' + h(sid) + '" data-i="-1">🔄 جرّب مرة أخرى</button>' : '') + '</div>';
+  },
+  numbers(s) {
+    const its = arr(s.items).map(SlideKit.parts);
+    return (s.intro ? '<div class="slide-text">' + richHtml(s.intro) + '</div>' : '') + '<div class="sk-nums">' + its.map((p, k) => '<div class="sk-num" style="--i:' + k + '"><b class="num' + (String(p[0]).length > 6 ? ' long' : '') + '">' + h(p[0]) + '</b><span>' + h(p[1] || '') + '</span>' + (p[2] ? '<small>' + h(p[2]) + '</small>' : '') + '</div>').join('') + '</div>' + (s.src ? '<div class="sk-src">المصادر: ' + h(s.src) + '</div>' : '') + SlideKit.rule(s);
+  },
+  framework(s) {
+    const its = arr(s.items).map(SlideKit.parts);
+    return (s.big ? '<div class="sk-fw-name notranslate" translate="no">' + h(s.big) + '</div>' : '') + (s.intro ? '<div class="slide-text">' + richHtml(s.intro) + '</div>' : '') +
+      '<div class="sk-fw" style="--n:' + its.length + '">' + its.map((p, k) => '<div class="sk-fw-col" style="--i:' + k + '"><span class="sk-fw-l notranslate" translate="no">' + h(p[0]) + '</span><b>' + h(p[1] || '') + '</b><p>' + h(p[2] || '') + '</p></div>').join('') + '</div>' + SlideKit.rule(s);
+  },
+  checklist(s, a, i) {
+    const sid = SlideKit.sid(s, a, i); const st = SlideKit.checks(sid); const its = arr(s.items).map(SlideKit.parts); const done = its.filter((_, k) => st[k]).length; const pct = its.length ? Math.round(done / its.length * 100) : 0;
+    return '<div class="sk-chk-head">' + (s.intro ? '<div class="slide-text grow">' + richHtml(s.intro) + '</div>' : '<span class="grow"></span>') + '<div class="sk-chk-ring" data-chk-ring="' + h(sid) + '" style="--p:' + pct + '"><b class="num">' + done + '/' + its.length + '</b><small>الجاهزية</small></div></div>' +
+      '<div class="sk-chk">' + its.map((p, k) => '<label class="sk-chk-it ' + (st[k] ? 'on' : '') + '"><input type="checkbox" data-chk="' + h(sid) + '" data-i="' + k + '" ' + (st[k] ? 'checked' : '') + '><span class="box"></span><span class="grow"><b>' + h(p[0]) + '</b>' + (p[1] ? '<small>' + h(p[1]) + '</small>' : '') + '</span></label>').join('') + '</div>' + SlideKit.rule(s);
+  },
+  versus(s, a, i) {
+    const sid = SlideKit.sid(s, a, i); const after = !!SlideKit.ui(sid + ':vs'); const its = arr(s.items).map(SlideKit.parts);
+    return (s.intro ? '<div class="slide-text">' + richHtml(s.intro) + '</div>' : '') + '<div class="sk-vs ' + (after ? 'after' : '') + '" data-vs="' + h(sid) + '"><div class="sk-vs-sw"><button data-act="sk-vs" data-k="' + h(sid) + '" data-v="0" class="' + (after ? '' : 'on') + '">😐 قبل</button><button data-act="sk-vs" data-k="' + h(sid) + '" data-v="1" class="' + (after ? 'on' : '') + '">🚀 بعد التحسين</button></div>' +
+      its.map(p => '<div class="sk-vs-row"><span class="sk-vs-k">' + h(p[0]) + '</span><span class="sk-vs-v"><span class="b4">' + h(p[1] || '') + '</span><span class="af">' + h(p[2] || '') + '</span></span></div>').join('') + '</div>' + SlideKit.rule(s);
+  },
+  journey(s) {
+    const its = arr(s.items).map(SlideKit.parts);
+    return (s.intro ? '<div class="slide-text">' + richHtml(s.intro) + '</div>' : '') + '<div class="sk-jr">' + its.map((p, k) => '<div class="sk-jr-st" style="--i:' + k + '"><span class="sk-jr-dot">' + h(p[0]) + '</span><span class="sk-jr-n num">' + String(k + 1).padStart(2, '0') + '</span><b>' + h(p[1] || '') + '</b><p>' + h(p[2] || '') + '</p></div>').join('') + '</div>' + SlideKit.rule(s);
+  },
+  rule(s) { return s.rule ? '<div class="rule-box"><span class="lbl">💡 الفكرة الذهبية</span>' + richHtml(s.rule) + '</div>' : ''; }
+};
+// خطوات الكشف داخل الشريحة (تُحرَّك بزر التالي/السابق في المؤشر): بطاقات الخرافة، قبل/بعد، اختيار الموقف
+SlideKit.steps = function (s, a, i) {
+  const sid = SlideKit.sid(s, a, i);
+  if (s.type === 'myth') return arr(s.items).map((_, k) => ({ key: sid + ':m' + k, on: true, off: false, isOn: () => !!SlideKit.ui(sid + ':m' + k) }));
+  if (s.type === 'versus') return [{ key: sid + ':vs', on: true, off: false, isOn: () => !!SlideKit.ui(sid + ':vs') }];
+  if (s.type === 'scenario') { const items = arr(s.items); let best = items.findIndex(t => String(t).trim().startsWith('*')); if (best < 0) best = 0; return [{ key: sid + ':pick', on: best, off: null, isOn: () => SlideKit.ui(sid + ':pick') != null }]; }
+  return [];
+};
+const SK_TYPES = ['hook', 'myth', 'scenario', 'numbers', 'framework', 'checklist', 'versus', 'journey'];
+
+// تفاعلات الشرائح دون إعادة رسم الصفحة (حتى لا تتحرك الشريحة الحالية)
+document.addEventListener('click', ev => {
+  const t = ev.target.closest('[data-act^="sk-"]'); if (!t) return;
+  const act = t.getAttribute('data-act'); const k = t.getAttribute('data-k');
+  const slide = t.closest('.slide'); const deck = t.closest('[data-deck]');
+  const did = deck && deck.getAttribute('data-deck');
+  const rerender = () => { if (!slide || !deck) return; const idx = $$('.slide', deck).indexOf(slide); if (idx > -1) Deck.refresh(did, idx); };
+  const sync = (key, v) => { if (did && Deck.bc) try { Deck.bc.postMessage({ t: 'sk', id: did, k: key, v }); } catch (e) {} };
+  if (act === 'sk-flip') { const v = !SlideKit.ui(k); SlideKit.set(k, v); sync(k, v); t.classList.toggle('on', v); t.setAttribute('aria-pressed', v ? 'true' : 'false'); }
+  else if (act === 'sk-pick') { const i = +t.getAttribute('data-i'); SlideKit.set(k + ':pick', i < 0 ? null : i); sync(k + ':pick', i < 0 ? null : i); rerender(); }
+  else if (act === 'sk-vs') { const v = t.getAttribute('data-v') === '1'; SlideKit.set(k + ':vs', v); sync(k + ':vs', v); const box = t.closest('.sk-vs'); box.classList.toggle('after', v); $$('.sk-vs-sw button', box).forEach(b => b.classList.toggle('on', (b.getAttribute('data-v') === '1') === v)); }
+});
+document.addEventListener('change', ev => {
+  const cb = ev.target.closest('[data-chk]'); if (!cb) return;
+  const sid = cb.getAttribute('data-chk'); const st = SlideKit.checks(sid); st[cb.getAttribute('data-i')] = cb.checked; SafeLS.set('ec_chk_' + sid, JSON.stringify(st));
+  cb.closest('.sk-chk-it').classList.toggle('on', cb.checked);
+  const all = $$('[data-chk="' + CSS.escape(sid) + '"]'); const done = all.filter(x => x.checked).length; const ring = $('[data-chk-ring="' + CSS.escape(sid) + '"]');
+  if (ring) { ring.style.setProperty('--p', Math.round(done / all.length * 100)); $('b', ring).textContent = done + '/' + all.length; }
+  if (done === all.length && all.length) UI.toast('🎉 أحسنت! أكملت القائمة كاملة');
+});
+/* ===== 05c-designs.js ===== */
+// ---------------------------------------------------------------------
+// شرائح التصميم الحر (type: 'design'): تخطيطات بصرية مصممة لشاشة اللابتوب والبروجكتر بنسبة 16:9
+// كل شريحة: { layout, kicker, title, text, items[], rule, scene }
+// العناصر سطر لكل عنصر وأجزاؤها مفصولة بـ ::  (والقوائم داخل الجزء الواحد بـ ; )
+// ---------------------------------------------------------------------
+const DESIGN_LAYOUTS = {
+  cover: 'غلاف (افتتاح محور أو جلسة)', statement: 'عبارة كبيرة', bento: 'شبكة بطاقات (Bento)', duo: 'مقارنة لوحين',
+  prompt: 'أمر في نافذة محرر', path: 'مسار خطوات', stats: 'أرقام كبيرة', quote: 'اقتباس', matrix: 'مصفوفة 2×2',
+  chat: 'محادثة', icons: 'قائمة بأيقونات', split: 'نص مع مشهد', table: 'جدول', agenda: 'جدول الجلسة'
+};
+const DESIGN_HELP = {
+  cover: 'رمز :: وسم قصير (حتى 4)', statement: 'لا عناصر؛ النص الرئيسي هو العبارة (ضع الكلمة المميزة بين ** **)', bento: 'رمز :: عنوان :: وصف (الأول يظهر أكبر)',
+  duo: 'وسم :: عنوان :: سطر; سطر; سطر (عنصران: الأول ضعيف والثاني قوي)', prompt: 'اسم الجزء :: شرحه (النص الرئيسي هو الأمر، والأقواس [ ] تُبرز)', path: 'رمز :: عنوان :: وصف',
+  stats: 'الرقم :: ما يعنيه :: ملاحظة', quote: 'لا عناصر؛ النص اقتباس والرسالة اسم القائل', matrix: 'عنوان :: وصف (4 عناصر بالترتيب: أعلى يمين، أعلى يسار، أسفل يمين، أسفل يسار)؛ النص: المحور الأفقي :: المحور الرأسي',
+  chat: 'me أو ai أو cust :: الرسالة', icons: 'رمز :: عنوان :: وصف', split: 'نقطة :: توضيح', table: 'خلايا الصف مفصولة بـ ; (الصف الأول عناوين)', agenda: 'الوقت :: النشاط :: تفصيل'
+};
+const DesignKit = {
+  P(it) { return String(it == null ? '' : it).split('::').map(x => x.trim()); },
+  mark(t) { return h(t).replace(/\*\*(.+?)\*\*/g, '<mark>$1</mark>').replace(/\n/g, '<br>'); },
+  rich(t) { const s = String(t || ''); return /<[a-z][\s\S]*>/i.test(s) ? richHtml(s) : DesignKit.mark(s.replace(/^<p>|<\/p>$/g, '')); },
+  i(k) { return ' style="--i:' + k + '"'; },
+  rule(s) { return s.rule ? '<div class="dz-rule">' + DesignKit.rich(s.rule) + '</div>' : ''; },
+  head(s) { return (s.kicker ? '<div class="dz-kicker">' + h(s.kicker) + '</div>' : '') + (s.title ? '<h2 class="dz-title">' + DesignKit.mark(s.title) + '</h2>' : ''); },
+  L: {
+    cover(s, a, col) {
+      const its = arr(s.items).map(DesignKit.P);
+      return '<div class="dz-cover"><div class="dz-cover-txt">' + (s.kicker ? '<div class="dz-pill">' + h(s.kicker) + '</div>' : '') + '<h2 class="dz-cover-t">' + DesignKit.mark(s.title) + '</h2>' +
+        (s.text ? '<div class="dz-cover-sub">' + DesignKit.rich(s.text) + '</div>' : '') +
+        (its.length ? '<div class="dz-chips">' + its.map((p, k) => '<span' + DesignKit.i(k) + '>' + h(p[0]) + (p[1] ? ' <b>' + h(p[1]) + '</b>' : '') + '</span>').join('') + '</div>' : '') + '</div>' +
+        '<div class="dz-cover-art"><div class="dz-blob"></div>' + Scenes.render(s.scene || a.scene || 'idea', col) + '</div></div>';
+    },
+    statement(s) {
+      return '<div class="dz-statement">' + (s.kicker ? '<div class="dz-kicker">' + h(s.kicker) + '</div>' : '') + (s.title ? '<div class="dz-st-label">' + DesignKit.mark(s.title) + '</div>' : '') +
+        '<div class="dz-st-big">' + DesignKit.rich(s.text) + '</div>' + (s.rule ? '<div class="dz-st-cap">' + DesignKit.rich(s.rule) + '</div>' : '') + '</div>';
+    },
+    bento(s) {
+      const its = arr(s.items).map(DesignKit.P);
+      return DesignKit.head(s) + (s.text ? '<div class="dz-lead">' + DesignKit.rich(s.text) + '</div>' : '') + '<div class="dz-bento n' + its.length + '">' + its.map((p, k) => '<div class="dz-bx' + (k === 0 ? ' big' : '') + '"' + DesignKit.i(k) + '><span class="dz-e">' + h(p[0]) + '</span><b>' + h(p[1] || '') + '</b>' + (p[2] ? '<p>' + h(p[2]) + '</p>' : '') + '</div>').join('') + '</div>' + DesignKit.rule(s);
+    },
+    duo(s) {
+      const its = arr(s.items).map(DesignKit.P).slice(0, 2);
+      return DesignKit.head(s) + (s.text ? '<div class="dz-lead">' + DesignKit.rich(s.text) + '</div>' : '') + '<div class="dz-duo">' + its.map((p, k) => '<div class="dz-dp ' + (k ? 'good' : 'weak') + '"' + DesignKit.i(k) + '><span class="dz-dtag">' + (k ? '✅ ' : '✖️ ') + h(p[0]) + '</span><b>' + DesignKit.mark(p[1] || '') + '</b>' +
+        (p[2] ? '<ul>' + p[2].split(';').map(x => x.trim()).filter(Boolean).map(x => '<li>' + h(x) + '</li>').join('') + '</ul>' : '') + '</div>' + (k === 0 ? '<div class="dz-vs">مقابل</div>' : '')).join('') + '</div>' + DesignKit.rule(s);
+    },
+    prompt(s) {
+      const lines = String(s.text || '').replace(/<\/?p>/g, '').replace(/<br\s*\/?>/g, '\n').split('\n');
+      const its = arr(s.items).map(DesignKit.P);
+      const code = lines.map((l, k) => '<div class="dz-ln"><i class="num">' + (k + 1) + '</i><span>' + (h(l).replace(/\[([^\]]+)\]/g, '<em>[$1]</em>') || '&nbsp;') + '</span></div>').join('');
+      return DesignKit.head(s) + '<div class="dz-prompt' + (its.length ? '' : ' solo') + '"><div class="dz-ed"><div class="dz-ed-bar"><i></i><i></i><i></i><span>Prompt</span></div><div class="dz-ed-body">' + code + '</div></div>' +
+        (its.length ? '<div class="dz-notes">' + its.map((p, k) => '<div class="dz-note"' + DesignKit.i(k) + '><span class="num">' + (k + 1) + '</span><div><b>' + h(p[0]) + '</b>' + (p[1] ? '<p>' + h(p[1]) + '</p>' : '') + '</div></div>').join('') + '</div>' : '') + '</div>' + DesignKit.rule(s);
+    },
+    path(s) {
+      const its = arr(s.items).map(DesignKit.P);
+      return DesignKit.head(s) + (s.text ? '<div class="dz-lead">' + DesignKit.rich(s.text) + '</div>' : '') + '<div class="dz-path n' + its.length + '">' + its.map((p, k) => '<div class="dz-st"' + DesignKit.i(k) + '><div class="dz-st-n"><span class="num">' + String(k + 1).padStart(2, '0') + '</span><em>' + h(p[0]) + '</em></div><b>' + h(p[1] || '') + '</b>' + (p[2] ? '<p>' + h(p[2]) + '</p>' : '') + '</div>').join('') + '</div>' + DesignKit.rule(s);
+    },
+    stats(s) {
+      const its = arr(s.items).map(DesignKit.P);
+      return DesignKit.head(s) + (s.text ? '<div class="dz-lead">' + DesignKit.rich(s.text) + '</div>' : '') + '<div class="dz-stats">' + its.map((p, k) => '<div class="dz-stat"' + DesignKit.i(k) + '><b class="' + (/[؀-ۿ]/.test(p[0]) ? '' : 'num') + '">' + h(p[0]) + '</b><span>' + h(p[1] || '') + '</span>' + (p[2] ? '<small>' + h(p[2]) + '</small>' : '') + '</div>').join('') + '</div>' + DesignKit.rule(s);
+    },
+    quote(s) {
+      return '<div class="dz-quote"><span class="dz-qmark">”</span>' + (s.title ? '<div class="dz-kicker">' + DesignKit.mark(s.title) + '</div>' : '') + '<blockquote>' + DesignKit.rich(s.text) + '</blockquote>' + (s.rule ? '<cite>' + DesignKit.rich(s.rule) + '</cite>' : '') + '</div>';
+    },
+    matrix(s) {
+      const its = arr(s.items).map(DesignKit.P); const ax = DesignKit.P(String(s.text || '').replace(/<\/?p>/g, ''));
+      return DesignKit.head(s) + '<div class="dz-mx"><div class="dz-mx-y">' + h(ax[1] || '') + '</div><div class="dz-mx-g">' + its.slice(0, 4).map((p, k) => '<div class="dz-q q' + k + '"' + DesignKit.i(k) + '><b>' + h(p[0]) + '</b>' + (p[1] ? '<p>' + h(p[1]) + '</p>' : '') + '</div>').join('') + '</div><div class="dz-mx-x">' + h(ax[0] || '') + '</div></div>' + DesignKit.rule(s);
+    },
+    chat(s) {
+      const its = arr(s.items).map(DesignKit.P);
+      const who = { me: 'أنت', ai: 'الذكاء الاصطناعي', cust: 'العميل', bot: 'المساعد' };
+      return '<div class="dz-chatwrap"><div class="dz-chat-side">' + DesignKit.head(s) + (s.text ? '<div class="dz-lead">' + DesignKit.rich(s.text) + '</div>' : '') + DesignKit.rule(s) + '</div><div class="dz-phone"><div class="dz-phone-top">💬 ' + h(s.chatTitle || 'محادثة') + '</div><div class="dz-msgs">' +
+        its.map((p, k) => '<div class="dz-msg ' + h(p[0]) + '"' + DesignKit.i(k) + '><small>' + h(who[p[0]] || p[0]) + '</small>' + DesignKit.mark(p[1] || '') + '</div>').join('') + '</div></div></div>';
+    },
+    icons(s) {
+      const its = arr(s.items).map(DesignKit.P);
+      return DesignKit.head(s) + (s.text ? '<div class="dz-lead">' + DesignKit.rich(s.text) + '</div>' : '') + '<div class="dz-icons' + (its.length > 4 ? ' two' : '') + '">' + its.map((p, k) => '<div class="dz-ic"' + DesignKit.i(k) + '><span class="dz-e">' + h(p[0]) + '</span><div><b>' + h(p[1] || '') + '</b>' + (p[2] ? '<p>' + h(p[2]) + '</p>' : '') + '</div></div>').join('') + '</div>' + DesignKit.rule(s);
+    },
+    split(s, a, col) {
+      const its = arr(s.items).map(DesignKit.P);
+      return '<div class="dz-split"><div>' + DesignKit.head(s) + (s.text ? '<div class="dz-lead big">' + DesignKit.rich(s.text) + '</div>' : '') + (its.length ? '<ul class="dz-ul">' + its.map((p, k) => '<li' + DesignKit.i(k) + '><b>' + h(p[0]) + '</b>' + (p[1] ? '<span>' + h(p[1]) + '</span>' : '') + '</li>').join('') + '</ul>' : '') + DesignKit.rule(s) + '</div><div class="dz-split-art">' + Scenes.render(s.scene || a.scene || 'idea', col) + '</div></div>';
+    },
+    table(s) {
+      const rows = arr(s.items).map(r => String(r).split(';').map(x => x.trim()));
+      return DesignKit.head(s) + (s.text ? '<div class="dz-lead">' + DesignKit.rich(s.text) + '</div>' : '') + '<div class="dz-tbl"><table><thead><tr>' + (rows[0] || []).map(c => '<th>' + h(c) + '</th>').join('') + '</tr></thead><tbody>' + rows.slice(1).map((r, k) => '<tr' + DesignKit.i(k) + '>' + r.map(c => '<td>' + h(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' + DesignKit.rule(s);
+    },
+    agenda(s) {
+      const its = arr(s.items).map(DesignKit.P);
+      return DesignKit.head(s) + (s.text ? '<div class="dz-lead">' + DesignKit.rich(s.text) + '</div>' : '') + '<div class="dz-agenda">' + its.map((p, k) => '<div class="dz-ag"' + DesignKit.i(k) + '><span class="dz-ag-t num">' + h(p[0]) + '</span><span class="dz-ag-dot"></span><div><b>' + h(p[1] || '') + '</b>' + (p[2] ? '<p>' + h(p[2]) + '</p>' : '') + '</div></div>').join('') + '</div>' + DesignKit.rule(s);
+    }
+  },
+  render(s, a, i, n, cur, col) {
+    const lay = DesignKit.L[s.layout] ? s.layout : 'bento';
+    const top = '<div class="dz-top"><span class="dz-axis">' + h(a.title || '') + '</span><span class="slide-prog"><i style="width:' + ((i + 1) / n * 100).toFixed(1) + '%"></i></span><span class="slide-no num">' + String(i + 1).padStart(2, '0') + '<small>/' + String(n).padStart(2, '0') + '</small></span></div>';
+    return '<div class="slide slide-design lay-' + lay + (cur ? ' cur' : '') + '" style="--ac:' + col + ';--acg:' + tint(col, .1) + ';--acd:' + shade(col, -0.35) + ';--acl:' + tint(col, .18) + '"><div class="slide-in">' + top +
+      (s.image ? '<img class="slide-img" src="' + imgSrc(s.image) + '" alt="">' : '') + DesignKit.L[lay](s, a, col) + mediaHtml(s) + '</div></div>';
+  },
+  pdf(s, col) {
+    const its = arr(s.items).map(DesignKit.P);
+    const txt = s.text ? '<div class="j" style="' + (s.layout === 'statement' || s.layout === 'quote' ? 'font-size:1.3em;font-weight:700' : '') + '">' + (s.layout === 'prompt' ? '<pre style="white-space:pre-wrap;font-family:IBM Plex Sans Arabic;background:#16123A;color:#EDEBFF;border-radius:12px;padding:10px;font-size:.85em">' + h(String(s.text).replace(/<\/?p>/g, '')) + '</pre>' : DesignKit.rich(s.text)) + '</div>' : '';
+    const list = s.layout === 'table' ? '<table style="width:100%;border-collapse:collapse;font-size:.85em">' + arr(s.items).map((r, k) => '<tr>' + String(r).split(';').map(c => '<td style="border:1px solid #DDD;padding:4px;' + (k ? '' : 'background:' + tint(col, .15) + ';font-weight:700') + '">' + h(c.trim()) + '</td>').join('') + '</tr>').join('') + '</table>' :
+      its.map(p => '<div style="margin:5px 0;padding:6px 10px;border-radius:10px;background:' + tint(col, .08) + '"><b>' + h(p.length > 2 || s.layout === 'cover' || s.layout === 'bento' || s.layout === 'path' || s.layout === 'icons' ? p[0] + ' ' + (p[1] || '') : p[0]) + '</b>' + (p.length > 2 ? '<div style="color:#4E4A70;font-size:.9em">' + h(p.slice(2).join(' ')).replace(/;/g, '، ') + '</div>' : p[1] && !(s.layout === 'cover' || s.layout === 'bento' || s.layout === 'path' || s.layout === 'icons') ? '<span style="color:#4E4A70">: ' + h(p[1]) + '</span>' : '') + '</div>').join('');
+    return (s.kicker ? '<div style="color:' + col + ';font-weight:700;font-size:.9em">' + h(s.kicker) + '</div>' : '') + txt + list;
+  }
+};
+/* ===== 06-views.js ===== */
+// ---------------------------------------------------------------------
+// الشاشات العامة: الدخول، الرئيسية، المحور، التمرين، المختبر، حسابي
+// ---------------------------------------------------------------------
+const Views = {};
+
+// ============ الرئيسية ============
+function axisArt(a, big) {
+  const col = Content.color(a);
+  if (a.image) return '<div class="axis-art"><img src=\"' + imgSrc(a.image) + '\" alt=""></div>';
+  return '<div class="axis-art" style="background:linear-gradient(135deg,' + col + ',' + shade(col, -0.35) + ')">' + decorShapes(a.id) + '<div class="axis-icon">' + iconSvg(a.icon || 'star', big ? 44 : 38, '#fff', 1.8) + '</div></div>';
+}
+function decorShapes(seed, op = .16) {
+  let s = 0; for (const ch of String(seed)) s = (s * 31 + ch.charCodeAt(0)) % 9973; const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  let out = '<svg class="decor" viewBox="0 0 300 150" preserveAspectRatio="xMidYMid slice" width="100%" height="100%">';
+  for (let i = 0; i < 7; i++) { const x = rnd() * 300, y = rnd() * 150, r = 10 + rnd() * 34; out += rnd() > .5 ? '<circle cx="' + x.toFixed(0) + '" cy="' + y.toFixed(0) + '" r="' + r.toFixed(0) + '" fill="#fff" opacity="' + (op * (0.5 + rnd())).toFixed(2) + '"/>' : '<rect x="' + x.toFixed(0) + '" y="' + y.toFixed(0) + '" width="' + (r * 1.4).toFixed(0) + '" height="' + (r * 1.4).toFixed(0) + '" rx="' + (r * .35).toFixed(0) + '" fill="#fff" opacity="' + (op * (0.5 + rnd())).toFixed(2) + '" transform="rotate(' + (rnd() * 40 - 20).toFixed(0) + ' ' + x.toFixed(0) + ' ' + y.toFixed(0) + ')"/>'; }
+  return out + '</svg>';
+}
+function secHead(sec, extra = '') { return '<div class="sec-head"><div>' + (sec.kicker ? '<div class="sec-kicker">' + h(sec.kicker) + '</div>' : '') + '<h2 class="sec-title">' + h(sec.title || '') + '</h2></div>' + extra + '</div>'; }
+function assessCardHtml(ph) {
+  const A = Content.assess(); const open = Assess.isOpen(ph); const r = Me.uid() ? Assess.rec(ph, Me.uid()) : null; const n = A.items.length;
+  const lbl = ph === 'pre' ? 'التقييم القبلي' : 'التقييم البعدي'; const sub = ph === 'pre' ? 'قبل بدء التدريب' : 'بعد انتهاء التدريب';
+  const st = r && r.done ? '<span class="pill ok-pill">✅ أنجزته' + (Assess.cfg().reveal ? ' · <span class="num">' + Assess.score(r.answers) + '/' + n + '</span>' : '') + '</span>' : open ? '<span class="pill open-pill">🟢 متاح الآن</span>' : '<span class="pill">🔒 مغلق حاليًا</span>';
+  return '<button class="act-card assess-card ' + (open || (r && r.done) ? '' : 'dim') + '" data-go="assess" data-id="' + ph + '"><div class="act-ico">' + (ph === 'pre' ? '🧭' : '🏁') + '</div><div class="grow"><h3>' + lbl + '</h3><div class="muted" style="font-size:13.5px;font-family:var(--f-ui)">' + sub + ' · <span class="num">' + n + '</span> أسئلة اختيار من متعدد</div><div style="margin-top:6px">' + st + '</div></div></button>';
+}
+function storyCard(st) {
+  const col = AXIS_COLORS[st.color % AXIS_COLORS.length];
+  return '<button class="story-card" data-go="story" data-id="' + h(st.id) + '" style="--ac:' + col + '"><div class="story-art">' + (st.image ? '<img src=\"' + imgSrc(st.image) + '\" alt="">' : Scenes.render(st.scene || 'idea', col)) + '<span class="story-flag">' + h(st.flag || '') + ' ' + h(st.country || '') + '</span></div><div class="story-body"><span class="story-sector">' + h(st.sector || '') + (st.year ? ' · <span class="num">' + h(st.year) + '</span>' : '') + '</span><h3>' + h(st.title) + '</h3><p>' + h(clip(stripHtml(st.summary), 150)) + '</p><span class="story-more">اقرأ القصة</span></div></button>';
+}
+function homeSectionHtml(sec) {
+  const k = sec.key;
+  if (k === 'stories') { const list = Content.stories(); if (!list.length) return ''; return '<section class="section">' + secHead(sec, '<span class="pill">قصص حقيقية منشورة مع مصادرها</span>') + '<div class="story-grid">' + list.map(storyCard).join('') + '</div></section>'; }
+  if (k === 'assess') { const A = Content.assess(); if (!A.items.length) return ''; return '<section class="section">' + secHead(sec) + '<div class="act-grid">' + assessCardHtml('pre') + assessCardHtml('post') + '</div></section>'; }
+  if (k === 'activities') { const acts = Content.activities(); if (!acts.length) return ''; return '<section class="section">' + secHead(sec) + '<div class="act-grid">' + acts.map(e => '<button class="act-card" data-go="ex" data-id="' + h(e.id) + '"><div class="act-ico">' + h(e.icon || '✨') + '</div><div><h3>' + h(e.title) + '</h3><div class="muted" style="font-size:13.5px;font-family:var(--f-ui)">' + h(clip(stripHtml(e.scenario || e.task), 90)) + '</div></div></button>').join('') + '</div></section>'; }
+  if (k === 'axes') {
+    const axes = Content.axes(); if (!axes.length) return '';
+    return '<section class="section">' + secHead(sec, '<span class="pill">اضغط أي محور لفتح شرائحه وتمارينه</span>') + '<div class="axis-grid">' +
+      axes.map((a, i) => { const unitHead = (i === 0 || axes[i - 1].unit !== a.unit) ? '<div class="unit-head"><span class="unit-no">' + h(Content.unitKicker(a.unit) || 'محاور إضافية') + '</span><h3>' + h(Content.unitName(a.unit) || 'محاور أُضيفت للبرنامج') + '</h3></div>' : ''; const exs = Content.exercisesOf(a.id).length; const done = Me.isReg() && exs ? Content.exercisesOf(a.id).filter(e => Progress.exDone(e, Me.uid())).length : 0; return unitHead + '<button class="axis-card ' + (a._disabled ? 'disabled' : '') + '" data-act="open-axis" data-id="' + h(a.id) + '">' + (a._disabled ? '<span class="soon-badge">قريبًا</span>' : '') + axisArt(a) + '<span class="axis-no">' + h(Content.unitName(a.unit) || 'محور إضافي') + '</span><div class="axis-body"><div class="axis-title">' + h(a.title) + '</div>' + (a.classic ? '<div class="axis-classic">' + h(a.classic) + '</div>' : '') + '<div class="axis-desc">' + richHtml(a.desc) + '</div><div class="axis-meta"><span class="pill">🎞️ <span class="num">' + a.slides.length + '</span> شريحة</span><span class="pill">✍️ <span class="num">' + exs + '</span> تمرين</span>' + (a.duration ? '<span class="pill">⏱ ' + h(a.duration) + '</span>' : '') + (done ? '<span class="pill ok-pill">✔ <span class="num">' + done + '/' + exs + '</span></span>' : '') + '</div></div></button>'; }).join('') + '</div></section>';
+  }
+  if (k === 'lab') { const L = Content.lab(); if (!L.stages.length) return ''; return '<section class="section"><div class="lab-banner" data-go="lab"><div class="lab-ico">🧪</div><div class="grow"><div class="sec-kicker" style="color:#F34D00">' + h(sec.kicker || '') + ' · <span class="num">' + (L.stages.length * L.minutes) + '</span> دقيقة</div><h3>' + h(sec.title || L.title) + '</h3><p><span class="num">' + L.stages.length + '</span> مراحل بمؤقّت حي لكل مجموعة، تجمع كل محاور البرنامج في خطة تحسين واحدة.</p></div><span class="btn btn-primary">ادخل المختبر</span></div></section>'; }
+  if (k === 'leaderboard') { if (!Points.cfg().enabled) return ''; return '<section class="section">' + secHead(sec) + leaderboardHtml(5) + '</section>'; }
+  if (k === 'tools') return '<section class="section">' + secHead(sec) + '<div class="act-grid"><button class="act-card" data-go="tools"><div class="act-ico">🧮</div><div><h3>' + TOOLS.length + ' حاسبات عملية</h3><div class="muted" style="font-size:13.5px;font-family:var(--f-ui)">' + TOOLS.map(t => t.title.split(':')[0]).join('، ') + '.</div></div></button><button class="act-card" data-go="tools"><div class="act-ico">📚</div><div><h3>مكتبة القوالب</h3><div class="muted" style="font-size:13.5px;font-family:var(--f-ui)">' + TEMPLATES.map(t => t.title.replace(/^(ورقة|بطاقة|قائمة) /, '')).join('، ') + '، Word وPDF.</div></div></button></div></section>';
+  if (k === 'survey') { const survey = Content.survey(); if (!survey) return ''; return '<section class="section">' + secHead(sec) + '<button class="act-card" style="width:100%" data-go="ex" data-id="' + h(survey.id) + '"><div class="act-ico">' + h(survey.icon || '💬') + '</div><div><h3>' + h(survey.title) + '</h3><div class="muted" style="font-family:var(--f-ui);font-size:14px">' + h(stripHtml(survey.task)) + '</div></div></button></section>'; }
+  // الأقسام المخصّصة
+  let body = '';
+  if (sec.type === 'video') { const em = toEmbed(sec.videoUrl); body = em ? '<div class="video-box"><iframe src="' + h(em) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>' : (sec.videoUrl ? '<a class="btn btn-soft" href="' + h(sec.videoUrl) + '" target="_blank" rel="noopener">' + iconSvg('play', 16) + ' مشاهدة الفيديو</a>' : ''); }
+  if (sec.image) body = '<img class="sec-img" src=\"' + imgSrc(sec.image) + '\" alt="">' + body;
+  if (sec.body) body += '<div class="custom-body">' + richHtml(sec.body) + '</div>';
+  if (sec.btnUrl) body += '<div style="margin-top:12px"><a class="btn btn-primary" href="' + h(/^https?:|^mailto:|^tel:/.test(sec.btnUrl) ? sec.btnUrl : 'https://' + sec.btnUrl) + '" target="_blank" rel="noopener">' + h(sec.btnLabel || 'افتح الرابط') + '</a></div>';
+  return '<section class="section">' + secHead(sec) + '<div class="card pad custom-sec custom-' + h(sec.type || 'text') + '">' + body + '</div></section>';
+}
+Views.home = {
+  html() {
+    const s = Content.site(); const axes = Content.axes();
+    const exCount = Content.eligibleAxes().reduce((n, a) => n + Content.exercisesOf(a.id).length, 0);
+    let out = '<section class="hero"><div class="hero-cover">' + (s.heroImage ? '<img src=\"' + imgSrc(s.heroImage) + '\" alt="">' : Scenes.render('hero')) + '</div><div class="hero-body">' +
+      '<h1>' + h(s.heroTitle) + '</h1><div class="hero-desc">' + richHtml(s.heroDesc) + '</div>' +
+      '<div class="stats"><div class="stat"><b class="num">' + Content.eligibleAxes().map(a => a.unit).filter((u, i, x) => u && u !== SPECIAL_UNIT && x.indexOf(u) === i).length + '</b><span>جلسات</span></div><div class="stat"><b class="num">' + axes.length + '</b><span>محور</span></div><div class="stat"><b class="num">' + exCount + '</b><span>تمرين تفاعلي</span></div><div class="stat"><b class="num">' + (Number(Store.registered) || 0) + '</b><span>مسجّل حتى الآن</span></div></div></div></section>' + HomeSearch.html();
+    const fu = followupCardsHtml(); if (fu) out += '<section class="section">' + fu + '</section>';
+    if (HomeNav.layout() === 'sidebar') return out.replace('<section class="hero">', '<section class="hero hero-compact">') + HomeNav.html();
+    Content.homeSections().forEach(sec => { try { out += homeSectionHtml(sec); } catch (e) { console.error(e); } });
+    return out;
+  }
+};
+
+// ============ تخطيط الرئيسية بالقائمة الجانبية (تجريبي، قابل للتبديل من لوحة الإدارة) ============
+const HomeNav = {
+  layout() { return (Store.site && Store.site.homeLayout) === 'classic' ? 'classic' : 'sidebar'; },
+  label(sec) { return String(stripHtml(sec.title || '') || (sec.key === 'lab' ? Content.lab().title : '') || 'قسم').replace(/^[^\p{L}\p{N}]+/u, '').trim(); },
+  icon(sec) { return sec.icon || (sec.type === 'video' ? '🎬' : sec.type === 'image' ? '🖼️' : sec.type === 'cta' ? '🔗' : '📝'); },
+  count(sec) {
+    const k = sec.key;
+    if (k === 'stories') return Content.stories().length;
+    if (k === 'assess') return 2;
+    if (k === 'activities') return Content.activities().length;
+    if (k === 'axes') return Content.axes().length;
+    if (k === 'lab') return Content.lab().stages.length;
+    if (k === 'tools') return TOOLS.length;
+    return '';
+  },
+  html() {
+    const items = [];
+    Content.homeSections().forEach(sec => { let body = ''; try { body = homeSectionHtml(sec); } catch (e) { console.error(e); } if (body) items.push({ sec, body }); });
+    if (!items.length) return '';
+    let cur = UIState.homeSec || SafeLS.get('ec_home_sec');
+    let i = items.findIndex(x => x.sec.key === cur); if (i < 0) i = 0;
+    const next = items[i + 1];
+    return '<div class="home-shell"><aside class="home-nav" aria-label="أقسام الصفحة الرئيسية"><div class="hn-title">أقسام البرنامج</div><nav>' +
+      items.map((x, j) => { const c = HomeNav.count(x.sec); return '<button class="hn-item ' + (j === i ? 'active' : '') + '" data-act="home-sec" data-k="' + h(x.sec.key) + '" ' + (j === i ? 'aria-current="true"' : '') + '><span class="hn-ico">' + h(HomeNav.icon(x.sec)) + '</span><span class="hn-txt"><b>' + h(HomeNav.label(x.sec)) + '</b>' + (x.sec.kicker ? '<small>' + h(x.sec.kicker) + '</small>' : '') + '</span>' + (c !== '' ? '<span class="hn-count num">' + c + '</span>' : '') + '</button>'; }).join('') +
+      '</nav></aside><div class="home-pane" id="homePane">' + items[i].body +
+      (next ? '<button class="hn-next" data-act="home-sec" data-k="' + h(next.sec.key) + '"><span>القسم التالي</span><b>' + h(HomeNav.icon(next.sec)) + ' ' + h(HomeNav.label(next.sec)) + '</b></button>' : '') + '</div></div>';
+  }
+};
+
+// قائمة جانبية عامة بنفس تصميم أقسام الرئيسية (تُستخدم في «حسابي»)
+function sideShell(items, cur, act, title) {
+  if (!items.length) return ''; let i = items.findIndex(x => x.k === cur); if (i < 0) i = 0; const next = items[i + 1];
+  return '<div class="home-shell"><aside class="home-nav" aria-label="' + h(title) + '"><div class="hn-title">' + h(title) + '</div><nav>' +
+    items.map((x, j) => '<button class="hn-item ' + (j === i ? 'active' : '') + '" data-act="' + act + '" data-k="' + h(x.k) + '" ' + (j === i ? 'aria-current="true"' : '') + '><span class="hn-ico">' + x.ico + '</span><span class="hn-txt"><b>' + h(x.l) + '</b>' + (x.sub ? '<small>' + h(String(x.sub)) + '</small>' : '') + '</span></button>').join('') +
+    '</nav></aside><div class="home-pane" id="homePane">' + items[i].body +
+    (next ? '<button class="hn-next" data-act="' + act + '" data-k="' + h(next.k) + '"><span>القسم التالي</span><b>' + next.ico + ' ' + h(next.l) + '</b></button>' : '') + '</div></div>';
+}
+
+// ============ صفحة قصة النجاح ============
+Views.story = {
+  html() {
+    const st = Content.story(Router.cur.id);
+    if (!st || (st._hidden && !Admin.ctl())) return Layout.crumbs() + '<div class="empty" style="margin-top:20px">هذه القصة غير متاحة.</div>';
+    const col = AXIS_COLORS[st.color % AXIS_COLORS.length]; const list = Content.stories(); const i = list.findIndex(x => x.id === st.id);
+    const prev = i > 0 ? list[i - 1] : null, next = i > -1 && i < list.length - 1 ? list[i + 1] : null; const ax = st.axis ? Content.axis(st.axis) : null;
+    let out = Layout.crumbs('<span class="crumb-tag">قصص نجاح</span>') + '<article class="story-page" style="--ac:' + col + ';--acg:' + tint(col, .1) + '">' +
+      '<div class="story-hero"><div class="story-hero-art">' + (st.image ? '<img src=\"' + imgSrc(st.image) + '\" alt="">' : Scenes.render(st.scene || 'idea', col)) + '</div><div class="story-hero-body"><span class="story-flag big">' + h(st.flag || '') + ' ' + h(st.country || '') + '</span><div class="story-sector">' + h(st.sector || '') + (st.year ? ' · تأسست <span class="num">' + h(st.year) + '</span>' : '') + '</div><h1>' + h(st.title) + '</h1><p class="story-summary">' + h(stripHtml(st.summary)) + '</p></div></div>' +
+      (st.numbers.length ? '<div class="story-numbers">' + st.numbers.map(n => '<div><b class="' + (/[\u0600-\u06FF]/.test(n.v) ? '' : 'num') + '">' + h(n.v) + '</b><span>' + h(n.l) + '</span></div>').join('') + '</div>' : '') +
+      '<div class="ex-block"><div class="lbl">📖 القصة</div><div class="story-text">' + richHtml(st.story) + '</div></div>' +
+      (st.lessons.length ? '<div class="ex-block principle"><div class="lbl">💡 دروس لمشروعك</div><ul class="points">' + st.lessons.map((l, k) => '<li><span class="n num">' + (k + 1) + '</span><span>' + boldTerm(l) + '</span></li>').join('') + '</ul></div>' : '') +
+      (ax && !ax._hidden ? '<div class="ex-block extract"><div class="lbl">🔗 المحور المرتبط</div><button class="btn btn-soft" data-act="open-axis" data-id="' + h(ax.id) + '">' + iconSvg(ax.icon || 'star', 16) + ' ' + h(ax.title) + '</button></div>' : '') +
+      (st.sources.length ? '<div class="ex-block"><div class="lbl">📚 المصادر</div><ul class="story-sources">' + st.sources.map(x => '<li><a href="' + h(x.url) + '" target="_blank" rel="noopener">' + iconSvg('link', 14) + ' ' + h(x.label) + '</a></li>').join('') + '</ul><div class="muted" style="font-family:var(--f-ui);font-size:12px;margin-top:6px">الأرقام كما وردت في المصادر المنشورة وقت إعداد البرنامج، وقد تتغير لاحقًا.</div></div>' : '') +
+      '<div class="row" style="margin-top:14px;justify-content:center">' + Likes.btn('storyLikes/' + st.id, (Store.storyLikes[st.id] || {}).likes).replace('👍', '👏 ألهمتني') + '</div>' +
+      '<div class="nav-row"><button class="btn btn-ghost" ' + (prev ? 'data-go="story" data-id="' + h(prev.id) + '"' : 'disabled') + '>◀ القصة السابقة</button><button class="btn btn-dark" data-go="home">🏠 ' + HOME_LABEL + '</button><button class="btn btn-ghost" ' + (next ? 'data-go="story" data-id="' + h(next.id) + '"' : 'disabled') + '>القصة التالية ▶</button></div></article>';
+    return out;
+  }
+};
+
+// ============ التقييم القبلي والبعدي ============
+Views.assess = {
+  html() {
+    const ph = Router.cur.id === 'post' ? 'post' : 'pre'; const A = Content.assess(); const n = A.items.length; const cfg = Assess.cfg();
+    const lbl = ph === 'pre' ? 'التقييم القبلي' : 'التقييم البعدي';
+    let out = Layout.crumbs('<span class="crumb-tag">' + lbl + '</span>') + '<div class="ex-head"><div class="ico">' + (ph === 'pre' ? '🧭' : '🏁') + '</div><div><h1>' + lbl + '</h1><div class="row" style="margin-top:4px"><span class="pill">👤 فردي</span><span class="pill"><span class="num">' + n + '</span> أسئلة</span><span class="pill">' + (Assess.isOpen(ph) ? '🟢 متاح' : '🔒 مغلق') + '</span></div></div></div>';
+    out += '<div class="ex-block scenario"><div class="lbl">📋 ' + h(A.title || '') + '</div>' + richHtml(A.intro) + '</div>';
+    const r = Me.uid() ? Assess.rec(ph, Me.uid()) : null;
+    if (r && r.done) {
+      const sc = Assess.score(r.answers); const pre = ph === 'post' && Me.uid() ? Assess.rec('pre', Me.uid()) : null;
+      out += '<div class="card pad center" style="margin-top:16px"><div style="font-size:42px">✅</div><h3>تم إرسال إجاباتك</h3>' +
+        (cfg.reveal ? '<div class="big-pct num">' + sc + ' / ' + n + '</div>' + (pre && pre.done ? '<p class="muted" style="font-family:var(--f-ui)">نتيجتك القبلية: <span class="num">' + Assess.score(pre.answers) + ' / ' + n + '</span> · التغير: <b class="num">' + ((sc - Assess.score(pre.answers)) >= 0 ? '+' : '') + (sc - Assess.score(pre.answers)) + '</b></p>' : '') : '<p class="muted" style="font-family:var(--f-ui)">ستظهر نتيجتك والإجابات الصحيحة عندما يكشفها المدرّب.</p>') + '</div>';
+      if (cfg.reveal) out += '<div class="answer-box" style="margin-top:14px">' + answersSummary(A, r.answers, true) + '</div>';
+      return out;
+    }
+    if (!Assess.isOpen(ph) && !Admin.ctl()) return out + '<div class="empty" style="margin-top:16px">🔒 ' + lbl + ' غير متاح الآن، سيفتحه المدرّب ' + (ph === 'pre' ? 'قبل بدء التدريب' : 'بعد انتهاء التدريب') + '.</div>';
+    if (!Me.isReg()) return out + '<div class="answer-box"><div class="locked-note">🔒 للمسجلين فقط</div></div>';
+    const key = 'as_' + ph; let d = UIState.draft[key]; if (!d) { d = A.items.map(() => null); UIState.draft[key] = d; }
+    out += '<div class="answer-box"><div class="status-note" style="margin-bottom:6px">أجب عن كل الأسئلة ثم اضغط «إرسال». يمكنك تغيير اختيارك قبل الإرسال فقط، ولا تظهر النتائج إلا بعد أن يكشفها المدرّب.</div>' +
+      seededOrder(n, Me.uid() + ph).map((i, pos) => { const it = A.items[i]; return '<div class="q-card"><div class="qt"><span class="qn num">' + (pos + 1) + '</span><span>' + h(it.q) + '</span></div><div class="opts">' + seededOrder(it.options.length, Me.uid() + ph + i).map((k, kp) => { const o = it.options[k]; const sel = d[i] !== null && +d[i] === k; return '<button class="opt ' + (sel ? 'sel' : '') + '" data-act="as-pick" data-ph="' + ph + '" data-i="' + i + '" data-v="' + k + '"><span class="mk">' + (sel ? '✓' : '') + '</span><span><b>' + LETTERS[kp] + ')</b> ' + h(o) + '</span></button>'; }).join('') + '</div></div>'; }).join('') +
+      '<div class="save-row"><button class="btn btn-primary" data-act="as-submit" data-ph="' + ph + '">📤 إرسال ' + lbl + '</button><span class="status-note num">' + d.filter(x => x !== null).length + ' / ' + n + '</span></div></div>';
+    return out;
+  }
+};
+
+// ============ صفحة المحور: الشرائح + التمارين ============
+Views.axis = {
+  html() {
+    const a = Content.axis(Router.cur.id);
+    if (!a || a._hidden) return Layout.crumbs() + '<div class="empty" style="margin-top:20px">هذا المحور غير متاح.</div>';
+    if (a._disabled && !Admin.ctl()) return Layout.crumbs() + '<div class="empty" style="margin-top:20px">🔒 هذا المحور غير متاح بعد.</div>';
+    const col = Content.color(a); const n = a.slides.length; const idx = Math.min(UIState.deck[a.id] || 0, Math.max(0, n - 1));
+    const exs = Content.exercisesOf(a.id);
+    const elig = Content.eligibleAxes(); const pos = elig.findIndex(x => x.id === a.id); const next = pos > -1 ? elig[pos + 1] : null;
+    let out = Layout.crumbs('<span class="crumb-tag">' + h(Content.unitName(a.unit) || '') + '</span>') +
+      '<div class="axis-hero" style="background:linear-gradient(135deg,' + col + ',' + shade(col, -0.4) + ')">' + '<div style="position:absolute;inset:0">' + decorShapes(a.id + 'h', .12) + '</div>' +
+      '<div class="big-ico">' + iconSvg(a.icon || 'star', 36, '#fff', 1.8) + '</div><div style="position:relative"><div class="sub">' + h(a.classic || '') + '</div><h1>' + h(a.title) + '</h1>' + (a.duration ? '<div class="sub">⏱ ' + h(a.duration) + ' · <span class="num">' + n + '</span> شريحة · <span class="num">' + exs.length + '</span> تمرين</div>' : '') + '</div></div>';
+    if (n) {
+      out += deckHtml(a, idx);
+      if (Admin.ctl()) out += '<div class="trainer-note" id="tnote">' + trainerNoteHtml(a, idx) + '</div>';
+    } else out += '<div class="empty" style="margin-top:18px">لا توجد شرائح في هذا المحور بعد.</div>';
+    out += '<section class="section" style="--ac:' + col + ';--acg:' + tint(col, .1) + '"><div class="sec-head"><h2 class="sec-title">✍️ تمارين هذا المحور</h2><span class="pill"><span class="num">' + exs.length + '</span> تمرين</span></div>' +
+      (exs.length ? '<div class="ex-list">' + exs.map(e => '<button class="ex-item" data-go="ex" data-id="' + h(e.id) + '"><span class="ico">' + h(e.icon || '✍️') + '</span><span><h4>' + h(e.title) + '</h4><span class="muted" style="font-family:var(--f-ui);font-size:12.5px">' + (e.mode === 'group' ? '👥 جماعي' : '👤 فردي') + ' · ' + h(FORMATS[e.format] || '') + '</span></span>' + (Progress.exDone(e, Me.uid()) ? '<span class="done">✔</span>' : '') + '</button>').join('') + '</div>' : '<div class="empty">لا توجد تمارين لهذا المحور.</div>') +
+      '<div class="nav-row"><button class="btn btn-dark" ' + (next ? 'data-act="open-axis" data-id="' + h(next.id) + '"' : 'disabled') + '>الفصل القادم ▶</button><button class="btn btn-ghost" data-go="home">🏠 ' + HOME_LABEL + '</button></div></section>';
+    if (Leads.cfg().axis === a.id) out += '<section class="section">' + leadFormHtml('axis') + '</section>';
+    return out;
+  },
+  after(root) {
+    const deck = $('[data-deck]', root); if (!deck) return;
+    const id = deck.getAttribute('data-deck'); const vp = $('.deck-viewport', deck);
+    LiveSlides.mount(deck);
+    Deck.fit(id); setTimeout(() => Deck.fit(id), 400); if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => Deck.fit(id));
+    $$('img', deck).forEach(img => { if (!img.complete) img.addEventListener('load', () => Deck.fit(id), { once: true }); });
+    let sx = null, sy = null;
+    if (App._sScroll) { App._sScroll = false; setTimeout(() => { try { deck.scrollIntoView({ block: 'start' }); } catch (e) {} }, 60); } // وصلنا برابط عميق إلى شريحة: نُظهر المشغّل
+    vp.addEventListener('touchstart', e => { sx = e.target.closest && e.target.closest('.lv-box') ? null : e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    vp.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null; if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.3) Deck.move(id, dx > 0 ? 1 : -1); }, { passive: true });
+    let mx = null; vp.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && !(e.target.closest && e.target.closest('.lv-box'))) mx = e.clientX; });
+    vp.addEventListener('pointerup', e => { if (mx == null) return; const dx = e.clientX - mx; mx = null; if (Math.abs(dx) > 80) Deck.move(id, dx > 0 ? 1 : -1); });
+  }
+};
+function deckHtml(a, idx, mode) {
+  const col = Content.color(a); const n = a.slides.length;
+  return '<div class="deck' + (mode === 'show' ? ' deck-show' : '') + '" style="--ac:' + col + '" data-deck="' + h(a.id) + '"><div class="deck-bar"><div class="deck-dots">' + a.slides.map((_, i) => '<span class="deck-dot ' + (i <= idx ? 'on' : '') + '" data-slide="' + i + '"></span>').join('') + '</div><span class="deck-count num">' + (idx + 1) + ' / ' + n + '</span>' +
+    (Admin.ok() && mode !== 'show' ? '<button class="deck-tool' + (Guard.okSet()[(a.slides[idx] || {}).id] ? ' on' : '') + '" data-act="deck-copy" title="السماح للمتدربين بنسخ محتوى هذه الشريحة">📋<span class="lbl">' + (Guard.okSet()[(a.slides[idx] || {}).id] ? 'النسخ مسموح' : 'النسخ ممنوع') + '</span></button>' : '') +
+    (mode === 'show' ? '' : '<button class="deck-tool" data-act="deck-proj" title="عرض الشريحة على شاشة خارجية أو بروجكتر">📽️<span class="lbl">شاشة العرض</span></button>') +
+    '<button class="deck-tool deck-fs-btn" data-act="deck-fs" title="ملء الشاشة (F)"><span class="fs-on">⛶<span class="lbl">ملء الشاشة</span></span><span class="fs-off">✕<span class="lbl">خروج من ملء الشاشة</span></span></button></div>' +
+    '<div class="deck-viewport"><div class="deck-track" style="transform:translateX(' + (idx * 100) + '%)">' + a.slides.map((s, i) => renderSlide(s, a, i, n, i === idx)).join('') + '</div></div>' +
+    '<div class="deck-nav"><button class="deck-arrow" data-deck-go="-1" ' + (idx === 0 ? 'disabled' : '') + ' title="السابقة">›</button><span class="swipe-hint">اسحب يمينًا أو يسارًا، أو استخدم الأسهم ومفتاح المسافة للتنقل</span><button class="deck-arrow" data-deck-go="1" ' + (idx >= n - 1 ? 'disabled' : '') + ' title="التالية">‹</button></div></div>';
+}
+function trainerNoteHtml(a, i) { const sl = a.slides[i] || {}; return '<div class="tn-head">🎤 ملاحظات المدرب <span class="muted">(تظهر للأدمن فقط) · الشريحة <span class="num">' + (i + 1) + '</span></span></div><div class="tn-body">' + (sl.note ? h(sl.note) : '<span class="muted">لا توجد ملاحظة لهذه الشريحة، أضفها من تعديل المحور.</span>') + '</div>' + (a.outcome ? '<div class="tn-out">🎯 مخرج المحور: ' + h(a.outcome) + '</div>' : ''); }
+// ---------- مشغّل الشرائح: مقاس الشاشة، ملء الشاشة، وشاشة العرض الخارجية ----------
+const Deck = {
+  bc: null, // يُنشأ لكل دورة في initBC
+  initBC() { Deck.bc = courseBC('ec_deck'); if (Deck.bc) Deck.bc.onmessage = Deck.onBC; },
+  over: {},
+  move(id, d) { const a = Content.axis(id); if (!a) return; const n = a.slides.length; Deck.to(id, Math.max(0, Math.min(n - 1, (UIState.deck[id] || 0) + d))); },
+  // خطوة واحدة: يكشف العنصر التالي في الشريحة، فإذا انتهت العناصر انتقل للشريحة التالية (والعكس عند الرجوع)
+  stepSet(id, i, mode) { // mode: 'reset' أو 'full'
+    const a = Content.axis(id); const s = a && a.slides[i]; if (!s) return false;
+    const st = SlideKit.steps(s, a, i); if (!st.length) return false;
+    st.forEach(x => { const v = mode === 'full' ? x.on : x.off; SlideKit.set(x.key, v); if (Deck.bc) try { Deck.bc.postMessage({ t: 'sk', id, k: x.key, v }); } catch (e) {} });
+    return true;
+  },
+  step(id, d) {
+    const a = Content.axis(id); if (!a) return; const i = UIState.deck[id] || 0; const s = a.slides[i]; const st = s ? SlideKit.steps(s, a, i) : [];
+    const apply = (x, v) => { SlideKit.set(x.key, v); if (Deck.bc) try { Deck.bc.postMessage({ t: 'sk', id, k: x.key, v }); } catch (e) {} Deck.refresh(id, i); };
+    if (d > 0) { const x = st.find(y => !y.isOn()); if (x) { apply(x, x.on); return; } }
+    else { const x = st.slice().reverse().find(y => y.isOn()); if (x) { apply(x, x.off); return; } }
+    const to = Math.max(0, Math.min(a.slides.length - 1, i + d)); if (to === i) return;
+    Deck.move(id, d);
+    if (Deck.stepSet(id, to, d > 0 ? 'reset' : 'full')) Deck.refresh(id, to);
+  },
+  to(id, i, o = {}) {
+    UIState.deck[id] = i; SafeLS.set('ec_deck_' + id, String(i));
+    if (!o.remote && Deck.bc) try { Deck.bc.postMessage({ t: 'to', id, i }); } catch (e) {}
+    const deck = $('[data-deck="' + id + '"]'); if (!deck) return; const n = $$('.slide', deck).length;
+    $('.deck-track', deck).style.transform = 'translateX(' + (i * 100) + '%)';
+    $$('.slide', deck).forEach((s, k) => s.classList.toggle('cur', k === i));
+    $$('.deck-dot', deck).forEach((d, k) => d.classList.toggle('on', k <= i));
+    $('.deck-count', deck).textContent = (i + 1) + ' / ' + n;
+    const [prev, next] = $$('[data-deck-go]', deck); if (prev) { prev.disabled = i === 0; next.disabled = i >= n - 1; }
+    Deck.fitHeight(id);
+    const tn = $('#tnote'); if (tn) { const a = Content.axis(id); if (a) tn.innerHTML = trainerNoteHtml(a, i); }
+    if (!o.remote && Deck.mode(deck) === 'page') { const r = deck.getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight + 2) deck.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    LiveSlides.onSlide(id, i);
+  },
+  // flow: الجوال (ارتفاع طبيعي) · page: اللابتوب (الشريحة بمقاس الشاشة) · fs: ملء الشاشة · show: نافذة العرض الخارجية
+  mode(deck) { if (deck && document.fullscreenElement === deck) return 'fs'; if (deck && deck.classList.contains('deck-show')) return 'show'; return innerWidth >= 900 && innerHeight >= 500 ? 'page' : 'flow'; },
+  avail(deck, m) {
+    const bar = $('.deck-bar', deck).offsetHeight, nav = $('.deck-nav', deck).offsetHeight;
+    if (m === 'fs' || m === 'show') return innerHeight - bar;
+    const tb = ($('.topbar') || {}).offsetHeight || 64; return innerHeight - tb - bar - nav - 18;
+  },
+  fitSlide(s, H, base) {
+    const inn = $('.slide-in', s); if (!inn) return true; s.style.height = H + 'px'; s.classList.remove('tight');
+    s.style.setProperty('--vh-max', Math.max(180, H - 150) + 'px'); s.style.setProperty('--vh-scene', Math.max(160, H - 190) + 'px');
+    const cs = getComputedStyle(s); const room0 = H - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 2;
+    // السؤال الحي يأخذ حيزه أولًا (بارتفاع محدود وتمرير داخلي)، وما تبقى يُوزَّع على محتوى الشريحة بالتصغير عند الحاجة
+    const lv = $('.lv-box', s); let room = room0; const fs = s.closest('.deck') && /fs|show/.test(Deck.mode(s.closest('.deck')));
+    const lvSize = bh => { s.style.setProperty('--lv-bh', Math.round(bh) + 'px'); room = room0 - lv.offsetHeight - 14; };
+    if (lv) { lv.classList.remove('lv-compact'); lvSize(Math.max(96, Math.min(fs ? 360 : 290, H * (fs ? .3 : .27)))); }
+    const fits = z => { inn.style.zoom = z; return inn.getBoundingClientRect().height <= room; };
+    if (fits(base)) { Deck.lvGrow(s, lv, inn, room, H, lvSize); return true; }
+    let lo = lv ? 0.55 : 0.62, hi = base;
+    if (!fits(lo) && lv) { lv.classList.add('lv-compact'); lvSize(Math.max(80, H * .2)); }
+    if (!fits(lo)) { s.classList.add('tight'); return false; }
+    for (let k = 0; k < 7; k++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+    inn.style.zoom = lo.toFixed(3); return true;
+  },
+  // شريحة قليلة المحتوى: نوسّع منطقة الإجابات الحية بما يفيض من المساحة
+  lvGrow(s, lv, inn, room, H, lvSize) {
+    if (!lv || !/lv-k-(text|cloud)/.test(lv.className)) return; const spare = room - inn.getBoundingClientRect().height; if (spare < 70) return;
+    const cur = parseFloat(s.style.getPropertyValue('--lv-bh')) || 0; lvSize(cur + Math.min(spare - 26, H * .24));
+  },
+  fit(id) {
+    const deck = $('[data-deck="' + id + '"]'); if (!deck) return; const m = Deck.mode(deck);
+    deck.classList.toggle('fixed', m !== 'flow'); deck.classList.toggle('is-fs', m === 'fs');
+    const slides = $$('.slide', deck);
+    if (m === 'flow') { slides.forEach(s => { s.style.height = ''; s.classList.remove('tight'); const inn = $('.slide-in', s); if (inn) inn.style.zoom = ''; }); Deck.fitHeight(id); LiveSlides.afterFit(deck); return; }
+    const H = Math.max(300, Math.floor(Deck.avail(deck, m)));
+    const base = m === 'page' ? 1 : Math.min(1.7, Math.max(1, deck.clientWidth / 1180, H / 640));
+    Deck.over[id] = []; slides.forEach((s, k) => { if (!Deck.fitSlide(s, H, base)) Deck.over[id].push(k); });
+    Deck.fitHeight(id); LiveSlides.afterFit(deck);
+  },
+  fitHeight(id) { const deck = $('[data-deck="' + id + '"]'); if (!deck) return; const s = $$('.slide', deck)[UIState.deck[id] || 0]; if (s) $('.deck-viewport', deck).style.height = s.offsetHeight + 'px'; },
+  refresh(id, idx) { // إعادة رسم شريحة واحدة بعد تفاعل داخلها
+    const deck = $('[data-deck="' + id + '"]'); const a = Content.axis(id); if (!deck || !a) return; const slide = $$('.slide', deck)[idx]; if (!slide) return;
+    const H0 = parseFloat(slide.style.height) || 0; const lvSnap = LiveSlides.snap(slide); const tmp = document.createElement('div'); tmp.innerHTML = renderSlide(a.slides[idx], a, idx, a.slides.length, idx === (UIState.deck[id] || 0)); slide.replaceWith(tmp.firstChild); LiveSlides.mount($$('.slide', deck)[idx]); LiveSlides.restore($$('.slide', deck)[idx], lvSnap);
+    if (Deck.mode(deck) === 'flow') Deck.fitHeight(id); else { const s = $$('.slide', deck)[idx]; const H = H0 || Math.floor(Deck.avail(deck, Deck.mode(deck))); Deck.fitSlide(s, H, Deck.mode(deck) === 'page' ? 1 : Math.min(1.7, Math.max(1, deck.clientWidth / 1180, H / 640))); Deck.fitHeight(id); }
+    LiveSlides.afterFit($$('.slide', deck)[idx]);
+  },
+  async fullscreen(deck, screen) {
+    if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch (e) {} return; }
+    if (!deck || !deck.requestFullscreen) { UI.alert('متصفحك لا يدعم ملء الشاشة لهذا العنصر.'); return; }
+    try { await deck.requestFullscreen(screen ? { screen, navigationUI: 'hide' } : { navigationUI: 'hide' }); }
+    catch (e) { UI.alert('تعذر تفعيل ملء الشاشة. جرّب الضغط على الزر مرة أخرى.'); }
+  },
+  showUrl(id) { return location.pathname + location.search + '#' + cparam() + 'v=show&id=' + encodeURIComponent(id); },
+  async projector(deck) {
+    const id = deck.getAttribute('data-deck'); let sd = null;
+    if ('getScreenDetails' in window) { try { sd = await window.getScreenDetails(); } catch (e) { sd = null; } }
+    const ext = sd ? sd.screens.filter(x => x !== sd.currentScreen) : [];
+    const nm = (x, k) => (x.label || (x.isInternal === false ? 'شاشة خارجية' : 'شاشة') + ' ' + (k + 1)) + ' · ' + x.width + '×' + x.height;
+    let body = '<p class="muted" style="font-family:var(--f-ui);font-size:13.5px;margin-top:0">وصّل اللابتوب بالبروجكتر واختر «توسيع العرض» (Extend) في إعدادات الشاشة، ثم اختر طريقة العرض:</p><div class="proj-opts">';
+    ext.forEach((x, k) => { body += '<button class="proj-opt" data-scr="' + k + '"><span class="pi">🖥️</span><span><b>ملء الشاشة على: ' + h(nm(x, k)) + '</b><small>تنتقل الشريحة وحدها إلى هذه الشاشة، ويعود كل شيء عند الخروج (Esc).</small></span></button>'; });
+    body += '<button class="proj-opt" data-win="1"><span class="pi">🪟</span><span><b>نافذة عرض منفصلة للبروجكتر</b><small>تعرض الشريحة وحدها على الشاشة الخارجية، ويبقى اللابتوب معك للتحكم وقراءة ملاحظات المدرب. التنقل متزامن بين النافذتين.</small></span></button>';
+    body += '<button class="proj-opt" data-here="1"><span class="pi">⛶</span><span><b>ملء هذه الشاشة</b><small>تعرض الشريحة على شاشة اللابتوب الحالية (أو المكررة على البروجكتر).</small></span></button></div>';
+    if (!('getScreenDetails' in window)) body += '<div class="notice" style="margin-top:12px">اختيار الشاشة تلقائيًا متاح في متصفحي Chrome وEdge. في المتصفحات الأخرى افتح «نافذة العرض المنفصلة»، واسحبها إلى شاشة البروجكتر، ثم اضغط «ملء الشاشة» داخلها.</div>';
+    else if (!sd) body += '<div class="notice" style="margin-top:12px">لإظهار الشاشات المتصلة، اسمح للمتصفح بـ«إدارة النوافذ» عند السؤال، ثم أعد فتح هذه النافذة.</div>';
+    else if (!ext.length) body += '<div class="notice" style="margin-top:12px">لم نجد شاشة خارجية متصلة. تأكد من التوصيل ومن اختيار «توسيع العرض» (Extend) لا «التكرار» (Duplicate).</div>';
+    const m = UI.modal('<h3>📽️ العرض على شاشة خارجية أو بروجكتر</h3>' + body + '<div class="actions"><button class="btn btn-ghost" data-x>إغلاق</button></div>', { wide: true });
+    $('[data-x]', m.el).onclick = () => m.close();
+    $$('[data-scr]', m.el).forEach(b => b.onclick = () => { m.close(); Deck.fullscreen(deck, ext[+b.getAttribute('data-scr')]); });
+    $('[data-here]', m.el).onclick = () => { m.close(); Deck.fullscreen(deck); };
+    $('[data-win]', m.el).onclick = () => {
+      m.close(); const x = ext[0]; const f = x ? 'left=' + x.availLeft + ',top=' + x.availTop + ',width=' + x.availWidth + ',height=' + x.availHeight : 'width=1280,height=720';
+      const w = window.open(Deck.showUrl(id), 'ec_show_' + id, 'popup,' + f);
+      if (!w) UI.alert('منع المتصفح فتح النافذة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم أعد المحاولة.'); else UI.toast('🪟 فُتحت نافذة العرض، اضغط «ملء الشاشة» داخلها');
+    };
+  }
+};
+Deck.onBC = ev => {
+  const m = ev.data || {};
+  if (m.t === 'to') { if (UIState.deck[m.id] !== m.i) Deck.to(m.id, m.i, { remote: true }); }
+  else if (m.t === 'sk') { SlideKit.set(m.k, m.v); const i = UIState.deck[m.id] || 0; Deck.refresh(m.id, i); }
+  else if (m.t === 'lvqr') LiveSlides.onQr(m);
+  else if (m.t === 'hello' && UIState.deck[m.id] != null && Router.cur.view === 'axis') { try { Deck.bc.postMessage({ t: 'to', id: m.id, i: UIState.deck[m.id] }); } catch (e) {} LiveSlides.resendQr(); }
+};
+window.addEventListener('resize', debounce(() => { if (Router.cur.view === 'axis' || Router.cur.view === 'show') Deck.fit(Router.cur.id); }, 150));
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && App._pendingRender) { App._pendingRender = false; App.render(); return; } if (Router.cur.view === 'axis' || Router.cur.view === 'show') setTimeout(() => Deck.fit(Router.cur.id), 60); const hint = $('#showHint'); if (hint) hint.style.display = document.fullscreenElement ? 'none' : ''; });
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-act="deck-fs"],[data-act="deck-proj"]'); if (!t) return;
+  const deck = t.closest('[data-deck]') || $('[data-deck]'); if (!deck) return;
+  if (t.getAttribute('data-act') === 'deck-fs') Deck.fullscreen(deck); else Deck.projector(deck);
+});
+Views.show = {
+  html() {
+    const a = Content.axis(Router.cur.id); if (!a || !a.slides.length) return '<div class="empty" style="margin:40px">لا توجد شرائح لعرضها.</div>';
+    const n = a.slides.length; const idx = Math.min(n - 1, Math.max(0, UIState.deck[a.id] != null ? UIState.deck[a.id] : +(SafeLS.get('ec_deck_' + a.id) || 0))); UIState.deck[a.id] = idx;
+    return '<div class="show-wrap">' + deckHtml(a, idx, 'show') + '<div class="show-hint" id="showHint"><span>📽️ اسحب هذه النافذة إلى شاشة البروجكتر ثم:</span><button class="btn btn-primary btn-sm" data-act="deck-fs">⛶ ملء الشاشة</button></div></div>';
+  },
+  after(root) { Views.axis.after(root); const deck = $('[data-deck]', root); if (deck && Deck.bc) try { Deck.bc.postMessage({ t: 'hello', id: deck.getAttribute('data-deck') }); } catch (e) {} document.title = '📽️ ' + ((Content.axis(Router.cur.id) || {}).title || 'العرض'); }
+};
+// التنقل بلوحة المفاتيح وبأجهزة المؤشر (Presenter / Clicker) التي ترسل PageDown/PageUp عادةً، وبعضها أسهمًا أو مسافة.
+// الأسهم الأفقية تتبع اتجاه القراءة العربي (، التالي، ، السابق)، وB أو النقطة تُعتم الشاشة كما في العروض التقديمية.
+const DECK_KEYS = { PageDown: 1, ArrowDown: 1, ArrowLeft: 1, ' ': 1, Enter: 1, PageUp: -1, ArrowUp: -1, ArrowRight: -1, Backspace: -1 };
+document.addEventListener('keydown', e => {
+  if ((Router.cur.view !== 'axis' && Router.cur.view !== 'show') || e.ctrlKey || e.metaKey || e.altKey || $('.modal-back')) return;
+  const t = e.target || {}; if ((/INPUT|TEXTAREA|SELECT/.test(t.tagName || '') && !/^(checkbox|radio|button|range)$/.test(t.type || '')) || t.isContentEditable) return;
+  const blk = $('#blackout');
+  if (blk) { e.preventDefault(); blk.remove(); return; }
+  if (/^[bB.,ذز]$/.test(e.key)) { e.preventDefault(); (document.fullscreenElement || document.body).insertAdjacentHTML('beforeend', '<div id="blackout"></div>'); return; }
+  if (/^[fFب]$/.test(e.key)) { e.preventDefault(); Deck.fullscreen($('[data-deck="' + Router.cur.id + '"]')); return; }
+  let d = DECK_KEYS[e.key]; if (!d) return;
+  if ((e.key === ' ' || e.key === 'Enter') && /BUTTON|A/.test(t.tagName || '')) return;
+  if (e.shiftKey && e.key === ' ') d = -1;
+  e.preventDefault();
+  const deck = $('[data-deck="' + Router.cur.id + '"]'); if (!deck) return;
+  Deck.step(Router.cur.id, d);
+});
+document.addEventListener('click', e => { if (e.target.id === 'blackout') e.target.remove(); });
+
+// ============ صفحة التمرين ============
+const DEFAULT_STEPS = {
+  mcq: ['اقرأ كل سؤال بتمعّن.', 'اضغط الخيار الذي تراه صحيحًا، تُحفظ إجابتك فورًا دون زر حفظ.', 'تظهر نسبة اختيار كل خيار بين المتدربين، ويمكنك تغيير اختيارك في أي وقت بالضغط على خيار آخر.'],
+  truefalse: ['اقرأ كل عبارة بدقة.', 'حدد «صح» أو «خطأ» لكل عبارة.', 'اضغط «حفظ الإجابات» ثم تابع إجابات زملائك مباشرة.'],
+  fillblank: ['اختر مجموعتك أولًا من البطاقة أعلاه.', 'اضغط كلمة من البنك ثم اضغط الفراغ المناسب لها.', 'لتصحيح فراغ ممتلئ، اضغط عليه فيُفرَغ وتعود كلمته إلى البنك.', 'اضغط «حفظ وإرسال إجابات المجموعة».'],
+  comparePairs: ['اختر مجموعتك أولًا من البطاقة أعلاه.', 'في كل زوج اختر العبارة الأدق: (أ) أو (ب).', 'اضغط «حفظ وإرسال إجابات المجموعة».'],
+  sim: ['اقرأ الموقف وحدد هدفك.', 'غيّر الإعدادات وراقب أثرها المباشر على النتيجة والمعاينة.', 'جرّب أكثر من سيناريو، ثم احفظ أفضل نتيجة وقارنها بنتائج الآخرين.'],
+  text: ['اقرأ الموقف جيدًا.', 'اكتب إجابتك في الصندوق.', 'اضغط «حفظ» وتابع مشاركات زملائك مباشرة.']
+};
+function exColor(e) { const ax = Content.axisOfEx(e.id); const a = ax && Content.axis(ax); return a ? Content.color(a) : (e.kind === 'survey' ? '#F34D00' : '#F34D00'); }
+function postKey(e) { if (Me.isAdmin()) return Me.ADMIN_UID; if (e.mode === 'group') { const g = Me.group(); return g ? 'g' + g : null; } return Me.uid(); }
+function isRevealed(e) { return !!(Store.reveal && Store.reveal[e.id]); }
+// المدرب يرى الإجابات الصحيحة دائمًا داخل بطاقة السؤال نفسها، والمتدربون بعد أن يكشفها لهم
+function showAnswers(e) { return isRevealed(e) || Admin.ok(); }
+function bankOf(e) { // بنك كلمات بترتيب ثابت مخلوط حسب معرّف التمرين
+  const words = e.items.map(i => i.answer); let s = 0; for (const ch of e.id) s = (s * 33 + ch.charCodeAt(0)) % 100003;
+  const out = words.slice(); for (let i = out.length - 1; i > 0; i--) { s = (s * 9301 + 49297) % 233280; const j = Math.floor(s / 233280 * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; } return out;
+}
+const LETTERS = ['أ', 'ب', 'ج', 'د', 'هـ', 'و', 'ز', 'ح'];
+
+function groupPickerHtml(e, o = {}) {
+  if (Me.isAdmin()) return '<div class="group-picker"><div class="assign-hint" style="margin-top:0">🛡️ أنت تتصفح بحساب الإدارة: مشاركتك تُحفظ باسم <b>«الإدارة»</b> دون الانضمام لأي مجموعة، ولا تمس إجابات المجموعات.</div></div>';
+  const my = Me.group(); const assigned = Me.uid() ? Groups.assignedOf(Me.uid()) : null;
+  let out = '<div class="group-picker"><div class="ex-block-lbl" style="font-family:var(--f-display);font-weight:700">👥 اختر مجموعتك</div>' + (o.note ? '<div class="muted" style="font-family:var(--f-ui);font-size:13px">' + o.note + '</div>' : '');
+  if (assigned) out += '<div class="assign-hint">📌 عيّنك المدرّب في <b>' + h(Groups.label(assigned)) + '</b>، اختر مجموعتك المخصّصة لتجنّب الخطأ.</div>';
+  out += '<div class="group-btns">' + Groups.list().map(n => '<button class="group-btn ' + (my === n ? 'on' : '') + '" data-act="pick-group" data-g="' + n + '" ' + (Me.isReg() ? '' : 'disabled') + '>' + h(Groups.label(n)) + '</button>').join('') + '</div>';
+  if (!o.noMembers && my && Groups.anyAssign()) { const mem = Groups.membersOf(my).map(u => Store.users[u] && Store.users[u].name).filter(Boolean); if (mem.length) out += '<div class="members-line">👥 أعضاء ' + h(Groups.label(my)) + ': ' + mem.map(h).join('، ') + '</div>'; }
+  if (!Me.isReg()) out += '<div class="locked-note" style="margin-top:8px">🔒 للمسجلين فقط</div>';
+  return out + '</div>';
+}
+
+// ---- عرض الإجابات التفاعلية (للخلاصة والتغذية الحية) ----
+function answersSummary(e, answers, reveal, compact) {
+  answers = ansList(answers, e.items.length);
+  if (e.format === 'mcq' || e.format === 'truefalse') {
+    let score = 0;
+    const rows = e.items.map((it, i) => {
+      const a = answers[i]; const has = a !== undefined && a !== null && a !== '';
+      const txt = !has ? '-' : e.format === 'mcq' ? (LETTERS[a] || '') + ') ' + (it.options[a] || '') : (a === true || a === 'true' ? 'صح' : 'خطأ');
+      const ok = has && (e.format === 'mcq' ? +a === +it.answer : ((a === true || a === 'true') === !!it.answer)); if (ok) score++;
+      const corr = e.format === 'mcq' ? (LETTERS[it.answer] + ') ' + it.options[it.answer]) : (it.answer ? 'صح' : 'خطأ');
+      return '<div class="ga-item"><span class="qn num">' + (i + 1) + '</span><span class="' + (reveal && has ? (ok ? 'tag-ok' : 'tag-bad') : '') + '">' + h(txt) + (reveal ? (ok ? ' ✓' : (has ? ' ✗' : '')) : '') + '</span>' + (reveal && !ok ? '<span class="correct-note">(الصحيح: ' + h(corr) + ')</span>' : '') + '</div>';
+    });
+    return (reveal ? '<div class="pill" style="margin-bottom:4px">النتيجة: ' + score + ' من ' + e.items.length + '</div>' : '') + rows.join('');
+  }
+  if (e.format === 'fillblank') {
+    return e.items.map((it, i) => { const a = answers[i]; const ok = a && a === it.answer; return '<div class="ga-item"><span class="qn num">' + (i + 1) + '</span><span>' + h(it.text).replace('___', '<b class="' + (reveal && a ? (ok ? 'tag-ok' : 'tag-bad') : '') + '">[' + h(a || '-') + ']</b>') + (reveal && !ok ? ' <span class="correct-note">(الصحيح: ' + h(it.answer) + ')</span>' : '') + '</span></div>'; }).join('');
+  }
+  if (e.format === 'comparePairs') {
+    return e.items.map((it, i) => { const a = answers[i]; const ok = a && a === it.answer; const txt = a ? it[a] : '-'; return '<div class="ga-item"><span class="qn num">' + (i + 1) + '</span><div style="flex:1"><div class="cmp-opt compact ' + (reveal && a ? (ok ? 'right' : 'wrong') : (a ? 'sel' : '')) + '"><b>' + (a ? '(' + (a === 'a' ? 'أ' : 'ب') + ')' : '') + '</b>' + h(txt) + '</div>' + (reveal && !ok ? '<div class="correct-note">الصحيح: (' + (it.answer === 'a' ? 'أ' : 'ب') + ') ' + h(it[it.answer]) + '</div>' : '') + '</div></div>'; }).join('');
+  }
+  return '';
+}
+
+// ---- الاختيار من متعدد بأسلوب التصويت: الضغط على الخيار يحفظه فورًا وتظهر نسب الاختيار ----
+function mcqStats(e) {
+  const ps = Store.posts[e.id] || {}; const st = e.items.map(it => ({ total: 0, counts: it.options.map(() => 0) }));
+  Object.keys(ps).forEach(k => { if (k === 'admin') return; const a = ansList(ps[k] && ps[k].answers, e.items.length); a.forEach((v, i) => { if (v === null || v === '' || !st[i]) return; const n = +v; if (n >= 0 && n < st[i].counts.length) { st[i].counts[n]++; st[i].total++; } }); });
+  return st;
+}
+function mcqPollHtml(e) {
+  const reveal = showAnswers(e); const st = mcqStats(e);
+  const mine = Me.isReg() ? ansList(((Store.posts[e.id] || {})[Me.uid()] || {}).answers, e.items.length) : [];
+  return e.items.map((it, i) => {
+    const my = mine[i]; const answered = my !== null && my !== undefined && my !== '';
+    const showPct = answered || !Me.isReg() || Admin.ctl();
+    return '<div class="q-card"><div class="qt"><span class="qn num">' + (i + 1) + '</span><span>' + h(it.q) + '</span></div><div class="opts">' +
+      it.options.map((o, k) => {
+        const sel = answered && +my === k; const c = st[i].counts[k]; const pct = st[i].total ? Math.round(c / st[i].total * 100) : 0;
+        let cls = sel ? 'sel' : ''; if (reveal) { if (k === +it.answer) cls = 'right'; else if (sel) cls = 'wrong'; }
+        return '<button class="opt poll ' + cls + '" data-act="vote" data-ex="' + h(e.id) + '" data-i="' + i + '" data-v="' + k + '" ' + (Me.isReg() ? '' : 'disabled') + '>' +
+          (showPct ? '<span class="poll-bar" style="width:' + pct + '%"></span>' : '') +
+          '<span class="mk">' + (sel ? '✓' : '') + '</span><span class="grow"><b>' + LETTERS[k] + ')</b> ' + h(o) + '</span>' +
+          (showPct ? '<span class="poll-pct num">' + pct + '%</span>' : '') + '</button>';
+      }).join('') + '</div>' + (showPct ? '<div class="poll-total">👥 <span class="num">' + st[i].total + '</span> ' + (st[i].total === 1 ? 'مشاركة' : 'مشاركات') + '</div>' : '') + (reveal ? revealNote('<b>' + LETTERS[it.answer] + ')</b> ' + h(it.options[it.answer]), e) : '') + '</div>';
+  }).join('');
+}
+
+// سطر «الإجابة الصحيحة» داخل بطاقة السؤال نفسه (يظهر لكل المتدربين بعد أن يكشف المدرب الإجابات، أجاب المتدرب أم لم يجب)
+function revealNote(txt, e) { const hid = e && Admin.ok() && !isRevealed(e); return '<div class="reveal-note">✅ <b>الإجابة الصحيحة:</b> ' + txt + (hid ? ' <span class="muted">(تظهر لك وحدك، لم تُكشف للمتدربين بعد)</span>' : '') + '</div>'; }
+
+// ---- مكوّن الإجابة التفاعلية ----
+function interactiveHtml(e, post, canAct, editing) {
+  const reveal = showAnswers(e); const saved = post ? ansList(post.answers, e.items.length) : null;
+  let draft = UIState.draft[e.id];
+  if (!draft) { draft = saved ? saved.slice() : e.items.map(() => null); UIState.draft[e.id] = draft; }
+  const active = canAct && (editing || !post);
+  const show = active ? draft : (saved || draft);
+  let out = '';
+  if (e.format === 'mcq' || e.format === 'truefalse') {
+    out += e.items.map((it, i) => {
+      const opts = e.format === 'mcq' ? it.options.map((o, k) => [k, o]) : [[true, 'صح'], [false, 'خطأ']];
+      return '<div class="q-card"><div class="qt"><span class="qn num">' + (i + 1) + '</span><span>' + h(it.q) + '</span></div><div class="' + (e.format === 'truefalse' ? 'tf-row' : 'opts') + '">' +
+        opts.map(([v, label], k) => {
+          const sel = show[i] !== null && show[i] !== undefined && String(show[i]) === String(v);
+          let cls = sel ? 'sel' : '';
+          if (reveal) { const correct = e.format === 'mcq' ? k === +it.answer : v === !!it.answer; if (correct) cls = 'right'; else if (sel) cls = 'wrong'; }
+          return '<button class="opt ' + cls + '" data-act="pick-opt" data-ex="' + h(e.id) + '" data-i="' + i + '" data-v="' + h(String(v)) + '" ' + (active ? '' : 'disabled') + '><span class="mk">' + (sel ? '✓' : '') + '</span><span>' + (e.format === 'mcq' ? '<b>' + LETTERS[k] + ')</b> ' : '') + h(label) + '</span></button>';
+        }).join('') + '</div>' + (reveal ? revealNote(e.format === 'mcq' ? '<b>' + LETTERS[it.answer] + ')</b> ' + h(it.options[it.answer]) : (it.answer ? 'صح' : 'خطأ'), e) : '') + '</div>';
+    }).join('');
+  } else if (e.format === 'fillblank') {
+    const bank = bankOf(e); const used = {}; show.forEach(w => { if (w) used[w] = (used[w] || 0) + 1; }); const selW = UIState.fbSel[e.id];
+    const usedCount = {};
+    out += '<div class="bank">' + bank.map(w => { usedCount[w] = (usedCount[w] || 0) + 1; const isUsed = (used[w] || 0) >= usedCount[w]; return '<button class="chip ' + (isUsed ? 'used' : '') + (selW === w && !isUsed ? ' sel' : '') + '" data-act="fb-word" data-ex="' + h(e.id) + '" data-w="' + h(w) + '" ' + (active && !isUsed ? '' : 'disabled') + '>' + h(w) + '</button>'; }).join('') + '</div>';
+    out += e.items.map((it, i) => {
+      const w = show[i]; let cls = w ? 'filled' : ''; if (reveal && w) cls += w === it.answer ? ' right' : ' wrong';
+      const blank = '<button class="blank ' + cls + '" data-act="fb-blank" data-ex="' + h(e.id) + '" data-i="' + i + '" ' + (active ? '' : 'disabled') + '>' + (w ? h(w) : '&nbsp;&nbsp;&nbsp;') + '</button>';
+      return '<div class="q-card"><div class="qt"><span class="qn num">' + (i + 1) + '</span><span>' + h(it.text).replace('___', blank) + '</span></div>' + (reveal ? revealNote('<b>' + h(it.answer) + '</b>', e) : '') + '</div>';
+    }).join('');
+  } else if (e.format === 'comparePairs') {
+    out += e.items.map((it, i) => '<div class="q-card"><div class="qt"><span class="qn num">' + (i + 1) + '</span><span>أي العبارتين أدق؟</span></div><div class="cmp-row">' +
+      ['a', 'b'].map(k => { const sel = show[i] === k; let cls = sel ? 'sel' : ''; if (reveal) { if (k === it.answer) cls = 'right'; else if (sel) cls = 'wrong'; } return '<button class="cmp-opt ' + cls + '" data-act="pick-cmp" data-ex="' + h(e.id) + '" data-i="' + i + '" data-v="' + k + '" ' + (active ? '' : 'disabled') + '><b>(' + (k === 'a' ? 'أ' : 'ب') + ')</b>' + h(it[k]) + '</button>'; }).join('') + '</div>' + (reveal ? revealNote('<b>(' + (it.answer === 'a' ? 'أ' : 'ب') + ')</b> ' + h(it[it.answer]), e) : '') + '</div>').join('');
+  }
+  return out;
+}
+
+function answerBoxHtml(e) {
+  const col = exColor(e);
+  if (e.format === 'mcq') return '<div class="answer-box" style="--ac:' + col + ';--acg:' + tint(col, .1) + '">' + (Me.isReg() ? '<div class="status-note" style="margin-bottom:4px">👆 اضغط أي خيار لحفظ إجابتك فورًا، ويمكنك تغييرها في أي وقت.</div>' : '<div class="locked-note">🔒 للمسجلين فقط، يمكنك مشاهدة نتائج التصويت دون المشاركة.</div>') + mcqPollHtml(e) + '</div>';
+  if (!Me.isReg()) return '<div class="answer-box"><div class="locked-note">🔒 للمسجلين فقط، صناديق الإجابة معطّلة في وضع التصفح كزائر.</div>' + (e.format !== 'text' ? '<div class="disabled-area">' + interactiveHtml(e, null, false, false) + '</div>' : '<textarea disabled placeholder="🔒 للمسجلين فقط"></textarea>') + '</div>';
+  const isGroup = e.mode === 'group'; const key = postKey(e);
+  if (isGroup && !key) {
+    return '<div class="answer-box">' + (e.format !== 'text' ? '<div class="locked-note">👆 اختر مجموعتك أولًا لتتمكن من الإجابة، الأسئلة معروضة للاطلاع.</div><div class="disabled-area">' + interactiveHtml(e, null, false, false) + '</div>' : '<div class="locked-note">👆 اختر مجموعتك أولًا لتتمكن من كتابة إجابة المجموعة.</div>') + '</div>';
+  }
+  const post = (Store.posts[e.id] || {})[key]; const editing = !!UIState.editing[e.id];
+  if (e.format === 'text') {
+    if (post && !editing) return '<div class="answer-box"><div class="row" style="margin-bottom:8px"><b style="font-family:var(--f-display)">✅ ' + (isGroup && !Me.isAdmin() ? 'إجابة ' + h(Groups.label(Me.group())) : 'إجابتك المحفوظة') + '</b><span class="grow"></span><button class="btn btn-soft btn-sm" data-act="edit-ans" data-ex="' + h(e.id) + '">✏️ تعديل</button></div><div class="answer-view">' + h(post.text) + '</div></div>';
+    return '<div class="answer-box">' + TextGame.bar(e) + '<textarea data-keep="ans-' + h(e.id) + '" id="ans-' + h(e.id) + '" placeholder="' + (isGroup ? 'اكتب إجابة مجموعتك هنا' : 'اكتب إجابتك هنا') + '">' + (editing && post ? h(post.text) : '') + '</textarea><div class="save-row"><button class="btn btn-primary" data-act="save-text" data-ex="' + h(e.id) + '">💾 حفظ' + (isGroup ? ' إجابة المجموعة' : '') + '</button>' + (editing ? '<button class="btn btn-ghost" data-act="cancel-edit" data-ex="' + h(e.id) + '">إلغاء</button>' : '') + '<span class="status-note">تظهر إجابتك فورًا في مشاركات الجميع.</span></div></div>';
+  }
+  const active = !post || editing;
+  return '<div class="answer-box" style="--ac:' + col + ';--acg:' + tint(col, .1) + '">' + (post && !editing ? '<div class="row" style="margin-bottom:6px"><b style="font-family:var(--f-display)">✅ ' + (isGroup && !Me.isAdmin() ? 'أُرسلت إجابات ' + h(Groups.label(Me.group())) : 'تم حفظ إجاباتك') + '</b><span class="grow"></span><button class="btn btn-soft btn-sm" data-act="edit-ans" data-ex="' + h(e.id) + '">✏️ تعديل</button></div>' : '') +
+    interactiveHtml(e, post, true, editing) +
+    (active ? '<div class="save-row"><button class="btn btn-primary" data-act="save-inter" data-ex="' + h(e.id) + '">' + (isGroup ? '📤 حفظ وإرسال إجابات المجموعة' : '💾 حفظ الإجابات') + '</button>' + (editing ? '<button class="btn btn-ghost" data-act="cancel-edit" data-ex="' + h(e.id) + '">إلغاء</button>' : '') + '</div>' : '') + '</div>';
+}
+
+function feedHtml(e) {
+  if (e.format === 'mcq') return ''; // نتائج التصويت تظهر داخل الخيارات نفسها
+  const ps = Store.posts[e.id] || {}; const keys = Object.keys(ps).filter(k => ps[k]).sort((x, y) => (ps[y].ts || 0) - (ps[x].ts || 0));
+  if (e.format === 'text') keys.sort((x, y) => (ps[y].pts || 0) - (ps[x].pts || 0) || (ps[y].ts || 0) - (ps[x].ts || 0));
+  const reveal = showAnswers(e); const myKey = Me.isReg() ? postKey(e) : null;
+  const del = k => Admin.ctl() ? '<button class="del-btn" data-act="del-post" data-ex="' + h(e.id) + '" data-k="' + h(k) + '" title="حذف هذه المشاركة">🗑 حذف</button>' : '';
+  if (e.format !== 'text' && e.mode === 'group') {
+    const gkeys = keys.slice().sort((x, y) => (+x.slice(1)) - (+y.slice(1)));
+    return '<div class="feed"><div class="feed-head"><span class="live-dot"></span><h3>إجابات المجموعات</h3><span class="pill num">' + gkeys.length + '</span>' + (reveal ? '<span class="pill" style="background:#E6F7EE;color:#10573A">🔓 الإجابات مكشوفة</span>' : '') + '</div>' +
+      (gkeys.length ? '<div class="group-answers">' + gkeys.map(k => '<div class="ga-card ' + (k === myKey ? 'mine' : '') + '"><h4>' + (k === myKey ? '⭐ ' : '') + h(Groups.label(+k.slice(1))) + '<span class="grow"></span>' + del(k) + '</h4>' + answersSummary(e, ps[k].answers, reveal) + '<div class="post-foot" style="margin-top:6px"><span class="muted" style="font-family:var(--f-ui);font-size:12px">آخر حفظ: ' + h(ps[k].name || '') + ' · ' + ago(ps[k].ts || 0) + '</span>' + Likes.btn('posts/' + e.id + '/' + k, ps[k].likes) + '</div></div>').join('') + '</div>' : '<div class="empty">لم ترسل أي مجموعة إجاباتها بعد.</div>') + '</div>';
+  }
+  return '<div class="feed"><div class="feed-head"><span class="live-dot"></span><h3>مشاركات الجميع مباشرة</h3><span class="pill num">' + keys.length + '</span>' + (reveal && e.format !== 'text' ? '<span class="pill" style="background:#E6F7EE;color:#10573A">🔓 الإجابات مكشوفة</span>' : '') + '</div>' +
+    (keys.length ? '<div class="posts">' + keys.map(k => { const p = ps[k]; const isG = k.charAt(0) === 'g' && e.mode === 'group'; const who = isG ? Groups.label(+k.slice(1)) : (p.name || 'مشارك'); const sub = isG ? 'كتبها: ' + (p.name || '') : (p.role || '');
+      return '<div class="post ' + (k === myKey ? 'mine' : '') + '"><div class="post-head"><span class="av">' + h(isG ? '👥' : initials(who)) + '</span><div><div class="who">' + (e.format === 'text' && p.pts && keys.indexOf(k) < 3 ? ['🥇 ', '🥈 ', '🥉 '][keys.indexOf(k)] : '') + h(who) + '</div><div class="role">' + h(sub) + ' · ' + ago(p.ts || 0) + '</div></div><span class="grow"></span>' + (e.format === 'text' && p.pts ? '<span class="tg-badge">' + (p.fast ? '⚡ ' : '') + '<b class="num">' + p.pts + '</b> نقطة · ' + TextGame.level(p.pts) + '</span>' : '') + '</div>' +
+        (e.format === 'text' ? '<div class="post-body">' + h(p.text || '') + '</div>' : '<div>' + answersSummary(e, p.answers, reveal) + '</div>') +
+        '<div class="post-foot">' + Likes.btn('posts/' + e.id + '/' + k, p.likes) + del(k) + '</div></div>'; }).join('') + '</div>' : '<div class="empty">لا توجد مشاركات بعد، كن أول المشاركين ✨</div>') + '</div>';
+}
+
+function exNavHtml(e) {
+  const ax = Content.axisOfEx(e.id); if (!ax) return '';
+  const list = Content.exercisesOf(ax); const i = list.findIndex(x => x.id === e.id);
+  const prev = i > 0 ? list[i - 1] : null, next = i > -1 && i < list.length - 1 ? list[i + 1] : null;
+  return '<div class="nav-row"><button class="btn btn-ghost" ' + (prev ? 'data-go="ex" data-id="' + h(prev.id) + '"' : 'disabled') + '>◀ التمرين السابق</button><button class="btn btn-soft" data-go="axis" data-id="' + h(ax) + '">📖 محتوى الفصل</button><button class="btn btn-ghost" ' + (next ? 'data-go="ex" data-id="' + h(next.id) + '"' : 'disabled') + '>التمرين التالي ▶</button></div><div class="nav-row" style="margin-top:8px"><button class="btn btn-dark" data-go="home">🏠 ' + HOME_LABEL + '</button></div>';
+}
+
+Views.ex = {
+  html() {
+    const e = Content.ex(Router.cur.id);
+    if (!e || e._hidden) return Layout.crumbs() + '<div class="empty" style="margin-top:20px">هذا التمرين غير متاح.</div>';
+    const axId = Content.axisOfEx(e.id); const a = axId ? Content.axis(axId) : null;
+    if (a && (a._hidden || (a._disabled && !Admin.ctl()))) return Layout.crumbs() + '<div class="empty" style="margin-top:20px">🔒 هذا التمرين غير متاح بعد.</div>';
+    const col = exColor(e); const isSurvey = e.kind === 'survey';
+    let out = '<div style="--ac:' + col + ';--acg:' + tint(col, .1) + '">' + Layout.crumbs(a ? '<span class="crumb-tag">' + h(a.title) + '</span>' : '<span class="crumb-tag">' + (isSurvey ? 'ختام البرنامج' : 'أنشطة الطاقة') + '</span>') +
+      (e.image ? '<img class="ex-img" src=\"' + imgSrc(e.image) + '\" alt="">' : '') +
+      '<div class="ex-head"><div class="ico">' + h(e.icon || '✍️') + '</div><div><h1>' + h(e.title) + '</h1><div class="row" style="margin-top:4px"><span class="pill">' + (e.mode === 'group' ? '👥 جماعي' : '👤 فردي') + '</span>' + (e.format !== 'text' ? '<span class="pill">' + h(FORMATS[e.format]) + '</span>' : '') + '</div></div></div>' +
+      (Admin.ok() ? '<div class="live-row ex-live">' + Presence.chip(e.id) + Invite.btn(e) + Reveal.btn(e) + '<button class="btn btn-soft btn-sm" data-act="ex-copy" data-id="' + h(e.id) + '">📋 ' + (Guard.okSet()[e.id] ? 'النسخ مسموح' : 'النسخ ممنوع') + '</button></div>' : '');
+    if (isSurvey) {
+      out += '<div class="ex-block task"><div class="lbl">📝 قيّم تجربتك</div>' + richHtml(e.task) + '</div>' + '<div id="ansZone">' + surveyFormHtml(e) + '</div><div id="feedZone">' + surveyFeedHtml(e) + '</div></div>';
+      return out;
+    }
+    if (e.scenario || e.chart) out += '<div class="ex-block scenario"><div class="lbl">🎬 الموقف</div>' + richHtml(e.scenario) + (e.chart ? '<div style="margin-top:12px">' + Charts.render(e.chart, col) + '</div>' : '') + '</div>';
+    const axBody = a ? '<div style="font-family:var(--f-ui);font-weight:700">' + h(a.title) + (a.classic ? '، <span class="muted">' + h(a.classic) + '</span>' : '') + '</div>' + (a.highlights.length ? '<ul style="margin-top:6px">' + a.highlights.map(x => '<li>' + h(x) + '</li>').join('') + '</ul>' : '') : '';
+    const foldKey = k => e.id + ':' + k; const isOpen = k => !!(UIState.fold && UIState.fold[foldKey(k)]);
+    const fold = (k, cls, title, body) => '<details class="ex-block ex-fold ' + cls + '" data-fold="' + h(foldKey(k)) + '" ' + (isOpen(k) ? 'open' : '') + '><summary><span class="lbl">' + title + '</span><span class="fold-hint">اضغط للقراءة</span></summary><div class="fold-body">' + body + '</div></details>';
+    let guides = '';
+    if (a && e.principle) guides += fold('ex', 'extract', '🧭 مستخلص المحور والمبدأ العلمي', axBody + '<div class="ex-merge-sep"></div><div class="lbl" style="font-size:13.5px">🔬 المبدأ العلمي باختصار</div>' + richHtml(e.principle));
+    else if (a) guides += fold('ex', 'extract', '🧭 قبل أن تبدأ: مستخلص المحور', axBody);
+    else if (e.principle) guides += fold('ex', 'principle', '🔬 المبدأ العلمي باختصار', richHtml(e.principle));
+    let steps = e.steps && e.steps.length ? e.steps : (DEFAULT_STEPS[e.format] || DEFAULT_STEPS.text);
+    if (e._groupsOff) steps = steps.filter(s => !/مجموع/.test(s)); // تُحذف الخطوات التي تتحدث عن المجموعات عند تعطيل وضع المجموعات
+    const hintIn = e.format !== 'text' && e.hint ? '<div class="ex-merge-sep"></div><div class="lbl" style="font-size:13.5px">💡 تلميح</div>' + richHtml(e.hint) : '';
+    guides += fold('st', '', '🛠 كيف تنجز التمرين؟', '<ol class="steps-list">' + steps.map((s2, i) => '<li><span class="n num">' + (i + 1) + '</span><span>' + h(s2) + '</span></li>').join('') + '</ol>' + hintIn);
+    out += '<div class="ex-guides">' + guides + '</div>';
+    if (e.mode === 'group') out += '<div id="groupZone">' + groupPickerHtml(e) + '</div>';
+    if (e.format === 'text' || e.task) out += '<div class="ex-block task"><div class="lbl">📝 المطلوب منك</div>' + richHtml(e.task || 'اكتب إجابتك.') + '</div>';
+    out += e.format === 'sim' ? '<div id="simZone">' + Sims.html(e) + '</div><div id="feedZone">' + Sims.feed(e) + '</div>' : '<div id="ansZone">' + answerBoxHtml(e) + '</div><div id="feedZone">' + feedHtml(e) + '</div>';
+    // النموذج المساعد (تلميح بمثال موجز) للتمارين النصية فقط؛ ويُحذف كليًا من النماذج التفاعلية
+    if (e.format === 'text') out += '<div style="margin-top:16px">' +
+      '<div class="ex-block model-box" style="margin-top:0"><div class="lbl">🧩 نموذج مساعد</div>' + (UIState.modelShown[e.id] || isRevealed(e) ? '<div class="model-body">' + richHtml(e.model || 'فكّر في مثال من تجربتك ثم طبّق الفكرة نفسها على الموقف.') + '</div>' : '<button class="btn btn-soft btn-sm" data-act="show-model" data-ex="' + h(e.id) + '">👁 أظهر النموذج المساعد</button>') + '</div></div>';
+    out += exNavHtml(e) + '</div>';
+    return out;
+  }
+};
+
+// ============ تقييم البرنامج (نجوم + توصية + رأي) ============
+function starsHtml(v, attrs, dis) { return '<span class="stars">' + [1, 2, 3, 4, 5].map(n => '<button class="star ' + (v >= n ? 'on' : '') + '" ' + attrs + ' data-v="' + n + '" ' + dis + ' title="' + n + '">★</button>').join('') + '</span>'; }
+function surveyFormHtml(e) {
+  if (Admin.ok()) return '<div class="answer-box"><div class="locked-note">🛡️ تقييم البرنامج للمتدربين فقط؛ تتابع نتائجه أدناه.</div></div>';
+  if (!Me.isReg()) return '<div class="answer-box"><div class="locked-note">🔒 للمسجلين فقط</div></div>';
+  const post = (Store.posts[e.id] || {})[Me.uid()]; const editing = !!UIState.editing[e.id];
+  if (post && !editing) return '<div class="answer-box"><div class="row" style="margin-bottom:8px"><b style="font-family:var(--f-display)">✅ شكرًا لتقييمك</b><span class="grow"></span><button class="btn btn-soft btn-sm" data-act="edit-ans" data-ex="' + h(e.id) + '">✏️ تعديل</button></div>' +
+    e.rates.map((r, i) => '<div class="rate-row"><span>' + h(r) + '</span>' + starsHtml(+((post.ratings || {})[i]) || 0, '', 'disabled') + '</div>').join('') + (post.nps != null ? '<div class="rate-row"><span>التوصية</span><b class="num">' + post.nps + ' / 10</b></div>' : '') + (post.text ? '<div class="answer-view" style="margin-top:8px">' + h(post.text) + '</div>' : '') + '</div>';
+  let d = UIState.draft.sv; if (!d) { d = { ratings: Object.assign({}, (post && post.ratings) || {}), nps: post && post.nps != null ? post.nps : null }; UIState.draft.sv = d; }
+  return '<div class="answer-box">' + e.rates.map((r, i) => '<div class="rate-row"><span>' + h(r) + '</span>' + starsHtml(+d.ratings[i] || 0, 'data-act="sv-rate" data-i="' + i + '"', '') + '</div>').join('') +
+    (e.nps ? '<div class="field" style="margin-top:12px"><label>' + h(e.nps) + '</label><div class="nps-row">' + Array.from({ length: 11 }).map((_, n) => '<button class="nps-btn ' + (d.nps === n ? 'on' : '') + ' ' + (n <= 6 ? 'd' : n <= 8 ? 'p' : 'g') + '" data-act="sv-nps" data-v="' + n + '"><span class="num">' + n + '</span></button>').join('') + '</div><div class="nps-legend"><span>0 = لن أوصي أبدًا</span><span>10 = سأوصي بالتأكيد</span></div></div>' : '') +
+    '<div class="field"><label>رأيك ومقترحاتك</label><textarea data-keep="sv-text" id="svText" placeholder="الفكرة التي ستطبقها أولًا، وما تقترح تحسينه">' + (post ? h(post.text || '') : '') + '</textarea></div>' +
+    '<div class="save-row"><button class="btn btn-primary" data-act="sv-save" data-ex="' + h(e.id) + '">📤 إرسال التقييم</button>' + (editing ? '<button class="btn btn-ghost" data-act="cancel-edit" data-ex="' + h(e.id) + '">إلغاء</button>' : '') + '</div></div>';
+}
+function surveyFeedHtml(e) {
+  const st = SurveyStats.of(Store.posts[e.id], e); if (!st.n) return '<div class="feed"><div class="empty">لا توجد تقييمات بعد.</div></div>';
+  const del = k => Admin.ctl() ? '<button class="del-btn" data-act="del-post" data-ex="' + h(e.id) + '" data-k="' + h(k) + '">🗑</button>' : '';
+  const ps = Store.posts[e.id] || {}; const keys = Object.keys(ps).filter(k => ps[k] && ps[k].text).sort((a, b) => (ps[b].ts || 0) - (ps[a].ts || 0));
+  return '<div class="feed"><div class="feed-head"><span class="live-dot"></span><h3>نتائج التقييم مباشرة</h3><span class="pill num">' + st.n + '</span></div>' +
+    '<div class="sv-stats"><div class="sv-kpi"><b class="num">' + (st.overall ? st.overall.toFixed(1) : '-') + '</b><span>متوسط الرضا من 5</span></div><div class="sv-kpi"><b class="num">' + (st.nps == null ? '-' : (st.nps > 0 ? '+' : '') + st.nps) + '</b><span>صافي التوصية NPS</span></div></div>' +
+    '<div class="sv-bars">' + st.rates.map((r, i) => '<div class="sv-bar"><span>' + h(r) + '</span><i><em style="width:' + ((st.avgs[i] || 0) / 5 * 100) + '%"></em></i><b class="num">' + (st.avgs[i] ? st.avgs[i].toFixed(1) : '-') + '</b></div>').join('') + '</div>' +
+    (keys.length ? '<div class="posts" style="margin-top:12px">' + keys.map(k => { const p = ps[k]; return '<div class="post ' + (k === Me.uid() ? 'mine' : '') + '"><div class="post-head"><span class="av">' + h(initials(p.name)) + '</span><div><div class="who">' + h(p.name || '') + '</div><div class="role">' + h(p.role || '') + ' · ' + ago(p.ts || 0) + '</div></div></div><div class="post-body">' + h(p.text) + '</div><div class="post-foot">' + Likes.btn('posts/' + e.id + '/' + k, p.likes) + del(k) + '</div></div>'; }).join('') + '</div>' : '') + '</div>';
+}
+
+// ============ المختبر الختامي ============
+function labElapsed(t) { if (!t || !t.start) return 0; const now = t.pausedAt || DB.now(); return Math.max(0, now - t.start - (t.pausedTotal || 0)); }
+Views.lab = {
+  html() {
+    const L = Content.lab(); const g = Me.group(); const t = g ? Store.labTimers['g' + g] : null; const el = labElapsed(t); const total = L.stages.length * Content.lab().minutes * 60000;
+    let out = Layout.crumbs('<span class="crumb-tag">المختبر الختامي</span>') + '<div class="ex-head"><div class="ico">🧪</div><div><h1>' + h(L.title) + '</h1><div class="row" style="margin-top:4px"><span class="pill">👥 جماعي</span><span class="pill">⏱ <span class="num">60</span> دقيقة · <span class="num">' + L.stages.length + '</span> مراحل</span></div></div></div>' +
+      '<div class="ex-block scenario"><div class="lbl">🎬 الحالة</div>' + richHtml(L.intro) + (L.chart ? '<div style="margin-top:12px">' + Charts.render(L.chart, '#4C3AA7') + '</div>' : '') + '</div>';
+    out += '<div id="labGroupZone">' + groupPickerHtml({ id: 'lab' }, { noMembers: true, note: 'الوقت محفوظ لكل مجموعة ويبقى صحيحًا حتى لو حدّث أي عضو الصفحة أو دخل من جهاز آخر.' }) + '</div>';
+    if (g && Me.isReg()) {
+      if (!t || !t.start) out += '<div class="lab-timer" style="margin-top:14px"><div class="grow"><div style="font-family:var(--f-display);font-weight:800;font-size:18px">جاهزون؟</div><div class="muted">لن تظهر صناديق الإجابة قبل بدء الوقت.</div></div><button class="btn btn-primary" data-act="lab-start">🚀 ابدأ الوقت</button></div>';
+      else out += '<div class="lab-timer" style="margin-top:14px"><div><div class="muted">الوقت المتبقي · ' + h(Groups.label(g)) + '</div><div class="clock num" id="labClock">' + mmss(total - el) + '</div></div><span class="grow"></span>' +
+        (t.pausedAt ? '<button class="btn btn-primary btn-sm" data-act="lab-resume">▶ استمرار</button>' : '<button class="btn btn-ghost btn-sm" data-act="lab-pause">⏸ إيقاف مؤقت</button>') + '<button class="btn btn-danger btn-sm" data-act="lab-reset">🔄 إعادة ضبط</button></div>';
+    }
+    out += '<div id="labStages">' + Views.lab.stagesHtml() + '</div>';
+    out += '<section class="section"><div class="feed-head"><span class="live-dot"></span><h3 style="font-size:19px">متابعة كل المجموعات</h3></div>' + Views.lab.allHtml() + '</section>';
+    return out;
+  },
+  stagesHtml() {
+    const L = Content.lab(); const g = Me.group(); const t = g ? Store.labTimers['g' + g] : null; const started = !!(t && t.start); const el = labElapsed(t);
+    const ans = g ? (Store.labAnswers['g' + g] || {}) : {};
+    return L.stages.map((s, i) => {
+      const openAt = i * Content.lab().minutes * 60000; const open = started && el >= openAt; const a = ans['s' + i]; const ek = 'lab' + i;
+      let body = '';
+      if (!Me.isReg()) body = '<div class="locked-note">🔒 للمسجلين فقط</div>';
+      else if (!g) body = '<div class="lock-note">👆 اختر مجموعتك أولًا</div>';
+      else if (!started) body = '<div class="lock-note">🔒 تُتاح بعد الضغط على «ابدأ الوقت»' + (i ? ' ومرور ' + (i * Content.lab().minutes) + ' دقيقة' : '') + '</div>';
+      else if (!open) body = '<div class="lock-note" data-lock-at="' + openAt + '">🔒 باقي <span class="num">' + mmss(openAt - el) + '</span> على إتاحتها</div>';
+      else if (a && !UIState.editing[ek]) body = '<div class="answer-view" style="margin-top:8px">' + h(a.text) + '</div><div class="save-row"><button class="btn btn-soft btn-sm" data-act="edit-ans" data-ex="' + ek + '">✏️ تعديل</button><span class="status-note">آخر حفظ: ' + h(a.name || '') + '</span></div>';
+      else body = '<div class="answer-box" style="margin-top:8px"><textarea data-keep="lab-' + i + '" id="labAns' + i + '" placeholder="اكتبوا مخرج هذه المرحلة">' + (a ? h(a.text) : '') + '</textarea><div class="save-row"><button class="btn btn-primary btn-sm" data-act="lab-save" data-i="' + i + '">💾 حفظ المرحلة</button>' + (UIState.editing[ek] ? '<button class="btn btn-ghost btn-sm" data-act="cancel-edit" data-ex="' + ek + '">إلغاء</button>' : '') + '</div></div>';
+      return '<div class="stage ' + (open || !started ? '' : 'locked') + '"><h3><span class="no num">' + (i + 1) + '</span>' + h(s.icon) + ' ' + h(s.title) + '</h3><p style="margin-top:6px;color:var(--ink-2)">' + h(s.task) + '</p>' + body + '</div>';
+    }).join('');
+  },
+  allHtml() {
+    const L = Content.lab(); const keys = Object.keys(Store.labAnswers || {}).filter(k => Store.labAnswers[k]).sort((a, b) => (+a.slice(1)) - (+b.slice(1)));
+    if (!keys.length) return '<div class="empty">لم تحفظ أي مجموعة إجاباتها بعد.</div>';
+    return '<div class="lab-groups">' + keys.map(k => { const ga = Store.labAnswers[k]; return '<div class="lab-group ' + (Me.group() && k === 'g' + Me.group() ? 'ga-card mine' : '') + '"><h4>👥 ' + h(Groups.label(+k.slice(1))) + '</h4>' +
+      L.stages.map((s, i) => { const a = ga['s' + i]; if (!a) return ''; return '<div class="lab-ans"><div class="st">' + (i + 1) + '. ' + h(s.title) + '</div><div style="white-space:pre-wrap">' + h(a.text) + '</div><div class="post-foot" style="margin-top:4px">' + Likes.btn('lab/answers/' + k + '/s' + i, a.likes) + (Admin.ctl() ? '<button class="del-btn" data-act="del-lab" data-k="' + k + '" data-i="' + i + '">🗑</button>' : '') + '</div></div>'; }).join('') + '</div>'; }).join('') + '</div>';
+  }
+};
+
+// ============ حسابي ============
+function medalSvg(a, size = 84) {
+  const col = Content.color(a); const id = 'm' + a.id.replace(/\W/g, '');
+  return '<svg class="medal" viewBox="0 0 100 100" width="' + size + '" height="' + size + '"><defs><linearGradient id="' + id + '" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + shade(col, .25) + '"/><stop offset="1" stop-color="' + shade(col, -.35) + '"/></linearGradient></defs>' +
+    '<path d="M30 4 L42 34 L50 30 L38 2Z" fill="' + shade(col, -.2) + '"/><path d="M70 4 L58 34 L50 30 L62 2Z" fill="' + shade(col, .1) + '"/>' +
+    '<circle cx="50" cy="60" r="34" fill="url(#' + id + ')"/><circle cx="50" cy="60" r="27" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="2" stroke-dasharray="3 3"/>' +
+    '<g transform="translate(35 45)">' + iconSvg(a.icon || 'star', 30, '#fff', 2).replace('<svg ', '<svg x="0" y="0" ') + '</g></svg>';
+}
+function congratsInner(name, kind) {
+  const c = Content.doc(kind); const rep = s => String(s || '').replace(/\{\{name\}\}/g, name).replace(/\{\{courseTitle\}\}/g, Content.courseTitle()).replace(/\{\{date\}\}/g, fmtDate(Date.now()));
+  return '<div class="emo">' + h(c.emoji) + '</div><h2>' + h(rep(c.title)) + '</h2><div class="nm">' + h(name) + '</div>' +
+    c.paragraphs.map(p => '<p style="margin-top:10px;font-size:16px;color:var(--ink-2)">' + h(rep(p)) + '</p>').join('') +
+    '<div class="congrats-foot"><span>' + h(rep(c.footerRight)) + '</span><span>' + h(rep(c.footerLeft)) + '</span></div>';
+}
+// مشاركات المتدرب نفسه (للمراجعة في «حسابي»)
+function myPostOf(e, uid) {
+  const ps = Store.posts[e.id] || {};
+  if (e.mode === 'group') { const g = Me.group() || Groups.assignedOf(uid); const k = Object.keys(ps).find(k => ps[k] && ps[k].members && ps[k].members[uid]) || (g && ps['g' + g] ? 'g' + g : null); return k ? { p: ps[k], group: +k.slice(1) } : null; }
+  return ps[uid] ? { p: ps[uid] } : null;
+}
+function myPostsHtml(uid) {
+  const groups = [];
+  Content.eligibleAxes().forEach(a => { const list = Content.exercisesOf(a.id).map(e => ({ e, r: myPostOf(e, uid) })); groups.push({ title: a.title, color: Content.color(a), list }); });
+  const acts = Content.activities().map(e => ({ e, r: myPostOf(e, uid) })); if (acts.length) groups.push({ title: 'أنشطة الطاقة', color: '#484371', list: acts });
+  const sv = Content.survey(); if (sv) groups.push({ title: 'ختام البرنامج', color: '#F34D00', list: [{ e: sv, r: myPostOf(sv, uid) }] });
+  const f = UIState.myFilter || 'all';
+  return '<div class="row" style="margin-bottom:10px">' + [['all', 'الكل'], ['done', 'أنجزتها'], ['todo', 'لم أنجزها']].map(([k, l]) => '<button class="btn btn-xs ' + (f === k ? 'btn-primary' : 'btn-ghost') + '" data-act="my-filter" data-k="' + k + '">' + l + '</button>').join('') + '</div>' +
+    groups.map(g => { const items = g.list.filter(x => f === 'all' || (f === 'done' ? x.r : !x.r)); if (!items.length) return ''; const dn = g.list.filter(x => x.r).length;
+      const op = UIState.openAcc.has('my-' + g.title);
+      return '<div class="acc ' + (op ? 'open' : '') + '" style="--ac:' + g.color + ';--acg:' + tint(g.color, .07) + '"><div class="acc-head" data-act="acc" data-k="my-' + h(g.title) + '"><h3>' + h(g.title) + ' <span class="pill num">' + dn + ' / ' + g.list.length + '</span></h3><span class="arrow">◀</span></div><div class="acc-body">' + (op ? items.map(({ e, r }) =>
+        '<div class="my-post ' + (r ? '' : 'todo') + '"><div class="row"><span style="font-size:18px">' + h(e.icon || '✍️') + '</span><b class="grow">' + h(e.title) + '</b><span class="pill">' + (e.mode === 'group' ? '👥 جماعي' : '👤 فردي') + ' · ' + h(FORMATS[e.format] || '') + '</span><button class="btn btn-soft btn-xs" data-go="ex" data-id="' + h(e.id) + '">' + (r ? 'فتح / تعديل' : 'ابدأ الآن') + '</button></div>' +
+        (r ? '<div class="muted" style="font-family:var(--f-ui);font-size:12px;margin:4px 0">' + (r.group ? '(ضمن ' + h(Groups.label(r.group)) + ') · ' : '') + ago(r.p.ts || 0) + ' · 👍 <span class="num">' + Object.keys(r.p.likes || {}).length + '</span></div>' + (e.format === 'text' ? '<div class="answer-view">' + h(r.p.text || '') + '</div>' : e.format === 'sim' ? '<div class="answer-view">🎮 ' + h(r.p.summary || '') + '</div>' : '<div>' + answersSummary(e, r.p.answers, isRevealed(e)) + '</div>') : '<div class="muted" style="font-family:var(--f-ui);font-size:12.5px;margin-top:4px">لم تشارك بعد</div>') + '</div>').join('') : '') + '</div></div>'; }).join('');
+}
+Views.account = {
+  html() {
+    if (!Me.isReg()) return Layout.crumbs() + '<div class="empty" style="margin-top:20px">صفحة «حسابي» متاحة للمسجلين فقط.</div>';
+    const me = Me.data; const pr = Progress.forUser(me.uid); const pct = Math.round(pr.pct * 100); const unlocked = pr.pct >= BADGE_THRESHOLD; const c = Content.congrats(); const pdf = Content.pdf();
+    const member = me.member || (Store.users[me.uid] && Store.users[me.uid].member);
+    const att = Attend.pct(me.uid); const ac = Attend.cfg(); const A = Content.assess(); const pre = Assess.rec('pre', me.uid), post = Assess.rec('post', me.uid); const rv = Assess.cfg().reveal;
+    const scoreTxt = r => !r || !r.done ? '-' : rv ? Assess.score(r.answers) + '/' + A.items.length : '✔';
+    // أقسام الصفحة تُجمع ثم تُعرض بقائمة جانبية مثل الصفحة الرئيسية ولوحة الإدارة
+    const S = []; let cut = 0; const mark = (k, ico, l, sub) => { S.push({ k, ico, l, sub, body: out.slice(cut) }); cut = out.length; };
+    const crumbs = Layout.crumbs('<span class="crumb-tag">حسابي</span>');
+    let out = '' +
+      '<div class="card pad" style="margin-top:8px"><div class="row" style="align-items:flex-start"><div class="grow"><div class="sec-kicker">نسبة الإنجاز الإجمالية</div><div class="big-pct num">' + pct + '%</div><div class="muted" style="font-family:var(--f-ui)">أنجزت <span class="num">' + pr.done + '</span> من <span class="num">' + pr.total + '</span> تمرينًا</div></div>' +
+      '<div style="text-align:center"><div class="sec-kicker">رقم العضوية</div><div class="num notranslate" translate="no" style="font-family:var(--f-display);font-weight:800;font-size:30px;letter-spacing:2px">' + (member ? pad4(member) : '-') + '</div>' + ((Me.data && Me.data.code) || Store.mySecret ? '<div class="sec-kicker" style="margin-top:4px">رمز الدخول</div><div class="num notranslate" translate="no" dir="ltr" style="font-family:var(--f-display);font-weight:800;font-size:18px;letter-spacing:3px;user-select:all">' + h((Me.data && Me.data.code) || Store.mySecret) + '</div>' : '') + '</div></div><div class="progress" style="margin-top:12px"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="mini-stats">' + (Attend.on() ? '<div><span>📍 الحضور</span><b class="num">' + att + '%</b></div>' : '') + '<div><span>🧭 التقييم القبلي</span><b class="num">' + scoreTxt(pre) + '</b></div><div><span>🏁 التقييم البعدي</span><b class="num">' + scoreTxt(post) + '</b></div><div><span>🏅 الأوسمة</span><b class="num">' + pr.axes.filter(x => x.pct >= BADGE_THRESHOLD).length + '/' + pr.axes.length + '</b></div></div></div>';
+    mark('overview', '📊', 'نظرة عامة', 'الإنجاز ' + pct + '%');
+    const urec = Object.assign({}, Store.users[me.uid] || {}, { name: me.name, role: me.role }); const cons = urec.consent || {};
+    out += '<div class="card pad" style="margin-top:16px"><h3 style="margin-bottom:12px">✏️ بياناتي</h3><div class="grid2">' + RegFields.visible().map(f => RegFields.input(f, RegFields.val(urec, f.key), 'acc_')).join('') + '</div>' +
+      (Content.privacy().showFollow ? '<label class="consent"><input type="checkbox" id="accFollow" ' + (cons.followup ? 'checked' : '') + '> <span>' + h(Content.privacy().followup) + '</span></label>' : '') +
+      '<div class="row"><button class="btn btn-primary btn-sm" data-act="acc-save">💾 حفظ التعديلات</button><button class="btn btn-ghost btn-sm" data-act="save-card">🪪 حفظ بطاقة رقم العضوية</button><span class="grow"></span><a href="#" class="btn btn-ghost btn-sm" data-act="privacy-show">🔒 إشعار الخصوصية</a><button class="btn btn-danger btn-sm" data-act="delete-me">🗑 احذف بياناتي</button></div></div>';
+    mark('data', '✏️', 'بياناتي', 'البيانات والموافقات');
+    out += '<section class="section"><div class="sec-head"><h2 class="sec-title">📝 مشاركاتي في التمارين</h2><span class="pill">راجع إجاباتك وافتح أي تمرين لتعديلها</span></div>' + myPostsHtml(me.uid) + '</section>';
+    mark('posts', '📝', 'مشاركاتي', 'إجاباتك في التمارين');
+    out += '<section class="section"><div class="sec-head"><h2 class="sec-title">🏅 أوسمتي</h2><span class="pill">يُفتح الوسام عند إنجاز <span class="num">80%</span> من تمارين المحور</span></div><div class="badges">' +
+      pr.axes.map(x => { const ok = x.pct >= BADGE_THRESHOLD; return '<div class="badge ' + (ok ? '' : 'locked') + '">' + (ok ? '' : '<span class="lock">🔒</span>') + medalSvg(x.a) + '<h5>' + h(x.a.title) + '</h5><div class="pct num">' + Math.round(x.pct * 100) + '% · ' + x.done + ' من ' + x.total + '</div></div>'; }).join('') + '</div></section>';
+    mark('badges', '🏅', 'أوسمتي', pr.axes.filter(x => x.pct >= BADGE_THRESHOLD).length + ' من ' + pr.axes.length);
+    const fuc = followupCardsHtml(); if (fuc) out += '<section class="section"><div class="sec-head"><h2 class="sec-title">📈 متابعة ما بعد البرنامج</h2></div>' + fuc + '</section>';
+    if (fuc) mark('followup', '📈', 'متابعة ما بعد البرنامج', '30 · 60 · 90 يومًا');
+    if (Points.cfg().enabled) { const pt = Points.table(); const mine = pt.map[me.uid] || { pts: 0 }; const rank = pt.list.findIndex(x => x.uid === me.uid) + 1; const bd = Points.badges(me.uid);
+      out += '<section class="section"><div class="sec-head"><h2 class="sec-title">⭐ نقاطي</h2><span class="pill">المركز <span class="num">' + (rank || '-') + '</span> من <span class="num">' + pt.list.length + '</span></span></div><div class="card pad"><div class="row"><div class="big-pct num">' + mine.pts + '</div><div class="muted" style="font-family:var(--f-ui)">نقطة · <span class="num">' + (mine.ex || 0) + '</span> تمرين · <span class="num">' + (mine.likes || 0) + '</span> إعجاب' + (Attend.on() ? ' · <span class="num">' + (mine.att || 0) + '</span> يوم حضور' : '') + '</div></div>' + (bd.length ? '<div class="sp-badges">' + bd.map(b => '<div class="sp-badge"><span>' + b[0] + '</span><b>' + h(b[1]) + '</b><em>' + h(b[2]) + '</em></div>').join('') + '</div>' : '<div class="muted" style="font-family:var(--f-ui);margin-top:8px">شارك مبكرًا واحصل على إعجابات لتفتح الشارات الخاصة.</div>') + '</div></section>'; }
+    if (Points.cfg().enabled) mark('points', '⭐', 'نقاطي', 'الترتيب والشارات');
+    out += '<section class="section"><div class="card pad row plan-cta"><div class="grow"><h3>🚀 خطتي للتحسين (PDF)</h3><p class="muted" style="font-family:var(--f-ui);font-size:14px">ملف أنيق يجمع خريطتك وجملة قيمتك وخاتمة عرضك، وتنازلك واعتراضك الأصعب، وقرار التحسين وعادتك الأولى، ومخرجات مجموعتك في المختبر، مع جدول عمل 30/60/90 يومًا.</p></div><button class="btn btn-primary" data-act="plan-pdf">📘 إنشاء خطتي</button><button class="btn btn-ghost" data-go="tools">🧰 صندوق الأدوات</button></div></section>';
+    mark('plan', '🚀', 'خطتي للتحسين', 'ملف PDF لعملك');
+    const lf = leadFormHtml('acc'); if (lf) { out += '<section class="section">' + lf + '</section>'; mark('lead', '🤝', 'برامج الدعم', 'اهتمامك بالبرامج'); }
+    // شهادة المشاركة (بالحضور)، تُخفى إن عطّلها المدرب من لوحة الإدارة
+    if (Attend.certOn()) {
+      const cc = Content.cert();
+      out += '<section class="section"><div class="sec-head"><h2 class="sec-title">🎓 شهادة المشاركة</h2><span class="pill">تُمنح عند حضور <span class="num">' + ac.threshold + '%</span> من مدة البرنامج</span></div>';
+      if (!Attend.eligible(me.uid)) out += '<div class="card pad center"><div style="font-size:44px;filter:grayscale(1);opacity:.5">🎓</div><h3>نسبة حضورك الحالية <span class="num">' + att + '%</span></h3><p class="muted" style="font-family:var(--f-ui)">يسجّل المدرّب الحضور في كل يوم تدريبي (<span class="num">' + ac.days + '</span> أيام × <span class="num">' + ac.hours + '</span> ساعات). تُفتح الشهادة تلقائيًا عند بلوغ <span class="num">' + ac.threshold + '%</span>.</p><div class="progress" style="max-width:420px;margin:10px auto 0"><i style="width:' + Math.min(100, att / Math.max(1, ac.threshold) * 100) + '%"></i></div></div>';
+      else out += '<div class="congrats-card cert-card">' + congratsInner(me.name, 'cert') + '</div><div class="row" style="margin-top:12px"><button class="btn btn-primary" data-act="congrats-pdf" data-kind="cert">📥 تحميل الشهادة PDF</button></div><div class="notice">ℹ️ ' + h(cc.notice) + '</div>';
+      out += '</section>';
+      mark('cert', '🎓', 'شهادة المشاركة', Attend.eligible(me.uid) ? 'جاهزة للتحميل' : 'الحضور ' + att + '%');
+    }
+    out += '<section class="section"><div class="sec-head"><h2 class="sec-title">🎉 تهنئة إنجاز</h2></div>';
+    if (!unlocked) out += '<div class="card pad center"><div style="font-size:44px;filter:grayscale(1);opacity:.5">🔒</div><h3>تُفتح التهنئة عند إنجاز <span class="num">80%</span> من التمارين</h3><p class="muted" style="font-family:var(--f-ui)">إنجازك الحالي <span class="num">' + pct + '%</span></p><div class="progress" style="max-width:420px;margin:10px auto 0"><i style="width:' + Math.min(100, pct / 0.8) + '%"></i></div></div>';
+    else out += '<div class="congrats-card">' + congratsInner(me.name, 'congrats') + '</div><div class="row" style="margin-top:12px"><button class="btn btn-primary" data-act="congrats-pdf" data-kind="congrats">📥 تحميل / حفظ كـ PDF</button><button class="btn btn-ghost" data-act="congrats-mail">✉️ إرسال نسخة لبريدي</button></div><div class="notice">⏳ ' + h(c.notice) + '</div>';
+    out += '</section>';
+    mark('congrats', '🎉', 'تهنئة الإنجاز', unlocked ? 'مفتوحة 🎉' : 'تُفتح عند 80%');
+    if (pdf.enabled !== false) out += '<section class="section"><div class="card pad row"><div class="grow"><h3>📄 استخراج المحتوى (PDF)</h3><p class="muted" style="font-family:var(--f-ui);font-size:14px">ملف مصمَّم بمقاس A5 يضم كل شرائح البرنامج بأحدث نسخة، جاهز للطباعة.</p></div><button class="btn btn-dark" data-act="content-pdf">📄 استخراج المحتوى (PDF)</button></div></section>';
+    if (pdf.enabled !== false) mark('pdf', '📄', 'محتوى البرنامج', 'ملف PDF للطباعة');
+    return crumbs + sideShell(S, UIState.accSec || SafeLS.get('ec_acc_sec'), 'acc-sec', 'أقسام حسابي');
+  }
+};
+
+// ============ لوحة المشرف (قراءة فقط) ============
+// لوحة المشرف: المدرب يرى البيانات الحية ويُنشر منها لقطة؛ المشرف (بلا حساب) يقرأ اللقطة فقط عبر الرمز
+Views.monitor = {
+  html() {
+    if (Admin.ok()) return monitorBody();
+    const tok = Router.cur.id || ''; const snap = (Store.monData || {})[tok];
+    if (snap === undefined) return '<div class="empty" style="margin-top:30px">⏳ جارٍ تحميل لوحة المتابعة</div>';
+    if (!snap || !snap.html) return '<div class="empty" style="margin-top:30px">🔒 رابط المتابعة غير صالح أو غير مفعّل. اطلب رابطًا محدثًا من إدارة البرنامج.</div>';
+    return '<div class="notice" style="margin-top:14px">🕒 آخر تحديث من إدارة البرنامج: ' + ago(snap.ts || 0) + '، تتحدث اللوحة تلقائيًا أثناء عمل المدرب على المنصة.</div>' + snap.html;
+  },
+  after() {
+    if (Admin.ok()) return; const tok = Router.cur.id || ''; Store.monData = Store.monData || {};
+    if (Views.monitor._tok === tok) return; if (Views.monitor._un) Views.monitor._un(); Views.monitor._tok = tok;
+    Views.monitor._un = DB.watch('monitorData/' + tok, v => { Store.monData[tok] = v; App.onData(); }, () => { Store.monData[tok] = null; App.onData(); });
+  }
+};
+function monitorBody() {
+    const d = reportData(); const pct = v => v == null ? '-' : Math.round(v) + '%';
+    const kpi = (l, v, s) => '<div class="mon-kpi"><span>' + l + '</span><b class="num">' + v + '</b>' + (s ? '<em>' + s + '</em>' : '') + '</div>';
+    const bars = (items, max, col) => '<div class="mon-bars">' + items.map(x => '<div class="mon-bar"><span>' + h(x.l) + '</span><i><em style="width:' + Math.max(0, Math.min(100, (x.v || 0) / (max || 1) * 100)) + '%;background:' + (x.c || col || 'var(--brand)') + '"></em></i><b class="num">' + h(x.t != null ? x.t : x.v) + '</b></div>').join('') + '</div>';
+    const dist = o => { const k = Object.keys(o).sort((a, b) => o[b] - o[a]); return k.length ? bars(k.map(x => ({ l: x, v: o[x] })), Math.max(...k.map(x => o[x])), '#484371') : '<div class="muted">لا توجد بيانات</div>'; };
+    const ev = Bell.events().slice(0, 12);
+    return '<div class="mon-head"><div><span class="live-dot"></span> <b>لوحة متابعة مباشرة</b> · ' + h(d.cohort.name) + '</div><div class="row"><span class="pill">👁 قراءة فقط</span><button class="btn btn-primary btn-sm" data-act="report-pdf" data-lang="ar">📑 التقرير (عربي)</button><button class="btn btn-soft btn-sm" data-act="report-pdf" data-lang="en">📑 Report (EN)</button></div></div>' +
+      '<div class="mon-kpis">' + kpi('المسجّلون', d.uids.length) + (d.attOn ? kpi('متوسط الحضور', d.attAvg + '%') : '') + (d.certOn ? kpi('مستحقو الشهادة', d.certs) : '') + kpi('التقييم القبلي', pct(d.preAvg), d.pre.length + ' مشارك') + kpi('التقييم البعدي', pct(d.postAvg), d.post.length + ' مشارك') + kpi('متوسط التحسن', d.gain == null ? '-' : (d.gain >= 0 ? '+' : '') + Math.round(d.gain)) + kpi('الرضا', d.survey.overall ? d.survey.overall.toFixed(1) + '/5' : '-') + kpi('NPS', d.survey.nps == null ? '-' : d.survey.nps) + (d.leadsOn ? kpi('مهتمون ببرامج الدعم', d.leads.length) : '') + '</div>' +
+      '<div class="mon-grid"><div class="card pad"><h3>المشاركة في المحاور</h3>' + bars(d.axes.map(x => ({ l: x.a.title, v: Math.round(x.rate * 100), t: Math.round(x.rate * 100) + '%' })), 100) + '</div>' +
+      '<div class="card pad">' + (d.attOn ? '<h3>الحضور حسب اليوم</h3>' + bars(d.perDay.map((v, i) => ({ l: 'اليوم ' + (i + 1), v, t: v + '/' + d.uids.length })), Math.max(1, d.uids.length), '#3A2A8A') + '<h3 style="margin-top:14px">قطاعات المشاركين</h3>' : '<h3>قطاعات المشاركين</h3>') + dist(d.sector) + '</div>' +
+      '<div class="card pad"><h3>التقييم القبلي مقابل البعدي لكل سؤال</h3>' + d.A.items.map((it, i) => '<div class="mon-q"><span class="num">' + (i + 1) + '</span>' + bars([{ l: 'قبلي', v: d.pq[i] || 0, t: pct(d.pq[i]), c: '#8E82C8' }, { l: 'بعدي', v: d.qq[i] || 0, t: pct(d.qq[i]), c: '#4C3AA7' }], 100) + '</div>').join('') + '</div>' +
+      '<div class="card pad"><h3>الرضا لكل بند</h3>' + bars(d.survey.rates.map((r, i) => ({ l: r, v: d.survey.avgs[i] || 0, t: d.survey.avgs[i] ? d.survey.avgs[i].toFixed(1) : '-' })), 5, '#E06126') + (d.leadsOn ? '<h3 style="margin-top:14px">الاهتمام ببرامج الدعم</h3>' + dist(d.byProg) : '') + '</div>' +
+      '<div class="card pad"><h3>💡 توصيات آلية</h3>' + (d.recs.length ? '<ul class="mon-recs">' + d.recs.map(r => '<li>' + h(r.ar) + '</li>').join('') + '</ul>' : '<div class="muted">تظهر عند توفر بيانات كافية.</div>') + '</div>' +
+      '<div class="card pad"><h3>آخر النشاطات</h3>' + (ev.length ? ev.map(e => '<div class="bell-item"><div class="grow">' + e.html + '<div class="t">' + ago(e.ts) + '</div></div></div>').join('') : '<div class="muted">لا نشاط بعد.</div>') + '</div></div>';
+}
+/* ===== 06b-sims.js ===== */
+// ---------------------------------------------------------------------
+// إطار المحاكيات والتمارين الحية التفاعلية
+// كل محاكاة قالب (factory) يقرأ إعداداته من cfg داخل التمرين نفسه، فيبقى المحتوى بيانات قابلة للتعديل من لوحة الإدارة.
+// القوالب: vote, wall, scale, rank, speed, swipe, classify, order, build, branch (تُعرَّف في 06f و06i و06j)
+// ---------------------------------------------------------------------
+const SIM_TYPES = {
+  vote: 'تصويت حي', wall: 'جدار الأفكار الحي', scale: 'مقياس «أين تقف؟»', rank: 'ترتيب جماعي', speed: 'سباق الأسئلة السريع',
+  swipe: 'بطاقات سريعة (اضغط واحكم)', classify: 'تصنيف العبارات', order: 'ترتيب الخطوات', build: 'اختيار ذكي بقيود', branch: 'محاكاة قرارات متتابعة',
+  cloud: 'سحابة كلمات حية', columns: 'لوحة بأعمدة (ابدأ/توقف/استمر)', grid: 'خريطة 2×2 بإجماع القاعة', tradeoff: 'موازنة بمؤشرات', compare: 'قبل/بعد للقاعة', roles: 'لعب أدوار ببطاقات سرية', detective: 'محقق الأسباب الجذرية', match: 'توصيل أزواج', hunt: 'اكتشف الخلل في نص', alloc: 'وزّع نقاطك'
+};
+const QAR = n => Math.round(n).toLocaleString('en-US');
+const SIMS = {}; // مفتاح القالب ، دالة تبني المحاكاة من (cfg, exId)
+
+const Sims = {
+  _c: {},
+  of(e) {
+    const sig = e.sim + '|' + JSON.stringify(e.cfg || {});
+    const c = Sims._c[e.id]; if (c && c.sig === sig) return c.S;
+    const f = SIMS[e.sim] || SIMS.wall; const S = f(e.cfg || {}, e.id); Sims._c[e.id] = { sig, S }; return S;
+  },
+  state(e) {
+    const S = Sims.of(e); let st = UIState.sim && UIState.sim[e.id];
+    if (!st) { UIState.sim = UIState.sim || {}; const key = postKey(e); const post = key ? (Store.posts[e.id] || {})[key] : null; st = Object.assign(S.def(), post && post.state ? JSON.parse(JSON.stringify(post.state)) : {}); const df = S.def(); Object.keys(df).forEach(k => { if (Array.isArray(df[k]) && st[k] && !Array.isArray(st[k]) && typeof st[k] === 'object') { const o = []; Object.keys(st[k]).forEach(i => { o[+i] = st[k][i]; }); st[k] = o; } }); UIState.sim[e.id] = st; }
+    return st;
+  },
+  html(e) {
+    const S = Sims.of(e); const col = exColor(e);
+    const rev = isRevealed(e); const locked = S.hidden && rev; // بعد كشف المدرب للإجابات تُقفل محاكاة التصنيف ويظهر التصحيح
+    const can = Me.isReg() && (e.mode !== 'group' || Me.group() || Me.isAdmin()) && !locked; const dis = can ? '' : 'disabled';
+    const s = Sims.state(e); if (S.hidden) s.done = rev; const key = postKey(e); const post = key ? (Store.posts[e.id] || {})[key] : null;
+    const eid = h(e.id);
+    const saveRow = (S.noSave && S.noReset) ? '' : '<div class="save-row">' + (S.noSave ? '' : '<button class="btn btn-primary" data-act="sim-save" data-ex="' + eid + '" ' + dis + '>' + (S.saveLabel || '💾 حفظ النتيجة') + (e.mode === 'group' && !S.saveLabel ? ' للمجموعة' : '') + '</button>') +
+      (S.noReset ? '' : '<button class="btn btn-ghost btn-sm" data-act="sim-reset" data-ex="' + eid + '" ' + dis + '>' + (S.resetLabel || '🔄 البدء من جديد') + '</button>') + '</div>';
+    return '<div class="answer-box sim-box" data-exid="' + eid + '" style="--ac:' + col + ';--acg:' + tint(col, .1) + '">' + (!Me.isReg() ? '<div class="locked-note">🔒 للمسجلين فقط، يمكنك التجربة بعد التسجيل.</div>' : e.mode === 'group' && !Me.group() && !Me.isAdmin() ? '<div class="locked-note">👆 اختر مجموعتك أولًا.</div>' : '') +
+      (post && !S.noSave && !S.auto ? '<div class="status-note" style="margin-bottom:6px">✅ آخر حفظ: ' + h(post.name || '') + ' · ' + ago(post.ts || 0) + '، يمكنك التعديل والحفظ مجددًا.</div>' : '') +
+      '<div class="sim-grid' + (S.wide ? ' wide' : '') + '"><div class="sim-form">' + S.form(s, e.id, dis, e) + '</div><div id="simLive-' + eid + '">' + S.live(s, e) + '</div></div>' + Sims.bestHtml(e, S, rev) + saveRow + '</div>';
+  },
+  // الحل النموذجي: يظهر للجميع بعد أن يكشف المدرب الإجابات
+  bestHtml(e, S, rev) {
+    if (!rev || !S.best) return '';
+    const st = Object.assign(S.def(), JSON.parse(JSON.stringify(S.best))); const mine = Sims.state(e);
+    return '<div class="sim-best"><div class="sim-best-h">✅ الحل النموذجي <span class="muted">- كشفه المدرب</span></div><div class="sim-grid"><div class="sim-form sim-ro">' + S.form(st, e.id + '-best', 'disabled', e) + '</div><div>' + S.live(st, e) + '</div></div>' +
+      '<div class="status-note">نتيجتك الحالية: <b>' + h(S.summary(mine)) + '</b><br>نتيجة الحل النموذجي: <b>' + h(S.summary(st)) + '</b></div></div>';
+  },
+  refresh(exId) { const e = Content.ex(exId); if (!e) return; const box = document.getElementById('simLive-' + exId); if (box) box.innerHTML = Sims.of(e).live(Sims.state(e), e); },
+  // إعادة رسم منطقة المحاكاة كاملة (للأزرار التي تغيّر الحالة: بطاقة تالية، جولة جديدة)
+  redraw(exId) { const e = Content.ex(exId); const z = document.getElementById('simZone'); if (!e || !z) return; z.innerHTML = Sims.html(e); },
+  set(exId, path, val) {
+    const e = Content.ex(exId); const s = Sims.state(e); const S = Sims.of(e); const [a, b] = path.split('.');
+    if (b) { s[a] = Object.assign({}, s[a] || {}); s[a][b] = val; } else s[a] = val;
+    if (S.onSet && S.onSet(s, path, val) === 'rerender') { Sims.redraw(exId); return; }
+    $$('[data-sim-out="' + path + '"]').forEach(o => { o.textContent = val; });
+    $$('.sim-seg label').forEach(l => { const i = l.querySelector('input'); l.classList.toggle('on', i.checked); });
+    $$('.vt-opt').forEach(l => { const i = l.querySelector('input'); if (i) l.classList.toggle('sel', i.checked); });
+    Sims.refresh(exId); if (S.auto) Sims.autosave(exId);
+  },
+  // أزرار القوالب: data-sm="الإجراء" data-ex="" data-a="" ، S.act(state, الإجراء, الوسيط)
+  act(exId, name, arg) {
+    const e = Content.ex(exId); if (!e) return; const S = Sims.of(e); const s = Sims.state(e); if (!S.act) return;
+    const r = S.act(s, name, arg, e);
+    if (r === 'live') Sims.refresh(exId); else if (r !== 'none') Sims.redraw(exId);
+    if (S.auto || (r && r.done)) Sims.autosave(exId);
+  },
+  autosave(exId) { clearTimeout(Sims._at); Sims._at = setTimeout(() => Sims.save(exId, true), 450); },
+  feed(e) {
+    const S = Sims.of(e); const ps = Store.posts[e.id] || {}; const myKey = Me.isReg() ? postKey(e) : null;
+    const veil = S.hidden && !isRevealed(e) && !Admin.ok(); // نتائج التصنيف لا تظهر للمتدربين قبل الكشف
+    const keys = Object.keys(ps).filter(k => ps[k] && ps[k].state).sort((a, b) => veil ? (ps[b].ts || 0) - (ps[a].ts || 0) : (S.sortBy === 'ts' ? (ps[b].ts || 0) - (ps[a].ts || 0) : S.metric(ps[b].state) - S.metric(ps[a].state)));
+    const del = k => Admin.ctl() ? '<button class="del-btn" data-act="del-post" data-ex="' + h(e.id) + '" data-k="' + h(k) + '">🗑</button>' : '';
+    if (S.feed) return S.feed(e, ps, keys, myKey, del);
+    if (!keys.length) return '<div class="feed"><div class="feed-head"><span class="live-dot"></span><h3>' + (e.mode === 'group' ? 'مقارنة المجموعات' : 'نتائج الجميع') + '</h3></div><div class="empty">لا توجد نتائج محفوظة بعد.</div></div>';
+    return '<div class="feed"><div class="feed-head"><span class="live-dot"></span><h3>' + (S.hidden ? 'نتائج الجميع' : '🏆 لوحة النتائج') + '</h3><span class="pill num">' + keys.length + '</span></div><div class="posts">' + keys.map((k, i) => { const p = ps[k];
+      const medal = !veil && i < 3 && !S.sortBy ? ['🥇', '🥈', '🥉'][i] + ' ' : '';
+      return '<div class="post ' + (k === myKey ? 'mine' : '') + '"><div class="post-head"><span class="av">' + h(initials(p.name)) + '</span><div><div class="who">' + medal + h(/^g\d+$/.test(k) && e.mode === 'group' ? Groups.label(+k.slice(1)) : (p.name || '')) + '</div><div class="role">' + h(p.role || '') + ' · ' + ago(p.ts || 0) + '</div></div><span class="grow"></span>' + (veil ? '' : '<span class="sim-badge num">' + h(S.metric(p.state)) + (S.unit == null ? '%' : S.unit) + '</span>') + '</div>' +
+        '<div class="post-body">' + (veil ? '✅ سُلّمت الإجابة' : h(p.summary || S.summary(p.state))) + '</div><div class="post-foot">' + (veil ? '' : Likes.btn('posts/' + e.id + '/' + k, p.likes)) + del(k) + '</div></div>'; }).join('') + '</div></div>';
+  },
+  async save(exId, quiet) {
+    const e = Content.ex(exId); const key = postKey(e); if (!key || !Me.isReg()) return; const S = Sims.of(e); const s = Sims.state(e); const me = Me.data;
+    if (S.hidden && isRevealed(e)) { if (!quiet) UI.toast('كشف المدرب الإجابات: أُقفلت المحاكاة'); return; }
+    if (S.canSave && !S.canSave(s)) { if (!quiet) UI.toast(S.canSave(s, true) || 'أكمل المحاكاة أولًا'); return; }
+    const upd = { state: JSON.parse(JSON.stringify(s)), metric: S.metric(s), summary: S.summary(s), name: me.name, role: me.role || '', ts: DB.now() };
+    if (S.extra) Object.assign(upd, S.extra(s));
+    if (e.mode === 'group' && !me.admin) { upd.group = Me.group(); upd.by = me.uid; upd['members/' + me.uid] = true; } else upd.uid = me.uid;
+    await DB.update('posts/' + exId + '/' + key, upd); if (!quiet) { UI.toast(S.savedMsg || '✅ حُفظت النتيجة'); App.render(); }
+  }
+};
+document.addEventListener('input', ev => { const t = ev.target; const f = t.getAttribute && t.getAttribute('data-sim-f'); if (!f) return; const v = t.type === 'checkbox' ? t.checked : t.type === 'range' || t.type === 'number' ? (t.value === '' ? '' : +t.value) : t.value; Sims.set(t.getAttribute('data-ex'), f, v); });
+document.addEventListener('change', ev => { const t = ev.target; const f = t.getAttribute && t.getAttribute('data-sim-f'); if (!f || t.tagName !== 'SELECT') return; const v = t.type === 'checkbox' ? t.checked : t.value; Sims.set(t.getAttribute('data-ex'), f, v); });
+document.addEventListener('click', ev => { const t = ev.target.closest && ev.target.closest('[data-sm]'); if (!t || t.disabled) return; Sims.act(t.getAttribute('data-ex'), t.getAttribute('data-sm'), t.getAttribute('data-a')); });
+/* ===== 06c-extras.js ===== */
+// ---------------------------------------------------------------------
+// صندوق الأدوات، مكتبة القوالب، النقاط ولوحة الصدارة، المتابعة بعد البرنامج
+// ---------------------------------------------------------------------
+
+// ================= صندوق الأدوات (حاسبات تُحفظ مدخلاتها على جهاز المتدرب) =================
+const TOOLS_KEY = 'ec_tools';
+const ToolState = {
+  all() { try { return JSON.parse(SafeLS.get(TOOLS_KEY) || '{}') || {}; } catch (e) { return {}; } },
+  get(id) { return ToolState.all()[id] || {}; },
+  set(id, k, v) { const a = ToolState.all(); a[id] = Object.assign({}, a[id] || {}, { [k]: v }); SafeLS.set(TOOLS_KEY, JSON.stringify(a)); }
+};
+const n0 = v => { const x = parseFloat(v); return isFinite(x) ? x : 0; };
+const fmt = (v, d = 0) => isFinite(v) ? (Math.round(v * Math.pow(10, d)) / Math.pow(10, d)).toLocaleString('en-US') : '-';
+let TOOLS;
+let MATRIX_CRIT;
+let MX_NAMES;
+function matrixToolHtml() {
+  const s = Object.assign({ names: MX_NAMES.slice(), w: [25, 25, 20, 20, 10], sc: {} }, ToolState.get('matrix'));
+  const tot = s.w.reduce((a, b) => a + n0(b), 0);
+  const res = s.names.map((nm, j) => MATRIX_CRIT.reduce((a, c, i) => a + n0(s.w[i]) / 100 * n0((s.sc[i] || {})[j] || 3), 0));
+  const best = res.indexOf(Math.max(...res));
+  return '<div class="tool-card" id="tool-matrix"><div class="tc-head"><span>🧭</span><div><h3>مصفوفة مقارنة الأفكار</h3><p>امنح كل معيار وزنًا (المجموع 100%)، وقيّم كل فكرة من 1 إلى 5 لتعرف بأيها تبدأ.</p></div></div>' +
+    '<div class="table-wrap"><table class="mx-table"><thead><tr><th>المعيار</th><th>الوزن %</th>' + s.names.map((nm, j) => '<th><input data-mx="name" data-j="' + j + '" value="' + h(nm) + '"></th>').join('') + '</tr></thead><tbody>' +
+    MATRIX_CRIT.map((c, i) => '<tr><td>' + c + '</td><td><input type="number" min="0" max="100" data-mx="w" data-i="' + i + '" value="' + h(s.w[i]) + '"></td>' + s.names.map((_, j) => '<td><input type="number" min="1" max="5" data-mx="sc" data-i="' + i + '" data-j="' + j + '" value="' + h((s.sc[i] || {})[j] || 3) + '"></td>').join('') + '</tr>').join('') +
+    '<tr class="mx-total"><td>النتيجة الموزونة</td><td class="num ' + (tot === 100 ? '' : 'bad') + '">' + tot + '%</td>' + res.map((r, j) => '<td class="num ' + (j === best ? 'best' : '') + '">' + r.toFixed(2) + (j === best ? ' 🏆' : '') + '</td>').join('') + '</tr></tbody></table></div>' + (tot !== 100 ? '<div class="tool-note">⚠️ مجموع الأوزان يجب أن يكون 100%.</div>' : '') + '</div>';
+}
+function toolCardHtml(t) {
+  const st = ToolState.get(t.id); const v = {}; t.inputs.forEach(([k, , d]) => { v[k] = n0(st[k] != null ? st[k] : d); });
+  return '<div class="tool-card" id="tool-' + t.id + '"><div class="tc-head"><span>' + t.icon + '</span><div><h3>' + h(t.title) + '</h3><p>' + h(t.desc) + '</p></div></div><div class="tc-grid"><div class="tc-inputs">' +
+    t.inputs.map(([k, l, d]) => '<label><span>' + h(l) + '</span><input type="number" step="any" data-tool="' + t.id + '" data-k="' + k + '" value="' + h(st[k] != null ? st[k] : d) + '"></label>').join('') + '</div><div class="tc-out" id="tco-' + t.id + '">' + toolOut(t, v) + '</div></div></div>';
+}
+function toolOut(t, v) { return t.calc(v).map(([l, val, strong]) => '<div class="tc-row ' + (strong ? 'strong' : '') + '"><span>' + h(l) + '</span><b class="num">' + h(val) + '</b></div>').join(''); }
+document.addEventListener('input', ev => {
+  const t = ev.target; if (!t.getAttribute) return;
+  const tid = t.getAttribute('data-tool');
+  if (tid) { const tool = TOOLS.find(x => x.id === tid); ToolState.set(tid, t.getAttribute('data-k'), t.value); const st = ToolState.get(tid); const v = {}; tool.inputs.forEach(([k, , d]) => { v[k] = n0(st[k] != null ? st[k] : d); }); const o = document.getElementById('tco-' + tid); if (o) o.innerHTML = toolOut(tool, v); return; }
+  const mx = t.getAttribute('data-mx');
+  if (mx) { const s = Object.assign({ names: MX_NAMES.slice(), w: [25, 25, 20, 20, 10], sc: {} }, ToolState.get('matrix'));
+    if (mx === 'name') s.names[+t.getAttribute('data-j')] = t.value; else if (mx === 'w') s.w[+t.getAttribute('data-i')] = t.value; else { const i = t.getAttribute('data-i'); s.sc[i] = Object.assign({}, s.sc[i] || {}, { [t.getAttribute('data-j')]: t.value }); }
+    const a = ToolState.all(); a.matrix = s; SafeLS.set(TOOLS_KEY, JSON.stringify(a));
+    if (mx !== 'name') { const box = document.getElementById('tool-matrix'); const act = document.activeElement; const sel = act && act.getAttribute('data-mx') ? '[data-mx="' + act.getAttribute('data-mx') + '"][data-i="' + act.getAttribute('data-i') + '"]' + (act.getAttribute('data-j') ? '[data-j="' + act.getAttribute('data-j') + '"]' : '') : null; box.outerHTML = matrixToolHtml(); if (sel) { const el = document.querySelector(sel); if (el) { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} } } } }
+});
+
+// ================= مكتبة القوالب القابلة للتحميل =================
+let TEMPLATES = [];
+
+function tplDoc(t) { return '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + h(t.title) + '</title><style>body{font-family:Arial,sans-serif;direction:rtl;text-align:right;font-size:12pt;line-height:1.7}h2{color:#4C3AA7}h3{color:#484371;margin-top:14pt}table{border-collapse:collapse;width:100%;margin:6pt 0}td,th{border:1px solid #bbb;padding:6pt;vertical-align:top}th{background:#E6E3F4}</style></head><body dir="rtl">' + t.body + '<p style="color:#888;font-size:9pt">' + h(Content.courseTitle()) + '</p></body></html>'; }
+async function tplPdf(t) {
+  const pm = progressModal('📄 ' + t.title);
+  try { const css = '<style>.tp h2{font-family:Cairo;color:#4C3AA7;margin:0 0 8px}.tp h3{font-family:Cairo;color:#484371;margin:12px 0 4px;font-size:15px}.tp table{width:100%;border-collapse:collapse;font-size:12px;margin:4px 0}.tp td,.tp th{border:1px solid #D1CEE2;padding:6px;text-align:right;vertical-align:top;height:18px}.tp th{background:#E6E3F4}.tp p{font-size:12.5px}</style>';
+    const doc = await PDFE.build([css + '<div class="fit tp" style="top:30px;bottom:40px;right:34px;left:34px;line-height:1.7">' + t.body + '</div>' + PP.foot(Content.courseTitle(), 1)], A4P, (i, n) => pm.set(i, n)); doc.save(t.title + '.pdf'); pm.close();
+  } catch (e) { pm.close(); UI.alert('تعذر إنشاء الملف: ' + h(e.message || e)); }
+}
+Views.tools = {
+  html() {
+    return Layout.crumbs('<span class="crumb-tag">صندوق الأدوات</span>') + '<div class="ex-head"><div class="ico">🧰</div><div><h1>صندوق الأدوات</h1><div class="muted" style="font-family:var(--f-ui)">حاسبات عملية ومكتبة قوالب تبقى معك بعد البرنامج. مدخلاتك تُحفظ على جهازك فقط.</div></div></div>' +
+      '<section class="section"><h2 class="sec-title">🧮 الحاسبات</h2><div class="tool-grid">' + matrixToolHtml() + TOOLS.map(toolCardHtml).join('') + '</div></section>' +
+      '<section class="section" id="library"><h2 class="sec-title">📚 مكتبة القوالب</h2><div class="tpl-grid">' + TEMPLATES.filter(t => !Content.isHidden('tpl_' + t.id)).map(t => '<div class="tpl-card"><div class="tpl-ico">' + t.icon + '</div><h3>' + h(t.title) + '</h3><p>' + h(t.desc) + '</p><div class="row"><button class="btn btn-primary btn-sm" data-act="tpl-doc" data-id="' + t.id + '">📥 Word قابل للتعديل</button><button class="btn btn-soft btn-sm" data-act="tpl-pdf" data-id="' + t.id + '">📄 PDF</button><button class="btn btn-ghost btn-sm" data-act="tpl-view" data-id="' + t.id + '">👁 معاينة</button></div></div>').join('') + '</div></section>';
+  }
+};
+
+// ================= النقاط ولوحة الصدارة =================
+const Points = {
+  cfg() { return Object.assign({ enabled: true, names: true }, (Store.site && Store.site.gamify) || {}); },
+  // نقاط كل مستخدم مع تفصيلها، تُحسب من البيانات الموجودة أصلًا
+  table() {
+    if (Points._cache && Points._cache.stamp === Points.stamp()) return Points._cache.data;
+    const users = Store.users || {}; const P = {}; Object.keys(users).forEach(u => { P[u] = { uid: u, pts: 0, ex: 0, likes: 0, first: 0, att: 0, as: 0 }; });
+    const exs = Content.allExercises().map(x => x.e).filter(Boolean);
+    exs.forEach(e => { const ps = Store.posts[e.id] || {}; let firstK = null, firstTs = Infinity;
+      Object.keys(ps).forEach(k => { const p = ps[k]; if (!p) return; const who = e.mode === 'group' ? Object.keys(p.members || {}) : [k]; const lk = Object.keys(p.likes || {}).length;
+        who.forEach(u => { if (!P[u]) return; P[u].ex++; P[u].pts += e.format === 'sim' ? 15 : 10; P[u].likes += lk; P[u].pts += lk * 2; });
+        if ((p.ts || Infinity) < firstTs && e.mode !== 'group') { firstTs = p.ts; firstK = k; } });
+      if (firstK && P[firstK]) { P[firstK].first++; P[firstK].pts += 5; } });
+    Object.keys(P).forEach(u => { const d = Attend.on() ? Attend.days().filter(x => Attend.hoursOf(u, x) > 0).length : 0; P[u].att = d; P[u].pts += d * 20; ['pre', 'post'].forEach(ph => { const r = Assess.rec(ph, u); if (r && r.done) { P[u].as++; P[u].pts += 15; } }); });
+    const list = Object.values(P).sort((a, b) => b.pts - a.pts); const mostLiked = list.slice().sort((a, b) => b.likes - a.likes)[0];
+    const data = { map: P, list, mostLiked: mostLiked && mostLiked.likes ? mostLiked.uid : null };
+    Points._cache = { stamp: Points.stamp(), data }; return data;
+  },
+  stamp() { return [Attend.on(), Store.users, Store.posts, Store.attendance, Store.assess].map(x => JSON.stringify(x || {}).length).join('|'); },
+  groups() { const t = Points.table(); const G = {}; Groups.list().forEach(g => { G[g] = { g, pts: 0, n: 0 }; }); Object.keys(t.map).forEach(u => { const g = Groups.assignedOf(u) || (Store.users[u] && +Store.users[u].group); if (g && G[g]) { G[g].pts += t.map[u].pts; G[g].n++; } }); return Object.values(G).filter(x => x.n).sort((a, b) => b.pts - a.pts); },
+  badges(uid) { const t = Points.table(); const x = t.map[uid]; if (!x) return []; const out = [];
+    if (x.first) out.push(['⚡', 'أول مشارك', 'كنت أول من شارك في ' + x.first + ' تمرين']); if (t.mostLiked === uid) out.push(['💖', 'الأكثر إعجابًا', x.likes + ' إعجاب على مشاركاتك']);
+    if (Attend.on() && x.att >= Attend.cfg().days) out.push(['📍', 'حضور كامل', 'حضرت كل أيام البرنامج']); if (Progress.forUser(uid).pct >= BADGE_THRESHOLD) out.push(['🏅', 'مشارك نشط', 'أنجزت 80% من التمارين']); if (x.as === 2) out.push(['🧠', 'قياس كامل', 'أكملت التقييمين القبلي والبعدي']);
+    const rank = t.list.findIndex(y => y.uid === uid); if (rank > -1 && rank < 3 && x.pts) out.push([['🥇', '🥈', '🥉'][rank], 'من الثلاثة الأوائل', 'المركز ' + (rank + 1) + ' في لوحة الصدارة']); return out; }
+};
+function leaderboardHtml(limit = 10) {
+  const c = Points.cfg(); const t = Points.table(); const gs = Points.groups(); const me = Me.uid();
+  const ind = t.list.filter(x => x.pts).slice(0, limit);
+  return '<div class="lb-grid"><div class="card pad"><h3>🏆 المتصدرون</h3>' + (ind.length ? ind.map((x, i) => '<div class="lb-row ' + (x.uid === me ? 'mine' : '') + '"><span class="lb-rank num">' + (i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1) + '</span><span class="grow">' + (c.names || x.uid === me ? h((Store.users[x.uid] || {}).name || '') : 'مشارك ' + (i + 1)) + '</span><b class="num">' + x.pts + '</b></div>').join('') : '<div class="muted">لا نقاط بعد، شارك في التمارين لتظهر هنا.</div>') + '</div>' +
+    (Groups.enabled() ? '<div class="card pad"><h3>👥 المجموعات</h3>' + (gs.length ? gs.map((x, i) => '<div class="lb-row ' + (Me.group() === x.g ? 'mine' : '') + '"><span class="lb-rank num">' + (i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1) + '</span><span class="grow">' + h(Groups.label(x.g)) + ' <span class="muted num">(' + x.n + ')</span></span><b class="num">' + x.pts + '</b></div>').join('') : '<div class="muted">تظهر عند اختيار المتدربين مجموعاتهم.</div>') + '</div>' : '') + '</div>' +
+    '<div class="muted" style="font-family:var(--f-ui);font-size:12.5px;margin-top:8px">النقاط: 10 لكل تمرين · 15 لكل محاكاة · 2 لكل إعجاب تتلقاه · 5 لأول مشارك في تمرين ' + (Attend.on() ? '· 20 لكل يوم حضور ' : '') + '· 15 لكل تقييم (قبلي/بعدي)</div>';
+}
+
+// ================= المتابعة بعد البرنامج (30 / 60 / 90 يومًا) =================
+const FU_DAYS = ['30', '60', '90'];
+let FU_ACTIONS;
+const FU_SALES = ['انخفضت', 'لم تتغير', 'تحسنت قليلًا', 'تحسنت بوضوح', 'تحسنت كثيرًا', 'لا أستطيع التقدير بعد'];
+const Followup = {
+  cfg() { return Object.assign({ open: {} }, (Store.site && Store.site.followup) || {}); },
+  endDate() { const e = Cohort.cur().end; return e ? new Date(e + 'T00:00:00').getTime() : null; },
+  due(n) { const e = Followup.endDate(); return e ? e + (+n) * 86400000 : null; },
+  isOpen(n) { const f = Followup.cfg().open[n]; if (f === 'open') return true; if (f === 'closed') return false; const d = Followup.due(n); return !!(d && DB.now() >= d); },
+  rec(n, uid) { return (((Store.followups || {})['d' + n]) || {})[uid] || null; },
+  list(n) { const o = (Store.followups || {})['d' + n] || {}; return Object.keys(o).map(u => Object.assign({ uid: u }, o[u])); },
+  link(n) { return location.origin + location.pathname + '#' + cparam() + 'v=followup&id=' + n; }
+};
+Views.followup = {
+  html() {
+    const n = FU_DAYS.indexOf(Router.cur.id) > -1 ? Router.cur.id : '30';
+    let out = Layout.crumbs('<span class="crumb-tag">متابعة الأثر</span>') + '<div class="ex-head"><div class="ico">📈</div><div><h1>متابعة ما بعد البرنامج، بعد <span class="num">' + n + '</span> يومًا</h1><div class="muted" style="font-family:var(--f-ui)">دقيقتان تساعدان الجهة المنظمة على قياس أثر البرنامج وتطويره.</div></div></div>';
+    if (!Me.isReg()) return out + '<div class="answer-box"><div class="locked-note">🔒 سجّل الدخول برقم العضوية لتعبئة المتابعة.</div><button class="btn btn-mint" data-act="member-login">الدخول برقم العضوية</button></div>';
+    if (!Followup.isOpen(n) && !Admin.ctl()) return out + '<div class="empty">⏳ هذه المتابعة تُفتح ' + (Followup.due(n) ? 'في ' + fmtDate(Followup.due(n)) : 'بعد انتهاء البرنامج') + '.</div>';
+    const r = Followup.rec(n, Me.uid()) || {}; const acts = arr(r.actions);
+    return out + '<div class="answer-box"><div class="field"><label>ما الذي طبقته من الدورة حتى الآن؟ (اختر كل ما ينطبق)</label><div class="lead-progs">' + FU_ACTIONS.map((a, i) => '<label class="lead-prog"><input type="checkbox" data-fu-a="' + i + '" ' + (acts.indexOf(a) > -1 ? 'checked' : '') + '><span>' + h(a) + '</span></label>').join('') + '</div></div>' +
+      '<div class="grid2"><div class="field"><label>تغير نتائج مشروعك أو عملك (وقت موفّر، مبيعات، عملاء) منذ الدورة</label><select id="fuSales"><option value="">اختر</option>' + FU_SALES.map(x => '<option ' + (x === r.sales ? 'selected' : '') + '>' + x + '</option>').join('') + '</select></div><div class="field"><label>فائدة الدورة لعملك حتى الآن</label><select id="fuUse"><option value="">اختر</option>' + [5, 4, 3, 2, 1].map(x => '<option value="' + x + '" ' + (+r.useful === x ? 'selected' : '') + '>' + '★'.repeat(x) + ' (' + x + ')</option>').join('') + '</select></div></div>' +
+      '<div class="field"><label>أهم نتيجة أو قصة نجاح صغيرة حققتها</label><textarea id="fuWin" data-keep="fu-win">' + h(r.win || '') + '</textarea></div><div class="field"><label>ما العقبة التي تحتاج دعمًا فيها؟</label><textarea id="fuNeed" data-keep="fu-need">' + h(r.need || '') + '</textarea></div>' +
+      '<div class="save-row"><button class="btn btn-primary" data-act="fu-save" data-n="' + n + '">📤 إرسال المتابعة</button>' + (r.ts ? '<span class="status-note">✅ أُرسلت ' + ago(r.ts) + '، يمكنك التحديث</span>' : '') + '</div></div>';
+  }
+};
+function followupCardsHtml() {
+  if (!Me.isReg()) return '';
+  const open = FU_DAYS.filter(n => Followup.isOpen(n)); if (!open.length) return '';
+  return '<div class="fu-cards">' + open.map(n => { const r = Followup.rec(n, Me.uid()); return '<button class="act-card" data-go="followup" data-id="' + n + '"><div class="act-ico">📈</div><div class="grow"><h3>متابعة بعد <span class="num">' + n + '</span> يومًا</h3><div class="muted" style="font-size:13px;font-family:var(--f-ui)">' + (r ? '✅ أرسلتها، يمكنك التحديث' : 'دقيقتان لقياس ما طبقته من البرنامج') + '</div></div></button>'; }).join('') + '</div>';
+}
+function followupMailto(n) {
+  const users = Store.users || {}; const done = Followup.list(n).map(x => x.uid);
+  const emails = Object.keys(users).filter(u => done.indexOf(u) === -1 && users[u].consent && users[u].consent.followup).map(u => RegFields.val(users[u], 'email')).filter(e => /@/.test(e));
+  if (!emails.length) { UI.alert('لا توجد عناوين بريد لمتدربين وافقوا على المتابعة ولم يرسلوها بعد.'); return; }
+  const subj = 'متابعة ' + n + ' يومًا، ' + Content.courseTitle();
+  const body = 'مرحبًا،\n\nمرّ ' + n + ' يومًا على برنامج «' + Content.courseTitle() + '». يسعدنا معرفة ما طبقته في عملك عبر نموذج قصير (دقيقتان):\n' + Followup.link(n) + '\n\nادخل برقم عضويتك إن طُلب منك.\n\nمع التحية';
+  const chunk = emails.slice(0, 45);
+  location.href = 'mailto:?bcc=' + encodeURIComponent(chunk.join(',')) + '&subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(body);
+  if (emails.length > chunk.length) UI.toast('فُتحت رسالة لأول ' + chunk.length + ' عنوانًا، كرر الإرسال بعد تسجيل ردودهم أو صدّر القائمة.', 5000);
+}
+/* ===== 06d-present.js ===== */
+// ---------------------------------------------------------------------
+// وضع العرض للمدرب: شاشة القاعة الكبيرة (رمز QR للانضمام، نتائج التصويت الحية، سحابة الكلمات، أفضل مشاركة، العدادات)
+// ما يُعرض يُحفظ في settings/present ليتحكم فيه المدرب من جواله بينما الشاشة الكبيرة تتبعه.
+// ---------------------------------------------------------------------
+const QR_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+const AR_STOP = new Set(('في من على إلى الى عن مع هذا هذه ذلك تلك التي الذي الذين أن ان إن او أو ثم كل قد لا ما لم لن هو هي هم نحن أنا انا كان كانت يكون تكون بعد قبل عند حتى إذا اذا كما لكن بل أي اي بين ايضا أيضا جدا جدًا فقط وهو وهي وفي ومن وعلى والى وان به بها له لها لهم منه منها عليه عليها فيه فيها عبر خلال حول دون غير أكثر اكثر أقل اقل كيف لماذا متى أين اين هل نعم يعني مثل ذات عدة بعض لدى لدي لديه لديها كذلك وأن وإن وكل فإن لأن لان حيث التي وهذا وهذه يمكن تم ليس ليست إلى').split(' '));
+function wordFreq(texts) {
+  const c = {};
+  texts.forEach(t => String(t || '').replace(/[،؛؟«»٪٫٬]/g, ' ').replace(/[ً-ْـ]/g, '').replace(/[^؀-ۿa-zA-Z0-9\s]/g, ' ').split(/\s+/).forEach(w => {
+    w = w.trim(); if (w.length < 3 || AR_STOP.has(w) || /^\d+$/.test(w)) return; const k = w.replace(/^(وال|بال|فال|كال|لل)/, 'ال'); c[k] = (c[k] || 0) + 1; }));
+  return Object.keys(c).map(k => ({ w: k, n: c[k] })).sort((a, b) => b.n - a.n).slice(0, 45);
+}
+function wordCloudHtml(texts) {
+  const list = wordFreq(texts); if (!list.length) return '<div class="pr-empty">تظهر سحابة الكلمات مع أول الإجابات</div>';
+  const mx = list[0].n, mn = list[list.length - 1].n; const cols = ['#8C79EC', '#8FF0C8', '#FFAF8A', '#A69CFF', '#FFB38A', '#C9A7FF', '#8B79E6', '#F5F5F5'];
+  const shuffled = list.map((x, i) => Object.assign({ o: seededOrder(list.length, 'wc')[i] }, x)).sort((a, b) => a.o - b.o);
+  return '<div class="wcloud">' + shuffled.map((x, i) => { const s = mx === mn ? 1 : (x.n - mn) / (mx - mn); return '<span style="font-size:' + (18 + s * 46).toFixed(0) + 'px;color:' + cols[i % cols.length] + ';opacity:' + (.65 + s * .35).toFixed(2) + '">' + h(x.w) + '</span>'; }).join('') + '</div>';
+}
+function topPostOf(e) {
+  const ps = Store.posts[e.id] || {}; let best = null, bl = -1;
+  Object.keys(ps).forEach(k => { const p = ps[k]; if (!p) return; const l = Object.keys(p.likes || {}).length; if (l > bl || (l === bl && (p.ts || 0) > (best.ts || 0))) { bl = l; best = Object.assign({ k }, p); } });
+  return best ? { p: best, likes: bl } : null;
+}
+const Present = {
+  cfg() { return Object.assign({ ex: 'join', q: 0 }, Store.presentCfg || {}); },
+  options() {
+    const o = [['join', '📲 رمز الانضمام والعدادات'], ['leaderboard', '🏆 لوحة الصدارة'], ['assess', '📋 نتائج التقييم القبلي والبعدي']];
+    Content.activities().forEach(e => o.push([e.id, '⚡ ' + e.title]));
+    Content.eligibleAxes().forEach(a => Content.exercisesOf(a.id).forEach(e => o.push([e.id, (e.icon || '✍️') + ' ' + a.title.slice(0, 22) + ' · ' + e.title])));
+    const sv = Content.survey(); if (sv) o.push([sv.id, '💬 ' + sv.title]); return o;
+  },
+  panel(c) {
+    const users = Object.keys(Store.users || {}).length;
+    if (c.ex === 'join') {
+      const today = Attend.openDays()[0]; const cd = today ? Attend.cfg().codes['d' + today] : null;
+      return '<div class="pr-join"><div class="pr-qr" id="prQr"><div class="pr-empty">⏳</div></div><div><div class="pr-big">انضم الآن من جوالك</div><div class="pr-url num">' + h(location.host + location.pathname) + '</div><div class="pr-counters"><div><b class="num">' + users + '</b><span>مسجّل</span></div><div><b class="num">' + (today ? Object.keys(Store.users || {}).filter(u => Attend.hoursOf(u, today) > 0).length : '-') + '</b><span>حاضر اليوم</span></div>' + (cd ? '<div class="code"><b class="num notranslate" translate="no">' + h(cd.code) + '</b><span>رمز حضور اليوم ' + today + '</span></div>' : '') + '</div></div></div>';
+    }
+    if (c.ex === 'leaderboard') return '<div class="pr-title">🏆 لوحة الصدارة</div>' + leaderboardHtml(8);
+    if (c.ex === 'assess') { const A = Content.assess(); const pq = Assess.perQuestion('pre'), qq = Assess.perQuestion('post'); const pa = Assess.avg('pre'), qa = Assess.avg('post');
+      return '<div class="pr-title">📋 التقييم القبلي والبعدي</div><div class="pr-counters"><div><b class="num">' + (pa == null ? '-' : Math.round(pa) + '%') + '</b><span>متوسط القبلي · ' + Assess.list('pre').length + '</span></div><div><b class="num">' + (qa == null ? '-' : Math.round(qa) + '%') + '</b><span>متوسط البعدي · ' + Assess.list('post').length + '</span></div></div><div class="pr-bars">' + A.items.map((it, i) => '<div class="pr-qbar"><span class="num">' + (i + 1) + '</span><i><em class="pre" style="width:' + (pq[i] || 0) + '%"></em><em class="post" style="width:' + (qq[i] || 0) + '%"></em></i><b class="num">' + (pq[i] == null ? '-' : pq[i] + '%') + ' إلى ' + (qq[i] == null ? '-' : qq[i] + '%') + '</b></div>').join('') + '</div>'; }
+    const e = Content.ex(c.ex); if (!e) return '<div class="pr-empty">اختر ما تريد عرضه من القائمة.</div>';
+    const ps = Store.posts[e.id] || {}; const cnt = Object.keys(ps).filter(k => ps[k]).length;
+    let body = '';
+    if (e.format === 'mcq') {
+      const st = mcqStats(e); const qi = Math.max(0, Math.min(e.items.length - 1, +c.q || 0)); const it = e.items[qi]; const s = st[qi]; const rv = isRevealed(e);
+      body = '<div class="pr-q"><span class="num">' + (qi + 1) + '/' + e.items.length + '</span> ' + h(it.q) + '</div><div class="pr-poll">' + it.options.map((o, k) => { const pct = s.total ? Math.round(s.counts[k] / s.total * 100) : 0; return '<div class="pr-opt ' + (rv && k === +it.answer ? 'right' : '') + '"><em style="width:' + pct + '%"></em><span><b>' + LETTERS[k] + ')</b> ' + h(o) + '</span><b class="num">' + pct + '%</b></div>'; }).join('') + '</div><div class="pr-foot">👥 <span class="num">' + s.total + '</span> صوت على هذا السؤال' + (rv ? ' · 🔓 الإجابة الصحيحة: ' + LETTERS[it.answer] : '') + '</div>' +
+        '<div class="pr-nav"><button class="btn btn-ghost" data-act="pr-q" data-d="-1" ' + (qi === 0 ? 'disabled' : '') + '>› السابق</button><button class="btn btn-mint" data-act="reveal" data-id="' + h(e.id) + '">' + (rv ? '🔒 إخفاء الإجابة' : '🔓 كشف الإجابة') + '</button><button class="btn btn-ghost" data-act="pr-q" data-d="1" ' + (qi >= e.items.length - 1 ? 'disabled' : '') + '>التالي ‹</button></div>';
+    } else if (e.kind === 'survey') { const sv = SurveyStats.of(ps, e); body = '<div class="pr-counters"><div><b class="num">' + (sv.overall ? sv.overall.toFixed(1) : '-') + '</b><span>الرضا من 5</span></div><div><b class="num">' + (sv.nps == null ? '-' : sv.nps) + '</b><span>NPS</span></div></div>' + wordCloudHtml(sv.texts.map(p => p.text)); }
+    else if (e.format === 'sim') body = Sims.feed(e);
+    else if (e.format === 'text') body = wordCloudHtml(Object.keys(ps).map(k => ps[k] && ps[k].text));
+    else { const rv = isRevealed(e); body = '<div class="pr-bars">' + e.items.map((it, i) => { let ok = 0, tot = 0; Object.keys(ps).forEach(k => { if (k === 'admin') return; const a = ansList(ps[k] && ps[k].answers, e.items.length)[i]; if (a == null || a === '') return; tot++; if (e.format === 'truefalse' ? ((a === true || a === 'true') === !!it.answer) : a === it.answer) ok++; }); const pct = tot ? Math.round(ok / tot * 100) : 0; return '<div class="pr-qbar"><span class="num">' + (i + 1) + '</span><i><em class="post" style="width:' + (rv ? pct : tot ? 100 : 0) + '%;' + (rv ? '' : 'background:#9D9AB8') + '"></em></i><b class="num">' + (rv ? pct + '% صحيح' : tot + ' إجابة') + '</b></div>'; }).join('') + '</div><div class="pr-nav"><button class="btn btn-mint" data-act="reveal" data-id="' + h(e.id) + '">' + (rv ? '🔒 إخفاء الإجابات' : '🔓 كشف نسبة الصحيح') + '</button></div>'; }
+    const top = e.format === 'text' || e.kind === 'survey' ? topPostOf(e) : null;
+    return '<div class="pr-title">' + h(e.icon || '') + ' ' + h(e.title) + ' <span class="pr-count">👥 <span class="num">' + cnt + '</span> ' + (e.mode === 'group' ? 'مجموعة' : 'مشاركة') + '</span></div>' + body +
+      (top && top.p.text ? '<div class="pr-top"><div class="lbl">⭐ الأكثر إعجابًا · 👍 <span class="num">' + top.likes + '</span></div><div class="txt">«' + h(clip(top.p.text, 260)) + '»</div><div class="who">- ' + h(top.p.k.charAt(0) === 'g' && e.mode === 'group' ? Groups.label(+top.p.k.slice(1)) : (top.p.name || '')) + '</div></div>' : '');
+  },
+  html() {
+    const c = Present.cfg();
+    return '<div class="present"><div class="pr-bar"><div class="pr-brand">' + iconSvg('sparkles', 22, '#fff') + ' <b>' + h(Content.courseTitle()) + '</b></div><select id="prSel" class="pr-sel">' + Present.options().map(([k, l]) => '<option value="' + h(k) + '" ' + (k === c.ex ? 'selected' : '') + '>' + h(l) + '</option>').join('') + '</select><button class="btn btn-ghost btn-sm" data-act="pr-full">⛶ ملء الشاشة</button><button class="btn btn-ghost btn-sm" data-go="admin">↩ اللوحة</button></div><div class="pr-body">' + Present.panel(c) + '</div></div>';
+  },
+  after(root) {
+    const sel = $('#prSel', root); if (sel) sel.addEventListener('change', () => DB.set('settings/present', { ex: sel.value, q: 0 }));
+    const box = $('#prQr', root); if (box) loadScript(QR_LIB).then(() => { try { const q = window.qrcode(0, 'M'); q.addData(location.origin + location.pathname); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 8, margin: 2, scalable: true }); } catch (e) { box.innerHTML = '<div class="pr-empty">تعذر إنشاء QR</div>'; } }).catch(() => { box.innerHTML = '<div class="pr-empty">QR غير متاح دون اتصال</div>'; });
+  }
+};
+Views.present = Present;
+/* ===== 06e-landing.js ===== */
+// ---------------------------------------------------------------------
+// صفحة الهبوط: أول ما يراه الزائر قبل الدخول، نبذة، أهداف، مزايا، محتوى، رحلة، مخرجات
+// النصوص قابلة للتعديل من لوحة الإدارة (site/landing) مع إظهار وإخفاء وترتيب الأقسام
+// العناصر تُكتب سطرًا لكل عنصر بصيغة: أيقونة | عنوان | وصف
+// ---------------------------------------------------------------------
+const LANDING_KEYS = ['hero', 'logos', 'about', 'objectives', 'features', 'content', 'journey', 'outcomes', 'audience', 'cta'];
+const LANDING_NAMES = { hero: 'الواجهة الافتتاحية', logos: 'شريط المفاهيم', about: 'نبذة عن البرنامج', objectives: 'الأهداف', features: 'المزايا', content: 'المحتوى (من المحاور تلقائيًا)', journey: 'مراحل الرحلة', outcomes: 'المخرجات', audience: 'الفئة المستهدفة', cta: 'دعوة الختام' };
+let DEFAULT_LANDING;
+const Landing = {
+  raw() { return (Store.site && Store.site.landing) || {}; },
+  sec(k) { const o = Landing.raw()[k] || {}; const s = Object.assign({}, DEFAULT_LANDING[k] || {}, o); s._modified = !!Landing.raw()[k]; return s; },
+  hidden(k) { return !!((Landing.raw()._hidden || {})[k]); },
+  order() { const saved = arr(Landing.raw()._order).filter(k => LANDING_KEYS.indexOf(k) > -1); return saved.concat(LANDING_KEYS.filter(k => saved.indexOf(k) === -1)); },
+  items(s, k) {
+    let txt = s.items;
+    if (k === 'objectives' && !String(txt || '').trim()) return Content.guide().objectives.map((t, i) => ({ icon: String(i + 1), title: t, desc: '' }));
+    return String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const p = l.split('|').map(x => x.trim()); return p.length === 1 ? { icon: '', title: p[0], desc: '' } : { icon: p[0], title: p[1] || '', desc: p.slice(2).join(' | ') }; });
+  },
+  objectivesText() { return Content.guide().objectives.join('\n'); }
+};
+function lpHead(s, light) { return '<div class="lp-head rv">' + (s.kicker ? '<span class="lp-kicker">' + h(s.kicker) + '</span>' : '') + '<h2 class="lp-h2' + (light ? ' light' : '') + '">' + h(s.title || '') + '</h2>' + (s.sub ? '<p class="lp-sub">' + h(s.sub) + '</p>' : '') + '</div>'; }
+function lpCta(label, cls) { return '<button class="lp-btn ' + (cls || '') + '" data-act="' + (Me.isReg() || Me.guest ? 'lp-enter' : 'open-login') + '"><span>' + h(label || 'الدخول للمنصة التعليمية') + '</span><span class="lp-arrow">‹</span></button>'; }
+const LandingSections = {
+  hero(s) {
+    const axes = Content.axes(); const units = Content.eligibleAxes().map(a => a.unit).filter((u, i, x) => u && u !== SPECIAL_UNIT && x.indexOf(u) === i).length;
+    const exCount = Content.eligibleAxes().reduce((n, a) => n + Content.exercisesOf(a.id).length, 0);
+    const title = s.title || Content.site().heroTitle;
+    const stat = (n, l) => '<div class="lp-stat"><b class="num" data-count="' + n + '">' + n + '</b><span>' + l + '</span></div>';
+    return '<section class="lp-hero"><div class="lp-aurora"><i></i><i></i><i></i></div><div class="lp-grid-bg"></div>' +
+      '<div class="lp-hero-in"><div class="lp-hero-txt">' + (s.kicker ? '<span class="lp-badge"><span class="dot"></span>' + h(s.kicker) + '</span>' : '') +
+      '<h1 class="lp-h1">' + h(title) + '</h1><p class="lp-lead">' + h(s.sub || '') + '</p>' +
+      '<div class="lp-actions">' + lpCta(s.cta, 'gold') + (s.cta2 ? '<button class="lp-btn ghost" data-act="lp-scroll"><span>' + h(s.cta2) + '</span><span class="lp-arrow down">⌄</span></button>' : '') + '</div>' +
+      '<div class="lp-stats">' + stat(units, 'جلسات') + stat(axes.length, 'محورًا') + stat(exCount, 'تمرينًا تفاعليًا') + stat(Content.stories().length, 'قصص نجاح') + '</div></div>' +
+      '<div class="lp-visual" aria-hidden="true"><div class="lp-orbit"><span></span><span></span></div>' +
+      '<div class="lp-device"><div class="lp-dev-top"><i></i><i></i><i></i><b>ai-store.sa</b></div><div class="lp-dev-body">' +
+      '<div class="lp-dev-kpis"><div><small>المبيعات</small><b class="num">SAR 48,200</b></div><div><small>التحويل</small><b class="num">3.8%</b></div></div>' +
+      '<div class="lp-bars">' + [38, 52, 45, 64, 58, 76, 70, 92].map((v, i) => '<i style="--h:' + v + '%;--d:' + (i * 0.09).toFixed(2) + 's"></i>').join('') + '</div>' +
+      '<svg class="lp-line" viewBox="0 0 200 60" preserveAspectRatio="none"><path d="M0 50 C25 44 35 30 60 34 S100 20 120 22 S160 8 200 6" fill="none" stroke="#FFAF8A" stroke-width="2.5" stroke-linecap="round"/></svg>' +
+      '<div class="lp-dev-rows"><div><span>🛍️</span><em></em><b class="num">+24</b></div><div><span>🚚</span><em></em><b class="num">98%</b></div></div></div></div>' +
+      '<div class="lp-chip c1"><span>🛒</span><div><b>طلب جديد <span class="num">#1042</span></b><small class="num">SAR 340 · الرياض</small></div></div>' +
+      '<div class="lp-chip c2"><span>✅</span><div><b>تم الدفع بنجاح</b><small>مدى · Apple Pay</small></div></div>' +
+      '<div class="lp-chip c3"><span>🚚</span><div><b>شحنة في الطريق</b><small>الرياض · <span class="num">48</span> ساعة</small></div></div>' +
+      '<div class="lp-chip c4"><span>📈</span><div><b class="num">+38%</b><small>معدل الإتمام</small></div></div>' +
+      '</div></div><button class="lp-scroll-hint" data-act="lp-scroll" aria-label="انزل للأسفل"><span></span></button></section>';
+  },
+  logos(s) {
+    const it = Landing.items(s, 'logos'); if (!it.length) return '';
+    const row = it.map(x => '<span class="notranslate" translate="no">' + h(x.title) + '</span>').join('<i>✦</i>');
+    return '<section class="lp-logos">' + (s.title ? '<div class="lp-logos-t">' + h(s.title) + '</div>' : '') + '<div class="lp-marquee"><div class="lp-track">' + row + '<i>✦</i>' + row + '<i>✦</i></div></div></section>';
+  },
+  about(s) {
+    const it = Landing.items(s, 'about');
+    return '<section class="lp-sec lp-about"><div class="lp-wrap lp-about-in"><div>' + lpHead(s) + '</div><div class="lp-pillars">' + it.map((x, i) => '<div class="lp-pillar rv" style="--i:' + i + '"><span class="lp-ico">' + h(x.icon) + '</span><div><b>' + h(x.title) + '</b><p>' + h(x.desc) + '</p></div></div>').join('') + '</div></div></section>';
+  },
+  objectives(s) {
+    const it = Landing.items(s, 'objectives'); if (!it.length) return '';
+    return '<section class="lp-sec lp-obj"><div class="lp-wrap">' + lpHead(s) + '<div class="lp-obj-grid">' + it.map((x, i) => '<div class="lp-obj-card rv" style="--i:' + (i % 4) + '"><span class="lp-obj-n num">' + String(i + 1).padStart(2, '0') + '</span><p>' + (x.icon && !/^\d+$/.test(x.icon) ? h(x.icon) + ' ' : '') + h(x.title) + (x.desc ? '، <span class="muted">' + h(x.desc) + '</span>' : '') + '</p></div>').join('') + '</div></div></section>';
+  },
+  features(s) {
+    const it = Landing.items(s, 'features');
+    return '<section class="lp-sec lp-feat"><div class="lp-wrap">' + lpHead(s, true) + '<div class="lp-feat-grid">' + it.map((x, i) => '<div class="lp-feat-card rv" style="--i:' + (i % 3) + '"><span class="lp-ico big">' + h(x.icon) + '</span><h3>' + h(x.title) + '</h3><p>' + h(x.desc) + '</p></div>').join('') + '</div></div></section>';
+  },
+  content(s) {
+    const axes = Content.axes(); if (!axes.length) return '';
+    const groups = []; axes.forEach(a => { let g = groups.find(x => x.unit === a.unit); if (!g) { g = { unit: a.unit, axes: [] }; groups.push(g); } g.axes.push(a); });
+    const cur = Math.min(groups.length - 1, Math.max(0, UIState.lpUnit || 0)); const g = groups[cur];
+    return '<section class="lp-sec lp-content"><div class="lp-wrap">' + lpHead(s) + '<div class="lp-units rv"><div class="lp-unit-tabs" role="tablist">' + groups.map((x, i) => '<button role="tab" class="lp-unit-tab ' + (i === cur ? 'on' : '') + '" data-act="lp-unit" data-i="' + i + '"><small>' + h(Content.unitKicker(x.unit) || 'محاور إضافية') + '</small><b>' + h(Content.unitName(x.unit) || 'محاور أُضيفت للبرنامج') + '</b></button>').join('') + '</div>' +
+      '<div class="lp-unit-pane" id="lpUnitPane">' + g.axes.map((a, i) => { const col = Content.color(a); return '<div class="lp-axis" style="--ac:' + col + ';--i:' + i + '"><span class="lp-axis-ico" style="background:linear-gradient(135deg,' + col + ',' + shade(col, -0.35) + ')">' + iconSvg(a.icon || 'star', 22, '#fff', 1.9) + '</span><div><b>' + h(a.title) + '</b>' + (a.classic ? '<small>' + h(a.classic) + '</small>' : '') + '<p>' + h(clip(stripHtml(a.desc || ''), 150)) + '</p><div class="lp-axis-meta"><span>🎞️ <span class="num">' + a.slides.length + '</span> شريحة</span><span>✍️ <span class="num">' + Content.exercisesOf(a.id).length + '</span> تمرين</span>' + (a.duration ? '<span>⏱ ' + h(a.duration) + '</span>' : '') + '</div></div></div>'; }).join('') + '</div></div></div></section>';
+  },
+  journey(s) {
+    const it = Landing.items(s, 'journey'); if (!it.length) return '';
+    return '<section class="lp-sec lp-journey"><div class="lp-wrap">' + lpHead(s) + '<div class="lp-timeline"><div class="lp-tl-line"><i></i></div>' + it.map((x, i) => '<div class="lp-step rv" style="--i:' + i + '"><div class="lp-step-dot"><span>' + h(x.icon) + '</span></div><div class="lp-step-card"><span class="lp-step-n num">' + String(i + 1).padStart(2, '0') + '</span><b>' + h(x.title) + '</b><p>' + h(x.desc) + '</p></div></div>').join('') + '</div></div></section>';
+  },
+  outcomes(s) {
+    const it = Landing.items(s, 'outcomes'); if (!it.length) return '';
+    return '<section class="lp-sec lp-out"><div class="lp-wrap">' + lpHead(s) + '<div class="lp-out-grid">' + it.map((x, i) => '<div class="lp-out-card rv" style="--i:' + (i % 3) + '"><span class="lp-ico">' + h(x.icon) + '</span><div><b>' + h(x.title) + '</b><p>' + h(x.desc) + '</p></div><span class="lp-check">✓</span></div>').join('') + '</div></div></section>';
+  },
+  audience(s) {
+    const it = Landing.items(s, 'audience'); if (!it.length) return '';
+    return '<section class="lp-sec lp-aud"><div class="lp-wrap">' + lpHead(s) + '<div class="lp-aud-grid">' + it.map((x, i) => '<div class="lp-aud-card rv" style="--i:' + i + '"><span class="lp-ico big">' + h(x.icon) + '</span><b>' + h(x.title) + '</b><p>' + h(x.desc) + '</p></div>').join('') + '</div></div></section>';
+  },
+  cta(s) {
+    return '<section class="lp-final"><div class="lp-aurora"><i></i><i></i><i></i></div><div class="lp-wrap lp-final-in rv"><h2>' + h(s.title || '') + '</h2>' + (s.sub ? '<p>' + h(s.sub) + '</p>' : '') + lpCta(s.cta, 'gold big') + '</div></section>';
+  }
+};
+Views.landing = {
+  html() {
+    let out = '<div class="lp' + (Views.landing._played ? ' played' : '') + '">';
+    Landing.order().forEach(k => { if (Landing.hidden(k) || !LandingSections[k]) return; try { out += LandingSections[k](Landing.sec(k)); } catch (e) { console.error(e); } });
+    return out + '</div>';
+  },
+  after(root) {
+    const L = Views.landing; const seen = L._seen || (L._seen = new Set());
+    setTimeout(() => { L._played = true; }, 2500); // بعد أول عرض لا تتكرر حركات الدخول عند إعادة الرسم
+    const els = $$('.lp .rv', root); els.forEach((e, i) => { e.setAttribute('data-rv', i); if (seen.has(i)) e.classList.add('in'); });
+    const reduce = document.documentElement.getAttribute('data-motion') === 'reduce';
+    if (reduce || !('IntersectionObserver' in window)) { els.forEach(e => e.classList.add('in')); }
+    else {
+      if (L._io) L._io.disconnect();
+      const io = L._io = new IntersectionObserver(en => en.forEach(x => { if (x.isIntersecting) { x.target.classList.add('in'); seen.add(+x.target.getAttribute('data-rv')); io.unobserve(x.target); } }), { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+      els.forEach(e => { if (!e.classList.contains('in')) io.observe(e); });
+    }
+    // خط الرحلة يمتد مع التمرير
+    const tl = $('.lp-timeline', root);
+    if (tl && !Views.landing._scrollBound) {
+      Views.landing._scrollBound = true;
+      window.addEventListener('scroll', () => { const t = document.querySelector('.lp-timeline'); if (!t) return; const r = t.getBoundingClientRect(); const p = Math.max(0, Math.min(1, (innerHeight * 0.7 - r.top) / r.height)); t.style.setProperty('--prog', p.toFixed(3)); }, { passive: true });
+    }
+    // عدّاد الأرقام مرة واحدة
+    if (!reduce && !L._played && !L._counted) {
+      L._counted = true;
+      $$('.lp-stat b[data-count]', root).forEach(b => { const n = +b.getAttribute('data-count'); const t0 = performance.now(); const step = t => { const p = Math.min(1, (t - t0) / 1400); b.textContent = Math.round(n * (1 - Math.pow(1 - p, 3))); if (p < 1) requestAnimationFrame(step); }; b.textContent = '0'; requestAnimationFrame(step); });
+    }
+    // حركة خفيفة للبطاقات العائمة مع المؤشر
+    const vis = $('.lp-visual', root);
+    if (vis && !reduce && !vis._bound) { vis._bound = true; const hero = vis.closest('.lp-hero'); hero.addEventListener('mousemove', e => { const r = hero.getBoundingClientRect(); vis.style.setProperty('--mx', ((e.clientX - r.left) / r.width - 0.5).toFixed(3)); vis.style.setProperty('--my', ((e.clientY - r.top) / r.height - 0.5).toFixed(3)); }); }
+  }
+};
+
+// ---------- نافذة الدخول (نموذج التسجيل الحالي داخل نافذة منبثقة) ----------
+function loginFormHtml() {
+  const pv = Content.privacy();
+  return '<div class="login-pop"><div class="lpop-head"><span class="lpop-ico">' + iconSvg('sparkles', 24, '#fff', 2.1) + '</span><div><span class="sec-kicker">أهلًا بك في البرنامج التدريبي</span><h3>' + h(Content.site().heroTitle) + '</h3></div><button class="lpop-x" data-x aria-label="إغلاق">✕</button></div>' +
+    '<p class="muted" style="margin-top:0">سجّل لتشارك في التقييمات والتمارين الحية وترى مشاركات زملائك لحظيًا، وتتابع إنجازك' + (Attend.on() ? ' وحضورك' : '') + (Attend.certOn() ? ' وشهادتك' : '') + '.</p>' +
+    '<div class="reg-grid">' + RegFields.visible().map(f => RegFields.input(f, '', 'reg_')).join('') + '</div>' +
+    (pv.showConsent ? '<label class="consent"><input type="checkbox" id="regConsent"> <span>' + h(pv.consent) + '، <a href="#" data-act="privacy-show">اقرأ إشعار الخصوصية</a></span></label>' : '') +
+    (pv.showFollow ? '<label class="consent"><input type="checkbox" id="regFollow"> <span>' + h(pv.followup) + ' <span class="muted">(اختياري)</span></span></label>' : '') +
+    '<button class="btn btn-primary btn-block" data-act="register">ابدأ 🚀</button>' +
+    '<button class="btn btn-mint btn-block" style="margin-top:10px" data-act="member-login">مسجّل مسبقًا؟ الدخول برقم العضوية</button>' +
+    '</div>';
+}
+// صفحة دخول مستقلة للمشاريع التي لا تستخدم الصفحة التعريفية (HAS_LANDING = false)
+Views.login = {
+  html() { return '<div class="login-page">' + loginFormHtml().replace(/<button class="lpop-x"[^>]*>[^<]*<\/button>/, '') + '<div class="trainer-door"><button class="trainer-btn" data-act="admin-enter" title="دخول المدرب" aria-label="دخول المدرب">' + iconSvg('lock', 14) + '</button></div></div>'; },
+  after(root) { const first = $('.login-page input', root); if (first && !Views.login._focused) { Views.login._focused = true; try { first.focus({ preventScroll: true }); } catch (e) {} } }
+};
+const LoginModal = {
+  m: null,
+  open() {
+    if (LoginModal.m) return;
+    LoginModal.m = UI.modal(loginFormHtml(), { wide: true, onClose: () => { LoginModal.m = null; } });
+    LoginModal.m.el.classList.add('login-modal');
+    $('[data-x]', LoginModal.m.el).onclick = () => LoginModal.close();
+    // الأزرار داخل النافذة تمر عبر معالج النقرات العام (المستمع على المستند)
+    const first = $('input,select', LoginModal.m.el); if (first) setTimeout(() => { try { first.focus({ preventScroll: true }); } catch (e) {} }, 60);
+  },
+  close() { if (LoginModal.m) { const m = LoginModal.m; LoginModal.m = null; m.close(); } }
+};
+/* ===== 06f-sims2.js ===== */
+// ---------------------------------------------------------------------
+// أدوات المحاكيات المشتركة (SimKit) وقالب التصنيف.
+// نماذج تعليمية تقريبية تُظهر اتجاه الأثر لا أرقامًا دقيقة.
+// ثلاثة قوالب: محاكي عوامل (إعدادات ، نتيجة فورية)، محاكي تصنيف (تحقّق ثم تصحيح)، ومحاكيات خاصة.
+// ---------------------------------------------------------------------
+const SimKit = {
+  get(s, path) { const [a, b] = path.split('.'); return b ? (s[a] || {})[b] : s[a]; },
+  cb(s, id, dis, path, l) { return '<label class="sim-cb"><input type="checkbox" data-sim-f="' + path + '" data-ex="' + h(id) + '" ' + (SimKit.get(s, path) ? 'checked' : '') + ' ' + dis + '> ' + l + '</label>'; },
+  seg(s, id, dis, path, opts) { const v = String(SimKit.get(s, path)); return '<div class="sim-seg">' + opts.map(([k, l]) => '<label class="' + (v === k ? 'on' : '') + '"><input type="radio" name="' + h(id + '-' + path) + '" data-sim-f="' + path + '" data-ex="' + h(id) + '" value="' + h(k) + '" ' + (v === k ? 'checked' : '') + ' ' + dis + '>' + l + '</label>').join('') + '</div>'; },
+  range(s, id, dis, path, min, max, step) { return '<input type="range" min="' + min + '" max="' + max + '" step="' + (step || 1) + '" data-sim-f="' + path + '" data-ex="' + h(id) + '" value="' + h(SimKit.get(s, path)) + '" ' + dis + '>'; },
+  out(path, v) { return '<b class="num" data-sim-out="' + path + '">' + h(v) + '</b>'; },
+  field(label, inner) { return '<div class="field"><label>' + label + '</label>' + inner + '</div>'; },
+  gauge(v, title, note, unit) { return '<div class="sim-score"><div class="gauge" style="--p:' + Math.max(0, Math.min(100, v)) + '"><b class="num">' + v + (unit == null ? '%' : unit) + '</b></div><div><b>' + title + '</b>' + (note ? '<div class="muted" style="font-size:13px">' + note + '</div>' : '') + '</div></div>'; },
+  factors(fs) { fs = fs.filter(f => Math.abs(f.v) >= 0.1).sort((a, b) => b.v - a.v); return fs.length ? '<ul class="sim-factors">' + fs.map(f => '<li class="' + (f.v > 0 ? 'up' : 'down') + '"><span class="num">' + (f.v > 0 ? '+' : '') + (Math.round(f.v * 10) / 10) + '</span>' + h(f.t) + '</li>').join('') + '</ul>' : ''; },
+  meter(label, v, max, cls) { const p = Math.max(0, Math.min(100, v / max * 100)); return '<div class="sim-meter ' + (cls || '') + '"><span>' + label + '</span><i><em style="width:' + p + '%"></em></i><b class="num">' + Math.round(v) + '</b></div>'; },
+  note(t) { return '<div class="muted" style="font-size:12px">' + t + '</div>'; },
+  clamp(v, a, b) { return Math.max(a, Math.min(b, Math.round(v))); }
+};
+
+// قالب محاكي العوامل: كل إعداد يضيف أو يطرح من نتيجة أساسية، وتظهر المعاينة والعوامل فورًا
+function factorSim(c) {
+  const S = {
+    def: c.def,
+    factors: c.factors,
+    score(s) { return SimKit.clamp(c.base + c.factors(s).reduce((t, f) => t + f.v, 0), c.min == null ? 5 : c.min, c.max == null ? 95 : c.max); },
+    form: c.form,
+    live(s) { const sc = S.score(s); return '<div class="sim-live">' + SimKit.gauge(sc, c.label, c.verdict ? c.verdict(sc, s) : '') + (c.mock ? c.mock(s, sc) : '') + SimKit.factors(c.factors(s)) + (c.note ? SimKit.note(c.note) : '') + '</div>'; },
+    summary(s) { return c.label + ' ' + S.score(s) + '%' + (c.extra ? ' · ' + c.extra(s) : ''); },
+    metric(s) { return S.score(s); }
+  };
+  if (c.onSet) S.onSet = c.onSet;
+  return S;
+}
+
+// قالب محاكي التصنيف: يضع المتدرب كل عنصر في خانة، ثم يضغط «تحقّق» فيظهر التصحيح وتُقفل الإجابات
+function classifySim(c) {
+  const pts = (it, v) => v === it.k ? 1 : (it.alt && it.alt.indexOf(v) > -1 ? 0.5 : 0);
+  const S = {
+    hidden: true, // النتيجة والتصحيح لا يظهران للمتدرب إلا بعد أن يكشف المدرب الإجابات (s.done تُضبط وقت العرض)
+    def() { return { m: {}, done: false }; },
+    answered(s) { return c.items.filter((_, i) => (s.m || {})[i] != null && (s.m || {})[i] !== '').length; },
+    score(s) { return Math.round(c.items.reduce((t, it, i) => t + pts(it, (s.m || {})[i]), 0) / c.items.length * 100); },
+    form(s, id, dis) {
+      const d = s.done ? 'disabled' : dis; const lbl = v => (c.opts.find(o => o[0] === v) || [])[1] || '';
+      return (c.intro ? '<div class="sim-intro">' + c.intro + '</div>' : '') + (c.board ? c.board(s, id, d) :
+        '<div class="cls-list">' + c.items.map((it, i) => { const v = (s.m || {})[i]; const p = s.done ? pts(it, v) : -1;
+          return '<div class="cls-row ' + (p === 1 ? 'ok' : p === 0.5 ? 'half' : p === 0 ? 'bad' : '') + '"><div class="cls-t"><span class="num">' + (i + 1) + '</span>' + h(it.t) + '</div>' + SimKit.seg(s, id, d, 'm.' + i, c.opts) +
+            (s.done ? '<div class="cls-why">' + (p === 1 ? '✅ ' : p === 0.5 ? '🟡 مقبول، والأدق: «' + h(lbl(it.k)) + '». ' : '❌ الأنسب: «' + h(lbl(it.k)) + '». ') + h(it.why || '') + '</div>' : '') + '</div>'; }).join('') + '</div>') +
+        (s.done ? '<div class="status-note" style="margin-top:8px">🔓 كشف المدرب الإجابات: هذا التصحيح لإجاباتك المحفوظة.</div>' : '');
+    },
+    live(s) {
+      const n = S.answered(s), N = c.items.length;
+      const top = s.done ? SimKit.gauge(S.score(s), c.label, S.score(s) >= 80 ? 'قراءة ممتازة 👏' : S.score(s) >= 55 ? 'قريب، راجع البنود المصححة' : 'راجع التصحيح') : SimKit.gauge(Math.round(n / N * 100), 'أنجزت ' + n + ' من ' + N, 'يكشف المدرب الإجابات والتصحيح لاحقًا.');
+      return '<div class="sim-live">' + top + (c.mock ? c.mock(s) : '') + (c.note ? SimKit.note(c.note) : '') + '</div>';
+    },
+    summary(s) { return 'أجاب على ' + S.answered(s) + ' من ' + c.items.length; },
+    metric(s) { return S.score(s); }
+  };
+  return S;
+}
+
+
+SIMS.classify = cfg => classifySim(Object.assign({ label: 'نتيجة التصنيف', opts: [], items: [] }, cfg));
+/* ===== 06i-b2b-sims.js ===== */
+// ---------------------------------------------------------------------
+// قوالب المحاكاة الموجَّهة بالبيانات (تُهيّأ من cfg في كل تمرين):
+// swipe (بطاقات سريعة) · order (ترتيب خطوات) · build (اختيار ذكي بقيود) · branch (قرارات متتابعة) · speed (سباق أسئلة)
+// ---------------------------------------------------------------------
+const SimUI = {
+  verdict(score, ends) { const list = (ends || []).slice().sort((a, b) => b[0] - a[0]); const hit = list.find(x => score >= x[0]); return hit ? hit[1] : ''; },
+  shuffle(n, seed) { const o = seededOrder(n, seed); let idx = o.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v).map(x => x.i); if (idx.every((v, i) => v === i) && n > 1) idx = idx.slice(1).concat(idx[0]); return idx; },
+  bar(label, v, cls) { const p = Math.max(0, Math.min(100, v)); return '<div class="br-meter ' + (cls || '') + '"><span>' + h(label) + '</span><i><em style="width:' + p + '%"></em></i><b class="num">' + Math.round(v) + '</b></div>'; },
+  dots(n, cur, ok) { let t = ''; for (let i = 0; i < n; i++) t += '<i class="' + (i < cur ? (ok && ok[i] === false ? 'bad' : 'ok') : i === cur ? 'cur' : '') + '"></i>'; return '<div class="sw-dots">' + t + '</div>'; }
+};
+
+// ================= بطاقات سريعة: اضغط واحكم، ثم يظهر السبب فورًا =================
+SIMS.swipe = (cfg, exId) => {
+  const cards = cfg.cards || [], opts = cfg.opts || [['a', 'أ'], ['b', 'ب']], N = cards.length;
+  const lbl = k => (opts.find(o => o[0] === k) || [])[1] || '';
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔁 العب مرة أخرى', savedMsg: '✅ حُفظت نتيجتك',
+    def() { return { i: 0, a: [], fb: false }; },
+    score(s) { return N ? Math.round(cards.reduce((t, c, i) => t + ((s.a || [])[i] === c.k ? 1 : 0), 0) / N * 100) : 0; },
+    canSave(s) { return s.i >= N; },
+    act(s, name, arg) {
+      if (name === 'ans' && !s.fb && s.i < N) { s.a[s.i] = arg; s.fb = true; return; }
+      if (name === 'next' && s.fb) { s.i++; s.fb = false; return { done: s.i >= N }; }
+    },
+    form(s, id, dis) {
+      const ok = cards.map((c, i) => (s.a || [])[i] === undefined ? null : s.a[i] === c.k);
+      if (s.i >= N) {
+        const miss = cards.map((c, i) => ({ c, i })).filter(x => (s.a || [])[x.i] !== x.c.k);
+        return '<div class="sw-end"><div class="sw-big num">' + S.score(s) + '%</div><div>' + (S.score(s) >= 80 ? 'ممتاز! عينك التقطت الفروق 👏' : S.score(s) >= 50 ? 'جيد، راجع ما فاتك 👇' : 'لا بأس، العب مرة أخرى 💪') + '</div>' +
+          (miss.length ? '<div class="sw-miss">' + miss.map(x => '<div><b>' + h(x.c.t) + '</b><small>الأدق: ' + h(lbl(x.c.k)) + ' · ' + h(x.c.why || '') + '</small></div>').join('') + '</div>' : '') + '</div>';
+      }
+      const c = cards[s.i]; const fb = s.fb; const my = (s.a || [])[s.i]; const right = fb && my === c.k;
+      return SimUI.dots(N, s.i, ok) + '<div class="sw-card ' + (fb ? (right ? 'right' : 'wrong') : 'pop') + '"><span class="sw-n num">' + (s.i + 1) + '/' + N + '</span><b>' + h(c.t) + '</b>' +
+        (fb ? '<div class="sw-fb">' + (right ? '✅ أحسنت! ' : '❌ الأدق: «' + h(lbl(c.k)) + '». ') + h(c.why || '') + '</div>' : '') + '</div>' +
+        (fb ? '<button class="btn btn-primary btn-block" data-sm="next" data-ex="' + h(id) + '">' + (s.i + 1 >= N ? 'عرض النتيجة 🏁' : 'التالي') + '</button>' :
+          '<div class="sw-btns">' + opts.map((o, k) => '<button class="sw-btn k' + k + '" data-sm="ans" data-a="' + h(o[0]) + '" data-ex="' + h(id) + '" ' + dis + '>' + h(o[1]) + '</button>').join('') + '</div>');
+    },
+    live(s) { const done = Math.min(s.i, N); return '<div class="sim-live">' + SimKit.gauge(S.score(s), s.i >= N ? 'نتيجتك النهائية' : 'دقتك حتى الآن', s.i >= N ? 'حُفظت نتيجتك تلقائيًا في اللوحة.' : 'أجبت ' + done + ' من ' + N) + '</div>'; },
+    summary(s) { return S.score(s) + '%، ' + cards.filter((c, i) => (s.a || [])[i] === c.k).length + ' من ' + N; },
+    metric(s) { return S.score(s); }
+  };
+  return S;
+};
+
+// ================= ترتيب الخطوات بالنقر =================
+SIMS.order = (cfg, exId) => {
+  const items = cfg.items || [], N = items.length;
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔁 إعادة المحاولة',
+    def() { return { seq: [], chk: false }; },
+    score(s) { return N ? Math.round((s.seq || []).filter((v, i) => v === i).length / N * 100) : 0; },
+    canSave(s) { return !!s.chk; },
+    act(s, name, arg) {
+      if (s.chk) return 'none';
+      if (name === 'pick') { const i = +arg; if (s.seq.indexOf(i) === -1) s.seq.push(i); }
+      else if (name === 'rm') s.seq.splice(+arg, 1);
+      else if (name === 'check' && s.seq.length === N) { s.chk = true; return { done: true }; }
+    },
+    form(s, id, dis) {
+      const pool = SimUI.shuffle(N, exId).filter(i => (s.seq || []).indexOf(i) === -1);
+      return (cfg.prompt ? '<div class="sim-intro">' + h(cfg.prompt) + '</div>' : '') +
+        '<div class="od-list">' + (s.seq || []).map((v, pos) => '<button class="od-it ' + (s.chk ? (v === pos ? 'ok' : 'bad') : '') + '" data-sm="rm" data-a="' + pos + '" data-ex="' + h(id) + '" ' + (s.chk ? 'disabled' : dis) + '><span class="num">' + (pos + 1) + '</span><b>' + h(items[v]) + '</b>' + (s.chk ? '<em>' + (v === pos ? '✅' : '❌') + '</em>' : '<em>✕</em>') + '</button>').join('') +
+        (s.chk ? '' : Array.from({ length: N - (s.seq || []).length }, (_, k) => '<div class="od-slot"><span class="num">' + ((s.seq || []).length + k + 1) + '</span></div>').join('')) + '</div>' +
+        (s.chk ? '<div class="od-answer"><b>الترتيب الأدق:</b> ' + items.map((t, i) => '<span class="num">' + (i + 1) + '</span> ' + h(t)).join('، ') + '</div>' :
+          '<div class="od-pool">' + pool.map(i => '<button class="chip" data-sm="pick" data-a="' + i + '" data-ex="' + h(id) + '" ' + dis + '>' + h(items[i]) + '</button>').join('') + '</div>' +
+          '<button class="btn btn-primary btn-block" data-sm="check" data-ex="' + h(id) + '" ' + (dis || (s.seq || []).length !== N ? 'disabled' : '') + '>✅ تحقّق من الترتيب</button>');
+    },
+    live(s) { return '<div class="sim-live">' + (s.chk ? SimKit.gauge(S.score(s), 'دقة الترتيب', S.score(s) === 100 ? 'ترتيب مثالي 🎯' : 'راجع الخطوات المعلّمة بـ ❌') : SimKit.gauge(Math.round((s.seq || []).length / N * 100), 'رتّبت ' + (s.seq || []).length + ' من ' + N, 'اضغط الخطوات بالتسلسل ثم تحقّق.')) + '</div>'; },
+    summary(s) { return S.score(s) + '% دقة الترتيب'; },
+    metric(s) { return S.score(s); }
+  };
+  return S;
+};
+
+// ================= اختيار ذكي بقيود (اختر n من القائمة) =================
+SIMS.build = (cfg, exId) => {
+  const items = cfg.items || [], max = cfg.max || 3, base = cfg.base || 0;
+  const S = {
+    def() { return { pk: {} }; },
+    picks(s) { return items.filter(i => (s.pk || {})[i.k]); },
+    score(s) { return SimKit.clamp(base + S.picks(s).reduce((t, i) => t + (+i.v || 0), 0), 0, 100); },
+    onSet(s, path, val) { if (val && S.picks(s).length > max) { s.pk[path.split('.')[1]] = false; UI.toast('لديكم ' + max + ' اختيارات فقط'); } return 'rerender'; },
+    form(s, id, dis) {
+      const n = S.picks(s).length;
+      return '<div class="budget-left ' + (n === max ? 'done' : '') + '">الاختيارات المستخدمة: <b class="num">' + n + '</b> من <span class="num">' + max + '</span></div><div class="bd-cards">' +
+        items.map(i => '<label class="bd-card ' + ((s.pk || {})[i.k] ? 'sel' : '') + '"><input type="checkbox" data-sim-f="pk.' + h(i.k) + '" data-ex="' + h(id) + '" ' + ((s.pk || {})[i.k] ? 'checked' : '') + ' ' + dis + '><span class="bd-t">' + h(i.t) + '</span></label>').join('') + '</div>';
+    },
+    live(s) {
+      const pk = S.picks(s), sc = S.score(s), left = max - pk.length;
+      const verdict = left > 0 ? 'ما زال لديكم ' + left + ' اختيارات' : sc >= 75 ? 'اختيار موفّق جدًا 👏' : sc >= 45 ? 'اختيار مقبول، يمكن تحسينه' : 'اختيار ضعيف، فكّروا مجددًا';
+      return '<div class="sim-live">' + SimKit.gauge(sc, cfg.label || 'النتيجة', verdict, cfg.unit == null ? '%' : cfg.unit) +
+        (pk.length ? '<div class="bd-says">' + pk.map(i => '<div class="bd-say ' + ((+i.v || 0) > 0 ? 'up' : (+i.v || 0) < 0 ? 'down' : '') + '"><span>' + ((+i.v || 0) > 0 ? '😊' : (+i.v || 0) < 0 ? '😕' : '😐') + '</span><div><small>' + h(i.t) + '</small><b>«' + h(i.say || '') + '»</b></div></div>').join('') + '</div>' : SimKit.note('اختاروا لترون ردود الأفعال هنا.')) + '</div>';
+    },
+    summary(s) { return (cfg.label || 'النتيجة') + ' ' + S.score(s) + '%' + (S.picks(s).length ? ' · ' + S.picks(s).map(i => clip(i.t, 28)).join('، ') : ''); },
+    metric(s) { return S.score(s); },
+    best: { pk: items.slice().sort((a, b) => (+b.v || 0) - (+a.v || 0)).slice(0, max).reduce((o, i) => { o[i.k] = true; return o; }, {}) }
+  };
+  return S;
+};
+
+// ================= قرارات متتابعة (غرفة التفاوض، الاعتراضات، خطة التبني) =================
+SIMS.branch = (cfg, exId) => {
+  const rounds = cfg.rounds || [], R = rounds.length, meters = cfg.meters || [];
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔁 أعيدوا الجولة',
+    def() { return { p: [] }; },
+    answered(s) { return (s.p || []).filter(x => x != null).length; },
+    val(s) { const v = {}; meters.forEach(m => { v[m[0]] = +m[2] || 50; }); rounds.forEach((r, i) => { const o = r.opts[(s.p || [])[i]]; if (o) Object.keys(o.fx || {}).forEach(k => { if (k in v) v[k] += o.fx[k]; }); }); Object.keys(v).forEach(k => { v[k] = Math.max(0, Math.min(100, v[k])); }); return v; },
+    score(s) { const v = S.val(s); const ks = Object.keys(v); return ks.length ? Math.round(ks.reduce((t, k) => t + v[k], 0) / ks.length) : 0; },
+    canSave(s) { return S.answered(s) >= R; },
+    act(s, name, arg) { if (name !== 'pick') return; const [r, o] = String(arg).split(':').map(Number); if ((s.p || [])[r] != null) return 'none'; s.p[r] = o; return { done: S.answered(s) >= R }; },
+    form(s, id, dis) {
+      const n = S.answered(s); let out = (cfg.style === 'chat' ? '<div class="br-chat-head">💬 ' + h(cfg.chatWith || 'محادثة العميل') + ' <small>متصل الآن</small></div>' : '') + (cfg.intro ? '<div class="sim-intro">' + h(cfg.intro) + '</div>' : '');
+      for (let r = 0; r < Math.min(R, n + 1); r++) {
+        const rd = rounds[r]; const pick = (s.p || [])[r];
+        out += '<div class="br-round ' + (cfg.style === 'chat' ? 'chat ' : '') + (pick != null ? 'done' : 'cur') + '"><div class="br-who"><span class="num">' + (r + 1) + '/' + R + '</span><b>' + h(rd.who || '') + '</b></div><div class="br-say">«' + h(rd.say) + '»</div>' +
+          '<div class="br-opts">' + rd.opts.map((o, k) => {
+            const chosen = pick === k; const q = o.fx ? Object.keys(o.fx).reduce((t, x) => t + o.fx[x], 0) : 0;
+            return '<button class="br-opt ' + (pick == null ? '' : chosen ? (q >= 0 ? 'right' : 'wrong') : 'dim') + '" data-sm="pick" data-a="' + r + ':' + k + '" data-ex="' + h(id) + '" ' + (pick != null ? 'disabled' : dis) + '><span class="sk-l">' + LETTERS[k] + '</span><span class="grow"><b>' + h(o.t) + '</b>' + (chosen && o.fb ? '<small>' + (q >= 0 ? '✅ ' : '⚠️ ') + h(o.fb) + '</small>' : '') + '</span></button>';
+          }).join('') + '</div></div>';
+      }
+      if (n >= R) out += '<div class="br-end">🏁 ' + h(SimUI.verdict(S.score(s), cfg.ends)) + '</div>';
+      return out;
+    },
+    live(s) {
+      const v = S.val(s); const n = S.answered(s);
+      return '<div class="sim-live">' + SimKit.gauge(S.score(s), 'مؤشر القرارات', n >= R ? SimUI.verdict(S.score(s), cfg.ends) : 'الجولة ' + Math.min(R, n + 1) + ' من ' + R) +
+        '<div class="sim-meters">' + meters.map(m => SimUI.bar(m[1], v[m[0]], v[m[0]] < 35 ? 'warm' : '')).join('') + '</div>' + SimKit.note('كل قرار يحرّك المؤشرات الثلاثة؛ لا يوجد رد يربح في كل شيء، لكن بعضها يحمي ما بعد الاتفاق.') + '</div>';
+    },
+    summary(s) { return S.score(s) + '%، ' + SimUI.verdict(S.score(s), cfg.ends); },
+    metric(s) { return S.score(s); }
+  };
+  return S;
+};
+
+// ================= سباق الأسئلة السريع بمؤقت ونقاط =================
+const SpeedGame = {
+  tickHandle: null,
+  start() {
+    if (SpeedGame.tickHandle) return;
+    SpeedGame.tickHandle = setInterval(() => {
+      const box = document.querySelector('.sim-box[data-exid]'); if (!box) return;
+      const id = box.getAttribute('data-exid'); const e = Content.ex(id); if (!e || e.sim !== 'speed') return;
+      const S = Sims.of(e); const s = UIState.sim && UIState.sim[id]; if (!s) return;
+      if (S.tick(s, Date.now())) Sims.redraw(id);
+    }, 300);
+  }
+};
+SIMS.speed = (cfg, exId) => {
+  const qs = cfg.qs || [], N = qs.length; SpeedGame.start();
+  const S = {
+    auto: true, noSave: true, unit: ' نقطة', resetLabel: '🔁 سباق جديد', savedMsg: '✅ حُفظت نقاطك',
+    def() { return { st: 0, i: 0, a: [], pts: 0, t0: 0, fb: false, pick: null }; },
+    max() { return N * 200; },
+    canSave(s) { return s.st === 2; },
+    tick(s, now) { if (s.st === 1 && !s.fb) { const q = qs[s.i]; if (now - s.t0 > (q.sec || 10) * 1000) { s.fb = true; s.pick = -1; s.a[s.i] = -1; return true; } } return false; },
+    act(s, name, arg) {
+      if (name === 'start') { s.st = 1; s.i = 0; s.a = []; s.pts = 0; s.t0 = Date.now(); s.fb = false; s.pick = null; return; }
+      if (name === 'ans' && s.st === 1 && !s.fb) { const q = qs[s.i]; const k = +arg; const el = (Date.now() - s.t0) / 1000; s.pick = k; s.fb = true; s.a[s.i] = k; if (k === q.a) s.pts += 100 + Math.max(0, Math.round((1 - el / (q.sec || 10)) * 100)); return; }
+      if (name === 'next' && s.st === 1 && s.fb) { s.i++; s.fb = false; s.pick = null; if (s.i >= N) { s.st = 2; return { done: true }; } s.t0 = Date.now(); }
+    },
+    form(s, id, dis) {
+      if (s.st === 0) return '<div class="sp-intro"><div class="sp-emoji">⏱️</div><h4>' + N + ' أسئلة · وقت محدود لكل سؤال</h4><p>كلما أجبت أسرع وأدق ربحت نقاطًا أكثر (حتى 200 لكل سؤال).</p><button class="btn btn-primary btn-block" data-sm="start" data-ex="' + h(id) + '" ' + dis + '>🚀 ابدأ السباق</button></div>';
+      if (s.st === 2) { const pct = Math.round(s.pts / S.max() * 100); const right = qs.filter((q, i) => (s.a || [])[i] === q.a).length;
+        return '<div class="sw-end"><div class="sw-big num">' + s.pts + '</div><div>نقطة · أجبت ' + right + ' من ' + N + ' بشكل صحيح</div><div class="muted">' + (pct >= 75 ? 'سرعة وفهم! 🔥' : pct >= 45 ? 'جيد جدًا 👍' : 'جرّب مرة أخرى لتتحسن 💪') + '</div></div>'; }
+      const q = qs[s.i]; const el = s.fb ? 0 : Math.max(0, (Date.now() - s.t0) / 1000); const sec = q.sec || 10;
+      return '<div class="sp-head"><span class="num">' + (s.i + 1) + '/' + N + '</span><span class="sp-pts">⭐ <b class="num">' + s.pts + '</b></span></div>' +
+        '<div class="sp-timer ' + (s.fb ? 'stop' : '') + '"><i style="animation-duration:' + sec + 's;animation-delay:-' + el.toFixed(2) + 's"></i></div><div class="sp-q">' + h(q.q) + '</div><div class="sp-opts">' +
+        q.o.map((o, k) => { const cls = s.fb ? (k === q.a ? 'right' : k === s.pick ? 'wrong' : 'dim') : ''; return '<button class="sp-opt ' + cls + '" data-sm="ans" data-a="' + k + '" data-ex="' + h(id) + '" ' + (s.fb ? 'disabled' : dis) + '><span class="sk-l">' + LETTERS[k] + '</span>' + h(o) + '</button>'; }).join('') + '</div>' +
+        (s.fb ? '<div class="sp-fb">' + (s.pick === q.a ? '✅ صحيح!' : s.pick === -1 ? '⏰ انتهى الوقت، الإجابة: ' + h(q.o[q.a]) : '❌ الإجابة: ' + h(q.o[q.a])) + '</div><button class="btn btn-primary btn-block" data-sm="next" data-ex="' + h(id) + '">' + (s.i + 1 >= N ? 'النتيجة 🏁' : 'السؤال التالي') + '</button>' : '');
+    },
+    live(s) { return '<div class="sim-live">' + SimKit.gauge(Math.round(s.pts / S.max() * 100), 'نقاطك: ' + s.pts, s.st === 2 ? 'حُفظت نقاطك تلقائيًا ولوحة الصدارة تتحدث مباشرة.' : 'الأسرع والأدق يتصدر 🏆', '%') + '</div>'; },
+    summary(s) { return s.pts + ' نقطة'; },
+    metric(s) { return s.pts; }
+  };
+  return S;
+};
+/* ===== 06j-interact.js ===== */
+// ---------------------------------------------------------------------
+// التمارين الحية العامة: تصويت · جدار أفكار متحرك · مقياس «أين تقف؟» · ترتيب جماعي
+// تُعرض نتائجها مباشرة على الصفحة وعلى لوحة العرض (وضع المدرب) أمام الجميع.
+// ---------------------------------------------------------------------
+const LiveKit = {
+  hash(s) { let x = 7; String(s || '').split('').forEach(ch => { x = (x * 31 + ch.charCodeAt(0)) % 1000003; }); return x; },
+  posts(exId) { const ps = Store.posts[exId] || {}; return Object.keys(ps).filter(k => ps[k] && ps[k].state).map(k => Object.assign({ k }, ps[k])); },
+  who(e, p) { return /^g\d+$/.test(p.k) && e && e.mode === 'group' ? Groups.label(+p.k.slice(1)) : (p.name || 'مشارك'); },
+  empty(msg) { return '<div class="empty">' + msg + '</div>'; },
+  head(title, n, unit) { return '<div class="feed-head"><span class="live-dot"></span><h3>' + title + '</h3><span class="pill num">' + n + ' ' + (unit || '') + '</span></div>'; }
+};
+
+// ================= تصويت حي =================
+SIMS.vote = (cfg, exId) => {
+  const raw = cfg.options || []; const opts = raw.map(o => (o && typeof o === 'object') ? o.t : o);
+  const det = o => (o && typeof o === 'object') ? '<span class="vt-det">' + ((o.good || []).map(g => '<em class="g">✓ ' + h(g) + '</em>').join('') + (o.bad ? '<em class="b">✕ ' + h(o.bad) + '</em>' : '')) + '</span>' : '';
+  const tally = () => { const c = opts.map(() => 0); let n = 0; LiveKit.posts(exId).forEach(p => { const v = p.state.v; if (v == null || v === '') return; if (c[+v] !== undefined) { c[+v]++; n++; } }); return { c, n }; };
+  const board = (mine) => {
+    const t = tally(); const mx = Math.max(1, ...t.c);
+    return '<div class="vt-board">' + opts.map((o, k) => { const pct = t.n ? Math.round(t.c[k] / t.n * 100) : 0; const lead = t.n && t.c[k] === mx && t.c[k] > 0;
+      return '<div class="vt-row ' + (lead ? 'lead' : '') + (mine != null && +mine === k ? ' mine' : '') + '"><em style="--w:' + pct + '%"></em><span class="vt-l">' + h(o) + (mine != null && +mine === k ? ' <small>(صوتك)</small>' : '') + '</span><b class="num">' + pct + '%</b><small class="num">' + t.c[k] + '</small></div>'; }).join('') + '</div>' +
+      '<div class="poll-total">إجمالي الأصوات: <b class="num">' + t.n + '</b></div>';
+  };
+  const S = {
+    auto: true, noSave: true, noReset: true, sortBy: 'ts', wide: false,
+    def() { return { v: null }; },
+    canSave(s) { return s.v != null && s.v !== ''; },
+    form(s, id, dis) {
+      return '<div class="vt-q">' + h(cfg.q || '') + '</div><div class="vt-opts">' + opts.map((o, k) => '<label class="vt-opt ' + (s.v != null && +s.v === k ? 'sel' : '') + '"><input type="radio" name="vt-' + h(id) + '" data-sim-f="v" data-ex="' + h(id) + '" value="' + k + '" ' + (s.v != null && +s.v === k ? 'checked' : '') + ' ' + dis + '><span class="vt-mk"></span><span class="vt-tx"><b>' + h(opts[k]) + '</b>' + det(raw[k]) + '</span></label>').join('') + '</div>' + SimKit.note('صوتك يُسجَّل فورًا ويمكنك تغييره في أي وقت.');
+    },
+    live(s) { const t = tally(); return '<div class="sim-live">' + (s.v != null && s.v !== '' ? '<div class="vt-done">✅ سُجّل صوتك: <b>' + h(opts[+s.v] || '') + '</b></div>' : '<div class="vt-done muted">اختر إجابة ليُسجَّل صوتك</div>') + '<div class="vt-mini"><b class="num">' + t.n + '</b> صوتًا حتى الآن، النتائج الكاملة في اللوحة أدناه 👇</div></div>'; },
+    feed(e, ps, keys, myKey) {
+      const mine = myKey && ps[myKey] && ps[myKey].state ? ps[myKey].state.v : null;
+      return '<div class="feed">' + LiveKit.head('📊 النتائج الحية', tally().n, 'صوت') + (e && opts.length ? '<div class="vt-q big">' + h(cfg.q || '') + '</div>' : '') + board(mine) + '</div>';
+    },
+    summary(s) { return s.v != null && s.v !== '' ? 'صوّت: ' + (opts[+s.v] || '') : ''; },
+    metric(s) { return s.v == null ? 0 : +s.v; }
+  };
+  return S;
+};
+
+// ================= جدار الأفكار الحي: إجابات نصية قصيرة تظهر متحركة أمام الجميع =================
+const WALL_COLORS = ['#FFCEB8', '#D3CDF3', '#FFD9C7', '#DFDCF5', '#D6F0DD', '#F8D7E6'];
+SIMS.wall = (cfg, exId) => {
+  const max = cfg.max || 90;
+  const S = {
+    noReset: true, sortBy: 'ts', saveLabel: '📌 انشر على الجدار', savedMsg: '📌 ظهرت إجابتك على الجدار',
+    def() { return { t: '', c: 0 }; },
+    canSave(s, msg) { const ok = (s.t || '').trim().length >= 2; return msg ? 'اكتب كلمتين على الأقل' : ok; },
+    extra(s) { return { text: (s.t || '').trim() }; },
+    form(s, id, dis) {
+      return '<div class="wl-prompt">' + h(cfg.prompt || 'اكتب إجابتك') + '</div><div class="field"><textarea rows="3" maxlength="' + max + '" data-sim-f="t" data-ex="' + h(id) + '" placeholder="' + h(cfg.ph || 'اكتب هنا') + '" ' + dis + '>' + h(s.t || '') + '</textarea></div>' +
+        '<div class="wl-colors">' + WALL_COLORS.map((c, k) => '<label class="wl-c ' + (+s.c === k ? 'on' : '') + '" style="--c:' + c + '"><input type="radio" name="wlc-' + h(id) + '" data-sim-f="c" data-ex="' + h(id) + '" value="' + k + '" ' + (+s.c === k ? 'checked' : '') + ' ' + dis + '></label>').join('') + '</div>';
+    },
+    live(s) {
+      const len = (s.t || '').length; const c = WALL_COLORS[+s.c || 0];
+      return '<div class="sim-live"><div class="wl-preview" style="--c:' + c + '">' + (s.t ? h(s.t) : '<span class="muted">معاينة ورقتك ستظهر هنا</span>') + '</div><div class="status-note num">' + len + ' / ' + max + '</div></div>';
+    },
+    summary(s) { return clip((s.t || '').trim(), 140); },
+    metric(s) { return (s.t || '').length; },
+    feed(e, ps, keys, myKey, del) {
+      const seen = (UIState.wallSeen = UIState.wallSeen || {}); const sn = (seen[exId] = seen[exId] || {});
+      if (!keys.length) return '<div class="feed">' + LiveKit.head('🧱 جدار الأفكار', 0, 'ورقة') + LiveKit.empty('الجدار فارغ. كن أول من يكتب ✍️') + '</div>';
+      const html = keys.map(k => { const p = ps[k]; const c = WALL_COLORS[+(p.state && p.state.c) || 0]; const rot = ((LiveKit.hash(k) % 7) - 3) * 0.9; const fresh = !sn[k]; sn[k] = true;
+        return '<div class="wl-note ' + (fresh ? 'pop' : '') + (k === myKey ? ' mine' : '') + '" style="--c:' + c + ';--r:' + rot.toFixed(1) + 'deg;--d:' + (LiveKit.hash(k) % 5) + 's"><div class="wl-pin"></div><div class="wl-text">' + h(p.text || (p.state && p.state.t) || '') + '</div><div class="wl-foot"><span class="wl-by">- ' + h(LiveKit.who(e, Object.assign({ k }, p))) + '</span>' + Likes.btn('posts/' + e.id + '/' + k, p.likes) + del(k) + '</div></div>'; }).join('');
+      return '<div class="feed">' + LiveKit.head('🧱 جدار الأفكار', keys.length, 'ورقة') + '<div class="wl-board">' + html + '</div></div>';
+    }
+  };
+  return S;
+};
+
+// ================= مقياس «أين تقف؟» =================
+SIMS.scale = (cfg, exId) => {
+  const track = (mineVal, big) => {
+    const vals = LiveKit.posts(exId).map(p => ({ v: +p.state.v, n: p.name || '' })).filter(x => !isNaN(x.v));
+    const avg = vals.length ? Math.round(vals.reduce((t, x) => t + x.v, 0) / vals.length) : null;
+    const cols = ['#4C3AA7', '#F34D00', '#484371', '#3A2891', '#C53E00', '#6B6F7B'];
+    return '<div class="sc-track ' + (big ? 'big' : '') + '"><div class="sc-line"></div>' + vals.map((x, i) => '<i class="sc-dot" title="' + h(x.n) + '" style="--x:' + x.v + '%;--y:' + ((i % 4) * 18) + 'px;--c:' + cols[i % cols.length] + ';--i:' + (i % 6) + '">' + h(initials(x.n)) + '</i>').join('') +
+      (avg != null ? '<b class="sc-avg" style="--x:' + avg + '%"><span>المتوسط ' + avg + '%</span></b>' : '') + '</div><div class="sc-poles"><span>' + h(cfg.left || '') + '</span><span>' + h(cfg.right || '') + '</span></div>' + (vals.length ? '<div class="poll-total">عدد المشاركين: <b class="num">' + vals.length + '</b></div>' : '');
+  };
+  const S = {
+    auto: true, noSave: true, noReset: true, sortBy: 'ts',
+    def() { return { v: 50, set: false }; },
+    canSave(s) { return !!s.set; },
+    onSet(s, path) { if (path === 'v') s.set = true; },
+    form(s, id, dis) {
+      return '<div class="vt-q">' + h(cfg.q || '') + '</div><div class="sc-input"><input type="range" min="0" max="100" step="1" data-sim-f="v" data-ex="' + h(id) + '" value="' + h(s.v) + '" ' + dis + '><div class="sc-poles"><span>' + h(cfg.left || '') + '</span><span>' + h(cfg.right || '') + '</span></div></div>' + SimKit.note('حرّك المؤشر وسيُحفظ موقعك تلقائيًا ويظهر على المقياس الجماعي.');
+    },
+    live(s) { return '<div class="sim-live"><div class="vt-done">' + (s.set ? '📍 موقعك: <b class="num">' + s.v + '%</b>' : 'حرّك المؤشر لتسجّل موقعك') + '</div>' + SimKit.note('انظر أين يقف زملاؤك في اللوحة أدناه 👇') + '</div>'; },
+    feed(e, ps, keys, myKey) { return '<div class="feed">' + LiveKit.head('📏 أين يقف الجميع؟', LiveKit.posts(exId).length, 'مشارك') + '<div class="vt-q big">' + h(cfg.q || '') + '</div>' + track(null, true) + '</div>'; },
+    summary(s) { return 'موقعي ' + s.v + '%'; },
+    metric(s) { return +s.v || 0; }
+  };
+  return S;
+};
+
+// ================= ترتيب جماعي (متوسط ترتيب المجموعة) =================
+SIMS.rank = (cfg, exId) => {
+  const items = cfg.items || [], N = items.length;
+  const agg = () => {
+    const ps = LiveKit.posts(exId).filter(p => Array.isArray(p.state.o) || (p.state.o && typeof p.state.o === 'object')); const pts = items.map(() => 0); let n = 0;
+    ps.forEach(p => { const o = arr(p.state.o).map(Number); if (o.length !== N) return; n++; o.forEach((idx, pos) => { if (pts[idx] !== undefined) pts[idx] += N - pos; }); });
+    return { n, list: items.map((t, i) => ({ t, i, avg: n ? pts[i] / n : 0 })).sort((a, b) => b.avg - a.avg) };
+  };
+  const board = () => { const a = agg(); if (!a.n) return LiveKit.empty('لم يحفظ أحد ترتيبه بعد'); const mx = Math.max(1, ...a.list.map(x => x.avg));
+    return '<div class="rk-board">' + a.list.map((x, r) => '<div class="rk-row r' + r + '"><span class="rk-n num">' + (r + 1) + '</span><em style="--w:' + Math.round(x.avg / mx * 100) + '%"></em><span class="rk-t">' + h(x.t) + '</span><b class="num">' + x.avg.toFixed(1) + '</b></div>').join('') + '</div><div class="poll-total">المشاركون: <b class="num">' + a.n + '</b> · الرقم = متوسط النقاط (الأعلى أهم)</div>'; };
+  const S = {
+    sortBy: 'ts', saveLabel: '💾 احفظ ترتيبي', resetLabel: '🔄 ابدأ من جديد', savedMsg: '✅ حُفظ ترتيبك',
+    def() { return { o: items.map((_, i) => i) }; },
+    act(s, name, arg) { if (name !== 'mv') return; const [pos, d] = String(arg).split(':').map(Number); const to = pos + d; if (to < 0 || to >= N) return 'none'; const o = arr(s.o).map(Number); const t = o[pos]; o[pos] = o[to]; o[to] = t; s.o = o; },
+    form(s, id, dis) {
+      const o = arr(s.o).map(Number); if (o.length !== N) { s.o = items.map((_, i) => i); }
+      return '<div class="vt-q">' + h(cfg.q || '') + '</div><div class="rk-list">' + arr(s.o).map(Number).map((idx, pos) => '<div class="rk-it"><span class="rk-n num">' + (pos + 1) + '</span><b>' + h(items[idx]) + '</b><span class="rk-btns"><button data-sm="mv" data-a="' + pos + ':-1" data-ex="' + h(id) + '" ' + (pos === 0 ? 'disabled' : dis) + ' aria-label="أعلى">▲</button><button data-sm="mv" data-a="' + pos + ':1" data-ex="' + h(id) + '" ' + (pos === N - 1 ? 'disabled' : dis) + ' aria-label="أدنى">▼</button></span></div>').join('') + '</div>' + SimKit.note('رتّب من الأهم (الأعلى) إلى الأقل ثم احفظ ترتيبك.');
+    },
+    live(s) { return '<div class="sim-live"><div class="vt-done">ترتيب المجموعة حتى الآن 👇</div>' + board() + '</div>'; },
+    feed(e) { return '<div class="feed">' + LiveKit.head('🔝 ترتيب الجميع', agg().n, 'مشارك') + '<div class="vt-q big">' + h(cfg.q || '') + '</div>' + board() + '</div>'; },
+    summary(s) { return 'الأهم عندي: ' + (items[arr(s.o).map(Number)[0]] || ''); },
+    metric(s) { return 0; }
+  };
+  return S;
+};
+/* ===== 06k-more.js ===== */
+// ---------------------------------------------------------------------
+// نماذج تمارين إضافية لكسر الروتين:
+// cloud (سحابة كلمات حية) · columns (لوحة بأعمدة: ابدأ/توقف/استمر) · grid (خريطة 2×2 بإجماع القاعة) · tradeoff (موازنة بمؤشرات)
+// compare (قبل/بعد للقاعة) · roles (لعب أدوار ببطاقات سرية) · detective (محقق الأسباب الجذرية) · match (توصيل أزواج)
+// hunt (اكتشف الخلل في نص) · alloc (وزّع نقاطك) + شريط تفاعلات الإيموجي الطائرة
+// ---------------------------------------------------------------------
+const MoreKit = {
+  norm(t) { return String(t || '').replace(/[ً-ْـ]/g, '').replace(/\s+/g, ' ').trim(); },
+  cols: ['#4C3AA7', '#F34D00', '#484371', '#3A2891', '#C53E00', '#6B6F7B', '#D9670B'],
+  avg(arr) { return arr.length ? arr.reduce((t, x) => t + x, 0) / arr.length : 0; }
+};
+
+// ================= سحابة كلمات حية (كلمة واحدة من كل مشارك) =================
+SIMS.cloud = (cfg, exId) => {
+  const max = cfg.max || 24;
+  const cloud = big => {
+    const c = {}; LiveKit.posts(exId).forEach(p => { const w = MoreKit.norm(p.text || (p.state && p.state.t)).slice(0, max); if (w) c[w] = (c[w] || 0) + 1; });
+    const list = Object.keys(c).map(w => ({ w, n: c[w] })).sort((a, b) => b.n - a.n); if (!list.length) return LiveKit.empty('السحابة فارغة. اكتب أول كلمة ☁️');
+    const mx = list[0].n; const mixed = list.slice().sort((a, b) => LiveKit.hash(a.w) - LiveKit.hash(b.w));
+    return '<div class="cl-cloud ' + (big ? 'big' : '') + '">' + mixed.map((x, i) => '<span class="cl-w" style="--s:' + (1 + x.n / mx * 1.8).toFixed(2) + ';--c:' + MoreKit.cols[LiveKit.hash(x.w) % MoreKit.cols.length] + ';--d:' + (i % 7) + '">' + h(x.w) + (x.n > 1 ? '<sup class="num">' + x.n + '</sup>' : '') + '</span>').join('') + '</div><div class="poll-total">المشاركون: <b class="num">' + LiveKit.posts(exId).length + '</b></div>';
+  };
+  const S = {
+    noReset: true, sortBy: 'ts', saveLabel: '☁️ أضف كلمتي', savedMsg: '☁️ أُضيفت كلمتك إلى السحابة',
+    def() { return { t: '' }; },
+    canSave(s, msg) { return msg ? 'اكتب كلمة واحدة' : MoreKit.norm(s.t).length >= 2; },
+    extra(s) { return { text: MoreKit.norm(s.t).slice(0, max) }; },
+    form(s, id, dis) { return '<div class="wl-prompt">' + h(cfg.q || '') + '</div><div class="field"><input type="text" maxlength="' + max + '" data-sim-f="t" data-ex="' + h(id) + '" value="' + h(s.t || '') + '" placeholder="' + h(cfg.ph || 'كلمة واحدة') + '" ' + dis + '></div>'; },
+    live(s) { return '<div class="sim-live"><div class="vt-done">' + (s.t ? 'كلمتك: <b>' + h(s.t) + '</b>' : 'اكتب كلمة واحدة فقط') + '</div>' + SimKit.note('الكلمات المتكررة تكبر في السحابة أمام الجميع.') + '</div>'; },
+    feed(e) { return '<div class="feed">' + LiveKit.head('☁️ سحابة الكلمات', LiveKit.posts(exId).length, 'كلمة') + '<div class="vt-q big">' + h(cfg.q || '') + '</div>' + cloud(true) + '</div>'; },
+    summary(s) { return MoreKit.norm(s.t); }, metric(s) { return (s.t || '').length; }
+  };
+  return S;
+};
+
+// ================= لوحة بأعمدة (ابدأ · توقّف · استمر) =================
+SIMS.columns = (cfg, exId) => {
+  const cats = cfg.cats || ['🚀 أبدأ', '🛑 أتوقف', '✅ أستمر'], max = cfg.max || 80;
+  const S = {
+    noReset: true, sortBy: 'ts', saveLabel: '📌 علّقها على اللوحة', savedMsg: '📌 عُلِّقت ورقتك',
+    def() { return { c: 0, t: '' }; },
+    canSave(s, msg) { return msg ? 'اكتب كلمتين على الأقل' : (s.t || '').trim().length >= 2; },
+    extra(s) { return { text: (s.t || '').trim(), cat: +s.c || 0 }; },
+    form(s, id, dis) {
+      return '<div class="wl-prompt">' + h(cfg.q || '') + '</div><div class="cat-chips">' + cats.map((c, k) => '<label class="cat-chip ' + (+s.c === k ? 'on' : '') + '"><input type="radio" name="cc-' + h(id) + '" data-sim-f="c" data-ex="' + h(id) + '" value="' + k + '" ' + (+s.c === k ? 'checked' : '') + ' ' + dis + '>' + h(c) + '</label>').join('') + '</div>' +
+        '<div class="field"><textarea rows="3" maxlength="' + max + '" data-sim-f="t" data-ex="' + h(id) + '" placeholder="' + h(cfg.ph || 'اكتب هنا') + '" ' + dis + '>' + h(s.t || '') + '</textarea></div>';
+    },
+    live(s) { return '<div class="sim-live"><div class="wl-preview" style="--c:' + WALL_COLORS[(+s.c || 0) % WALL_COLORS.length] + '">' + (s.t ? h(s.t) : '<span class="muted">معاينة ورقتك</span>') + '</div><div class="status-note">العمود: <b>' + h(cats[+s.c || 0]) + '</b> · <span class="num">' + (s.t || '').length + '/' + max + '</span></div></div>'; },
+    feed(e, ps, keys, myKey, del) {
+      const seen = (UIState.wallSeen = UIState.wallSeen || {}); const sn = (seen[exId] = seen[exId] || {});
+      return '<div class="feed">' + LiveKit.head('🗂️ ' + (cfg.title || 'اللوحة الجماعية'), keys.length, 'ورقة') + '<div class="vt-q big">' + h(cfg.q || '') + '</div><div class="cols-board" style="--n:' + cats.length + '">' +
+        cats.map((c, ci) => '<div class="cols-col"><div class="cols-h">' + h(c) + '</div>' + keys.filter(k => (+(ps[k].cat != null ? ps[k].cat : (ps[k].state || {}).c) || 0) === ci).map(k => { const p = ps[k]; const fresh = !sn[k]; sn[k] = true; return '<div class="wl-note small ' + (fresh ? 'pop' : '') + (k === myKey ? ' mine' : '') + '" style="--c:' + WALL_COLORS[ci % WALL_COLORS.length] + ';--r:' + (((LiveKit.hash(k) % 5) - 2) * 0.8) + 'deg;--d:' + (LiveKit.hash(k) % 5) + 's"><div class="wl-text">' + h(p.text || '') + '</div><div class="wl-foot"><span class="wl-by">- ' + h(LiveKit.who(e, Object.assign({ k }, p))) + '</span>' + Likes.btn('posts/' + e.id + '/' + k, p.likes) + del(k) + '</div></div>'; }).join('') + '</div>').join('') + '</div></div>';
+    },
+    summary(s) { return cats[+s.c || 0] + ': ' + clip((s.t || '').trim(), 100); }, metric(s) { return (s.t || '').length; }
+  };
+  return S;
+};
+
+// ================= خريطة 2×2: كل مشارك يضع العناصر، وتظهر خريطة الإجماع =================
+SIMS.grid = (cfg, exId) => {
+  const items = cfg.items || [], N = items.length, q = cfg.quads || {};
+  const board = (pos, sel, id, interactive, big) => {
+    const dots = items.map((it, i) => pos[i] ? '<i class="gd-dot ' + (sel === i ? 'sel' : '') + '" title="' + h(it.t) + '" style="left:' + pos[i][0] + '%;bottom:' + pos[i][1] + '%">' + (it.e || (i + 1)) + '</i>' : '').join('');
+    return '<div class="gd-wrap ' + (big ? 'big' : '') + '"><div class="gd-y">' + h(cfg.y || '') + '</div><div class="gd-board" ' + (interactive ? 'data-gd="' + h(id) + '"' : '') + '><span class="gd-q q-lh">' + h(q.lh || '') + '</span><span class="gd-q q-hh">' + h(q.hh || '') + '</span><span class="gd-q q-ll">' + h(q.ll || '') + '</span><span class="gd-q q-hl">' + h(q.hl || '') + '</span><i class="gd-vl"></i><i class="gd-hl"></i>' + dots + '</div><div class="gd-x">' + h(cfg.x || '') + '</div></div>';
+  };
+  const mine = s => { const p = {}; Object.keys(s.p || {}).forEach(k => { p[+k] = s.p[k]; }); return p; };
+  const consensus = () => {
+    const ps = LiveKit.posts(exId); const out = {}; items.forEach((it, i) => { const pts = ps.map(p => (p.state.p || {})[i]).filter(Boolean); if (pts.length) out[i] = [Math.round(MoreKit.avg(pts.map(x => +x[0]))), Math.round(MoreKit.avg(pts.map(x => +x[1])))]; }); return { pos: out, n: ps.length };
+  };
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔄 امسح مواضعي',
+    def() { return { p: {}, sel: 0 }; },
+    canSave(s) { return Object.keys(s.p || {}).length > 0; },
+    act(s, name, arg) {
+      if (name === 'sel') { s.sel = +arg; return; }
+      if (name === 'place') { const [x, y] = String(arg).split(':').map(Number); const i = +s.sel; if (isNaN(i) || i < 0 || i >= N) return 'none'; s.p = Object.assign({}, s.p); s.p[i] = [Math.max(2, Math.min(98, x)), Math.max(2, Math.min(98, y))]; const nxt = items.findIndex((_, k) => !s.p[k]); if (nxt > -1) s.sel = nxt; }
+    },
+    form(s, id, dis) {
+      const p = mine(s);
+      return '<div class="vt-q">' + h(cfg.q || '') + '</div><div class="gd-chips">' + items.map((it, i) => '<button class="gd-chip ' + (+s.sel === i ? 'sel' : '') + (p[i] ? ' placed' : '') + '" data-sm="sel" data-a="' + i + '" data-ex="' + h(id) + '" ' + dis + '>' + (it.e || '') + ' ' + h(it.t) + '</button>').join('') + '</div>' +
+        board(p, +s.sel, id, !dis, false) + SimKit.note('اختر عنصرًا ثم اضغط على المكان المناسب في الخريطة. يمكنك إعادة وضعه بالضغط مرة أخرى.');
+    },
+    live(s) { const c = consensus(); return '<div class="sim-live"><div class="vt-done">وضعت <b class="num">' + Object.keys(s.p || {}).length + '</b> من <span class="num">' + N + '</span></div><div class="vt-mini"><b class="num">' + c.n + '</b> مشارك سجّلوا مواضعهم، خريطة الإجماع في اللوحة أدناه 👇</div></div>'; },
+    feed(e) { const c = consensus(); return '<div class="feed">' + LiveKit.head('🧭 خريطة إجماع القاعة', c.n, 'مشارك') + '<div class="vt-q big">' + h(cfg.q || '') + '</div>' + board(c.pos, -1, e.id, false, true) + '<div class="poll-total">كل نقطة = متوسط مواضع المشاركين</div></div>'; },
+    summary(s) { return 'وضع ' + Object.keys(s.p || {}).length + ' عناصر'; }, metric(s) { return Object.keys(s.p || {}).length; }
+  };
+  return S;
+};
+document.addEventListener('click', ev => {
+  const b = ev.target.closest && ev.target.closest('.gd-board[data-gd]'); if (!b) return;
+  const r = b.getBoundingClientRect(); const x = Math.round((ev.clientX - r.left) / r.width * 100), y = Math.round(100 - (ev.clientY - r.top) / r.height * 100);
+  Sims.act(b.getAttribute('data-gd'), 'place', x + ':' + y);
+});
+
+// ================= موازنة بمؤشرات (مثلث القيود) =================
+SIMS.tradeoff = (cfg, exId) => {
+  const sl = cfg.sliders || [], mt = cfg.metrics || [];
+  const S = {
+    saveLabel: '💾 احفظ قراري', resetLabel: '🔄 من جديد',
+    def() { const v = {}; sl.forEach(x => { v[x.k] = x.def != null ? x.def : 50; }); return { v }; },
+    val(s) { const o = {}; mt.forEach(m => { let x = +m.base || 50; Object.keys(m.w || {}).forEach(k => { x += m.w[k] * (((s.v || {})[k] != null ? +s.v[k] : 50) - 50); }); o[m.k] = SimKit.clamp(x, 0, 100); }); return o; },
+    score(s) { const v = S.val(s); const ks = Object.keys(v); return ks.length ? Math.round(ks.reduce((t, k) => t + v[k], 0) / ks.length) : 0; },
+    form(s, id, dis) {
+      return (cfg.intro ? '<div class="sim-intro">' + h(cfg.intro) + '</div>' : '') + sl.map(x => SimKit.field(h(x.t) + ': ' + SimKit.out('v.' + x.k, (s.v || {})[x.k]), SimKit.range(s, id, dis, 'v.' + x.k, 0, 100) + '<div class="sc-poles"><span>' + h(x.lo || '') + '</span><span>' + h(x.hi || '') + '</span></div>')).join('');
+    },
+    live(s) { const v = S.val(s); return '<div class="sim-live">' + SimKit.gauge(S.score(s), cfg.label || 'جودة القرار', SimUI.verdict(S.score(s), cfg.ends)) + '<div class="sim-meters">' + mt.map(m => SimUI.bar(m.t, v[m.k], v[m.k] < 35 ? 'warm' : '')).join('') + '</div>' + (cfg.note ? SimKit.note(cfg.note) : '') + '</div>'; },
+    summary(s) { return S.score(s) + '%، ' + SimUI.verdict(S.score(s), cfg.ends); }, metric(s) { return S.score(s); }
+  };
+  return S;
+};
+
+// ================= قبل/بعد: مقارنة متوسط القاعة بين تمرينين من نوع «مقياس» =================
+SIMS.compare = (cfg, exId) => {
+  const avgOf = id => { const ps = Store.posts[id] || {}; const v = Object.keys(ps).map(k => ps[k] && ps[k].state ? +ps[k].state.v : NaN).filter(x => !isNaN(x)); return { n: v.length, a: v.length ? Math.round(MoreKit.avg(v)) : null }; };
+  const chart = () => { const A = avgOf(cfg.a), B = avgOf(cfg.b); const row = (l, r, c) => '<div class="cmp-bar"><span>' + h(l) + '</span><i><em style="--w:' + (r.a || 0) + '%;background:' + c + '"></em></i><b class="num">' + (r.a == null ? '-' : r.a + '%') + '</b><small class="num">' + r.n + '</small></div>';
+    const d = A.a != null && B.a != null ? B.a - A.a : null; return '<div class="cmp-wrap">' + row(cfg.la || 'قبل', A, '#9C9AB2') + row(cfg.lb || 'الآن', B, '#4C3AA7') + '</div>' + (d != null ? '<div class="cmp-delta ' + (d >= 0 ? 'up' : 'down') + '">' + (d >= 0 ? '📈 ارتفع متوسط القاعة ' : '📉 انخفض المتوسط ') + '<b class="num">' + Math.abs(d) + '</b> نقطة</div>' : LiveKit.empty('يظهر الفرق بعد أن تُسجَّل نتائج التمرينين')); };
+  const S = {
+    noSave: true, noReset: true,
+    def() { return {}; },
+    form() { return '<div class="vt-q">' + h(cfg.q || 'قارن متوسط القاعة') + '</div>' + SimKit.note('هذه لوحة عرض: تُقارن متوسط القاعة بين تمرين «قبل» وتمرين «بعد».'); },
+    live() { return '<div class="sim-live">' + chart() + '</div>'; },
+    feed(e) { return '<div class="feed">' + LiveKit.head('⚖️ رحلة القاعة', Math.max(avgOf(cfg.a).n, avgOf(cfg.b).n), 'مشارك') + '<div class="vt-q big">' + h(cfg.q || '') + '</div>' + chart() + '</div>'; },
+    summary() { return ''; }, metric() { return 0; }
+  };
+  return S;
+};
+
+// ================= لعب أدوار ببطاقات سرية ثم قرار جماعي =================
+SIMS.roles = (cfg, exId) => {
+  const roles = cfg.roles || [], dec = cfg.decide || { q: 'ما قراركم؟', options: [] };
+  const S = {
+    saveLabel: '📨 سجّل قراري', savedMsg: '✅ سُجّل قرارك',
+    def() { return { r: null, d: null, n: '' }; },
+    canSave(s, msg) { return msg ? 'اختر دورك وقرارك أولًا' : (s.r != null && s.d != null); },
+    extra(s) { return { text: (s.n || '').trim() }; },
+    act(s, name, arg) { if (name === 'role') { s.r = +arg; s.d = null; } else if (name === 'unrole') { s.r = null; s.d = null; } },
+    form(s, id, dis) {
+      const body = '<div class="rl-case">' + (cfg.scenario || '') + '</div>';
+      if (s.r == null) return body + '<div class="vt-q">🎭 اختر دورك (اضغط بهدوء، لا تُري بطاقتك لأحد):</div><div class="rl-roles">' + roles.map((r, i) => '<button class="rl-role" data-sm="role" data-a="' + i + '" data-ex="' + h(id) + '" ' + dis + '><b>' + h(r.n) + '</b></button>').join('') + '</div>';
+      const r = roles[+s.r] || {};
+      return body + '<div class="rl-card"><div class="rl-tag">🤫 بطاقتك السرية، ' + h(r.n) + '</div><div class="rl-goal">🎯 هدفك: ' + h(r.goal) + '</div><p>' + h(r.text) + '</p><button class="btn btn-ghost btn-xs" data-sm="unrole" data-ex="' + h(id) + '" ' + dis + '>🔄 تغيير الدور</button></div>' +
+        '<div class="vt-q">🗳️ ' + h(dec.q) + '</div><div class="vt-opts">' + dec.options.map((o, k) => '<label class="vt-opt ' + (s.d != null && +s.d === k ? 'sel' : '') + '"><input type="radio" name="rd-' + h(id) + '" data-sim-f="d" data-ex="' + h(id) + '" value="' + k + '" ' + (s.d != null && +s.d === k ? 'checked' : '') + ' ' + dis + '><span class="vt-mk"></span><span>' + h(o) + '</span></label>').join('') + '</div>' +
+        '<div class="field"><label>سبب قرارك من منظور دورك (اختياري)</label><textarea rows="2" maxlength="140" data-sim-f="n" data-ex="' + h(id) + '" ' + dis + '>' + h(s.n || '') + '</textarea></div>';
+    },
+    live(s) { return '<div class="sim-live"><div class="vt-done">' + (s.r != null ? 'دورك: <b>' + h((roles[+s.r] || {}).n) + '</b>' : 'اختر دورًا لتفتح بطاقتك') + '</div>' + SimKit.note('تفاوضوا شفهيًا على الطاولة، ثم يسجّل كل مشارك قراره من منظور دوره.') + '</div>'; },
+    feed(e, ps, keys, myKey, del) {
+      const posts = LiveKit.posts(exId).filter(p => p.state && p.state.r != null); const rc = roles.map(() => 0), dc = dec.options.map(() => 0);
+      posts.forEach(p => { if (rc[+p.state.r] !== undefined) rc[+p.state.r]++; if (p.state.d != null && dc[+p.state.d] !== undefined) dc[+p.state.d]++; });
+      const tot = dc.reduce((a, b) => a + b, 0) || 1;
+      return '<div class="feed">' + LiveKit.head('🎭 قرارات الطاولة', posts.length, 'مشارك') + '<div class="vt-q big">' + h(dec.q) + '</div><div class="vt-board">' + dec.options.map((o, k) => { const pct = Math.round(dc[k] / tot * 100); return '<div class="vt-row"><em style="--w:' + pct + '%"></em><span class="vt-l">' + h(o) + '</span><b class="num">' + pct + '%</b><small class="num">' + dc[k] + '</small></div>'; }).join('') + '</div>' +
+        '<div class="rl-dist">' + roles.map((r, i) => '<span class="pill">' + h(r.n) + ' · <b class="num">' + rc[i] + '</b></span>').join('') + '</div>' +
+        '<div class="posts" style="margin-top:12px">' + posts.filter(p => (p.text || '').trim()).slice(0, 12).map(p => '<div class="post"><div class="post-head"><span class="av">' + h(initials(p.name)) + '</span><div><div class="who">' + h(p.name || '') + '</div><div class="role">' + h((roles[+p.state.r] || {}).n || '') + (p.state.d != null ? '، القرار: ' + h(dec.options[+p.state.d] || '') : '') + '</div></div></div><div class="post-body">' + h(p.text) + '</div></div>').join('') + '</div></div>';
+    },
+    summary(s) { return (roles[+s.r] || {}).n + '، القرار: ' + (dec.options[+s.d] || ''); }, metric(s) { return 0; }
+  };
+  return S;
+};
+
+// ================= محقق الأسباب الجذرية: خيوط تُكشف تدريجيًا =================
+SIMS.detective = (cfg, exId) => {
+  const clues = cfg.clues || [], opts = cfg.options || [];
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔁 حقّق من جديد',
+    def() { return { n: 1, pick: null }; },
+    score(s) { if (s.pick == null) return 0; return opts[+s.pick] && opts[+s.pick].root ? Math.max(30, 100 - (Math.max(1, +s.n) - 1) * Math.round(70 / Math.max(1, clues.length - 1))) : 0; },
+    canSave(s) { return s.pick != null; },
+    act(s, name, arg) { if (s.pick != null) return 'none'; if (name === 'more' && s.n < clues.length) s.n++; else if (name === 'pick') { s.pick = +arg; return { done: true }; } },
+    form(s, id, dis) {
+      const done = s.pick != null; const ok = done && opts[+s.pick] && opts[+s.pick].root;
+      return '<div class="dt-case">' + h(cfg.scenario || '') + (cfg.claim ? '<div class="dt-claim">🗣️ قال أحدهم: «' + h(cfg.claim) + '»</div>' : '') + '</div><div class="dt-clues">' + clues.slice(0, +s.n).map((c, i) => '<div class="dt-clue"><span class="num">' + (i + 1) + '</span>' + h(c) + '</div>').join('') + '</div>' +
+        (!done && s.n < clues.length ? '<button class="btn btn-soft btn-sm" data-sm="more" data-ex="' + h(id) + '" ' + dis + '>🔎 اكشف خيطًا آخر (' + (clues.length - s.n) + ' متبقٍّ)</button>' : '') +
+        '<div class="vt-q">🕵️ ' + h(cfg.q || 'ما السبب الجذري برأيك؟') + '</div><div class="sp-opts">' + opts.map((o, k) => '<button class="sp-opt ' + (done ? (o.root ? 'right' : k === +s.pick ? 'wrong' : 'dim') : '') + '" data-sm="pick" data-a="' + k + '" data-ex="' + h(id) + '" ' + (done ? 'disabled' : dis) + '>' + h(o.t) + '</button>').join('') + '</div>' +
+        (done ? '<div class="sp-fb">' + (ok ? '✅ أحسنت! حللتَ القضية بعد ' + s.n + ' من ' + clues.length + ' خيوط (نقاطك ' + S.score(s) + ')' : '❌ ' + (cfg.miss || 'هذا عَرَض أو سبب سطحي')) + '</div><div class="dt-why">💡 ' + h(cfg.why || '') + '</div>' : '');
+    },
+    live(s) { return '<div class="sim-live">' + SimKit.gauge(S.score(s), 'نقاط التحقيق', s.pick == null ? 'كلما قلّت الخيوط التي احتجتها زادت نقاطك.' : (S.score(s) ? 'حُفظت نتيجتك تلقائيًا.' : 'حاول مجددًا لتتعلم الفرق بين العَرَض والجذر.')) + '</div>'; },
+    summary(s) { return S.score(s) + ' نقطة (' + s.n + ' خيوط)'; }, metric(s) { return S.score(s); }
+  };
+  return S;
+};
+
+// ================= توصيل أزواج =================
+SIMS.match = (cfg, exId) => {
+  const pairs = cfg.pairs || [], N = pairs.length;
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔁 من جديد',
+    def() { return { sel: null, m: {}, chk: false }; },
+    score(s) { return N ? Math.round(pairs.filter((p, i) => (s.m || {})[i] === i).length / N * 100) : 0; },
+    canSave(s) { return !!s.chk; },
+    act(s, name, arg) {
+      if (s.chk) return 'none'; s.m = Object.assign({}, s.m);
+      if (name === 'l') { s.sel = +arg; return; }
+      if (name === 'r' && s.sel != null) { const r = +arg; Object.keys(s.m).forEach(k => { if (s.m[k] === r) delete s.m[k]; }); s.m[s.sel] = r; s.sel = null; return; }
+      if (name === 'un') { delete s.m[+arg]; return; }
+      if (name === 'chk' && Object.keys(s.m).length === N) { s.chk = true; return { done: true }; }
+    },
+    form(s, id, dis) {
+      const order = SimUI.shuffle(N, exId); const used = {}; Object.keys(s.m || {}).forEach(k => { used[s.m[k]] = +k; });
+      return (cfg.prompt ? '<div class="sim-intro">' + h(cfg.prompt) + '</div>' : '') + '<div class="mt-grid"><div class="mt-col">' + pairs.map((p, i) => { const mr = (s.m || {})[i]; const cls = s.chk ? (mr === i ? 'ok' : 'bad') : (+s.sel === i && s.sel != null ? 'sel' : mr != null ? 'done' : '');
+        return '<button class="mt-it ' + cls + '" data-sm="' + (mr != null && !s.chk ? 'un' : 'l') + '" data-a="' + i + '" data-ex="' + h(id) + '" ' + (s.chk ? 'disabled' : dis) + '>' + h(p[0]) + (mr != null ? '<em>⟷ ' + h(pairs[mr][1]) + '</em>' : '') + '</button>'; }).join('') + '</div><div class="mt-col">' +
+        order.map(r => '<button class="mt-it r ' + (used[r] != null ? 'taken' : '') + '" data-sm="r" data-a="' + r + '" data-ex="' + h(id) + '" ' + (s.chk || used[r] != null || s.sel == null ? 'disabled' : dis) + '>' + h(pairs[r][1]) + '</button>').join('') + '</div></div>' +
+        (s.chk ? '<div class="od-answer"><b>الأزواج الصحيحة:</b><br>' + pairs.map(p => h(p[0]) + ' ⟷ ' + h(p[1])).join('<br>') + '</div>' : '<button class="btn btn-primary btn-block" data-sm="chk" data-ex="' + h(id) + '" ' + (Object.keys(s.m || {}).length !== N || dis ? 'disabled' : '') + '>✅ تحقّق من الأزواج</button>');
+    },
+    live(s) { return '<div class="sim-live">' + (s.chk ? SimKit.gauge(S.score(s), 'أزواج صحيحة', S.score(s) === 100 ? 'ممتاز 🎯' : 'راجع الأزواج الملوّنة') : SimKit.gauge(Math.round(Object.keys(s.m || {}).length / N * 100), 'وصلت ' + Object.keys(s.m || {}).length + ' من ' + N, 'اضغط عنصرًا من اليمين ثم ما يناسبه من اليسار.')) + '</div>'; },
+    summary(s) { return S.score(s) + '% أزواج صحيحة'; }, metric(s) { return S.score(s); }
+  };
+  return S;
+};
+
+// ================= اكتشف الخلل: اضغط على العبارات المعيبة في نص =================
+SIMS.hunt = (cfg, exId) => {
+  const parts = cfg.parts || [], N = parts.length;
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔁 من جديد',
+    def() { return { f: {}, chk: false }; },
+    score(s) { if (!N) return 0; let c = 0; parts.forEach((p, i) => { if (!!(s.f || {})[i] === !!p.bad) c++; }); return Math.round(c / N * 100); },
+    canSave(s) { return !!s.chk; },
+    act(s, name, arg) { if (s.chk) return 'none'; if (name === 'tog') { s.f = Object.assign({}, s.f); s.f[+arg] = !s.f[+arg]; } else if (name === 'chk') { s.chk = true; return { done: true }; } },
+    form(s, id, dis) {
+      return (cfg.intro ? '<div class="sim-intro">' + h(cfg.intro) + '</div>' : '') + '<div class="hn-doc">' + (cfg.title ? '<div class="hn-title">' + h(cfg.title) + '</div>' : '') + parts.map((p, i) => { const on = !!(s.f || {})[i]; const cls = s.chk ? (p.bad ? (on ? 'ok' : 'miss') : (on ? 'bad' : '')) : (on ? 'on' : '');
+        return '<button class="hn-p ' + cls + '" data-sm="tog" data-a="' + i + '" data-ex="' + h(id) + '" ' + (s.chk ? 'disabled' : dis) + '>' + h(p.t) + '</button>' + (s.chk && p.bad ? '<div class="hn-why">' + (on ? '✅ ' : '👀 فاتك: ') + h(p.why || '') + '</div>' : s.chk && on ? '<div class="hn-why bad">⚠️ هذه العبارة سليمة.</div>' : ''); }).join('') + '</div>' +
+        (s.chk ? '' : '<button class="btn btn-primary btn-block" data-sm="chk" data-ex="' + h(id) + '" ' + (dis || !Object.keys(s.f || {}).some(k => s.f[k]) ? 'disabled' : '') + '>🔍 تحقّق مما أشّرت عليه</button>');
+    },
+    live(s) { return '<div class="sim-live">' + (s.chk ? SimKit.gauge(S.score(s), 'دقة الاكتشاف', S.score(s) >= 85 ? 'عين صقر 🦅' : 'راجع ما فاتك') : SimKit.gauge(Object.keys(s.f || {}).filter(k => s.f[k]).length * 10, 'أشّرت على ' + Object.keys(s.f || {}).filter(k => s.f[k]).length + ' عبارات', 'اضغط على كل عبارة ترى فيها خللًا ثم تحقّق.', '')) + '</div>'; },
+    summary(s) { return S.score(s) + '% دقة الاكتشاف'; }, metric(s) { return S.score(s); }
+  };
+  return S;
+};
+
+// ================= وزّع نقاطك على عناصر (وتظهر متوسطات القاعة) =================
+SIMS.alloc = (cfg, exId) => {
+  const items = cfg.items || [], N = items.length, total = cfg.total || 10;
+  const used = s => items.reduce((t, _, i) => t + (+(s.a || {})[i] || 0), 0);
+  const board = () => { const ps = LiveKit.posts(exId).filter(p => p.state && p.state.a); if (!ps.length) return LiveKit.empty('لم يحفظ أحد توزيعه بعد'); const avg = items.map((t, i) => MoreKit.avg(ps.map(p => +(p.state.a[i] || 0)))); const mx = Math.max(1, ...avg);
+    return '<div class="rk-board">' + items.map((t, i) => ({ t, v: avg[i] })).sort((a, b) => b.v - a.v).map(x => '<div class="rk-row"><em style="--w:' + Math.round(x.v / mx * 100) + '%"></em><span class="rk-t">' + h(x.t) + '</span><b class="num">' + x.v.toFixed(1) + '</b></div>').join('') + '</div><div class="poll-total">المشاركون: <b class="num">' + ps.length + '</b> · الرقم = متوسط ما وزّعه الزملاء</div>'; };
+  const S = {
+    sortBy: 'ts', saveLabel: '💾 احفظ توزيعي', resetLabel: '🔄 صفّر', savedMsg: '✅ حُفظ توزيعك',
+    def() { return { a: {} }; },
+    canSave(s, msg) { return msg ? 'وزّع كل النقاط (' + total + ') أولًا' : used(s) === total; },
+    act(s, name, arg) { const i = +arg; s.a = Object.assign({}, s.a); const cur = +s.a[i] || 0; if (name === 'inc' && used(s) < total) s.a[i] = cur + 1; else if (name === 'dec' && cur > 0) s.a[i] = cur - 1; else return 'none'; },
+    form(s, id, dis) {
+      const left = total - used(s);
+      return '<div class="vt-q">' + h(cfg.q || '') + '</div><div class="budget-left ' + (left === 0 ? 'done' : '') + '">النقاط المتبقية: <b class="num">' + left + '</b> من <span class="num">' + total + '</span></div><div class="al-list">' +
+        items.map((t, i) => '<div class="al-it"><b>' + h(t) + '</b><span class="al-pips">' + Array.from({ length: +(s.a || {})[i] || 0 }, () => '<i></i>').join('') + '</span><span class="al-btns"><button data-sm="dec" data-a="' + i + '" data-ex="' + h(id) + '" ' + (dis || !(+(s.a || {})[i]) ? 'disabled' : '') + '>−</button><b class="num">' + (+(s.a || {})[i] || 0) + '</b><button data-sm="inc" data-a="' + i + '" data-ex="' + h(id) + '" ' + (dis || left === 0 ? 'disabled' : '') + '>+</button></span></div>').join('') + '</div>';
+    },
+    live(s) { return '<div class="sim-live"><div class="vt-done">توزيع القاعة حتى الآن 👇</div>' + board() + '</div>'; },
+    feed(e) { return '<div class="feed">' + LiveKit.head('🎛️ توزيع القاعة', LiveKit.posts(exId).length, 'مشارك') + '<div class="vt-q big">' + h(cfg.q || '') + '</div>' + board() + '</div>'; },
+    summary(s) { const top = items.map((t, i) => ({ t, v: +(s.a || {})[i] || 0 })).sort((a, b) => b.v - a.v)[0]; return 'الأكثر: ' + (top ? top.t + ' (' + top.v + ')' : ''); }, metric(s) { return used(s); }
+  };
+  return S;
+};
+
+// ================= شريط التفاعلات: إيموجي طائرة تظهر عند الجميع =================
+const Reactions = {
+  list: ['👏', '🔥', '💡', '😂', '🤯', '❤️'], seen: new Set(), boot: Date.now(), last: 0, ready: false,
+  ensure() {
+    if (Reactions.ready) return; Reactions.ready = true;
+    const layer = document.createElement('div'); layer.id = 'react-layer'; document.body.appendChild(layer);
+    const bar = document.createElement('div'); bar.id = 'react-bar'; bar.className = 'hidden'; bar.innerHTML = Reactions.list.map(r => '<button aria-label="تفاعل ' + r + '">' + r + '</button>').join(''); document.body.appendChild(bar);
+    bar.addEventListener('click', ev => { const b = ev.target.closest('button'); if (!b) return; Reactions.fly(b.textContent); if (Date.now() - Reactions.last < 700) return; Reactions.last = Date.now(); const id = genId('r'); Reactions.seen.add(id); DB.set('react/' + id, { t: b.textContent, ts: DB.now(), u: Me.uid() || '' }, { quiet: true }).then(() => setTimeout(() => DB.remove('react/' + id, { quiet: true }).catch(() => {}), 6000)).catch(() => {}); });
+    setInterval(Reactions.sync, 800);
+  },
+  sync() { const bar = document.getElementById('react-bar'); if (!bar) return; const v = Router.cur && Router.cur.view; bar.classList.toggle('hidden', !(Me.isReg() || Admin.ok()) || ['ex', 'present', 'axis', 'lab'].indexOf(v) === -1); },
+  fly(e) { const layer = document.getElementById('react-layer'); if (!layer) return; const el = document.createElement('span'); el.className = 'fly'; el.textContent = e; el.style.left = (8 + Math.random() * 84) + 'vw'; el.style.setProperty('--dx', (Math.random() * 120 - 60) + 'px'); el.style.setProperty('--rot', (Math.random() * 50 - 25) + 'deg'); layer.appendChild(el); setTimeout(() => el.remove(), 3300); },
+  on(v) { Reactions.ensure(); Object.keys(v || {}).forEach(k => { if (Reactions.seen.has(k)) return; Reactions.seen.add(k); const n = v[k]; if (n && n.ts > Reactions.boot - 1500 && Math.abs(DB.now() - n.ts) < 9000 && (!n.u || n.u !== Me.uid())) Reactions.fly(n.t); }); }
+};
+
+// ================= طبقة اللعب للتمارين النصية: تحدّي الوقت + نقاط الإجابة + لوحة صدارة =================
+const TextGame = {
+  LIMIT: 180,
+  st(id) { UIState.tg = UIState.tg || {}; return UIState.tg[id] || (UIState.tg[id] = { t0: 0 }); },
+  words(t) { return String(t || '').trim().split(/\s+/).filter(Boolean).length; },
+  // النقاط: عمق (كلمات) + تفصيل (أرقام/نقاط/أسطر) + مكافأة السرعة إن أنهيت داخل زمن التحدي
+  score(text, secs, challenged) {
+    const w = TextGame.words(text); const depth = Math.min(55, w * 2.5); const lines = (String(text).match(/\n|[•\--]\s|\d+[.)]/g) || []).length; const nums = (String(text).match(/\d+/g) || []).length;
+    const detail = Math.min(20, lines * 5 + nums * 3); const fast = challenged && secs != null && secs <= TextGame.LIMIT; const speed = fast ? Math.min(25, 10 + Math.round((TextGame.LIMIT - secs) / TextGame.LIMIT * 15)) : 0;
+    return { pts: Math.round(Math.min(100, depth + detail + speed)), fast: !!fast, depth: Math.round(depth), detail, speed };
+  },
+  level(p) { return p >= 85 ? '💎 أسطوري' : p >= 60 ? '🔥 ممتاز' : p >= 35 ? '⚡ جيد' : '🌱 بداية'; },
+  bar(e) {
+    const st = TextGame.st(e.id); const on = st.t0 > 0;
+    return '<div class="tg-bar" data-tg="' + h(e.id) + '"><div class="tg-top"><button class="btn btn-soft btn-sm" data-tg-start="' + h(e.id) + '" ' + (on ? 'disabled' : '') + '>' + (on ? '⏱ التحدي يعمل' : '🚀 ابدأ تحدّي ' + (TextGame.LIMIT / 60) + ' دقائق (+مكافأة سرعة)') + '</button><span class="tg-timer num" data-tg-timer>' + (on ? '' : '03:00') + '</span><span class="tg-lvl" data-tg-lvl>🌱 بداية</span></div><div class="tg-meter"><i data-tg-fill style="width:0%"></i></div><div class="tg-note"><b class="num" data-tg-pts>0</b> نقطة · اكتب أكثر وأدق (أرقام، نقاط، أمثلة) لترفع نقاطك</div></div>';
+  },
+  tick() {
+    const t = Date.now();
+    Object.keys(UIState.tg || {}).forEach(id => { const st = UIState.tg[id]; const b = document.querySelector('.tg-bar[data-tg="' + CSS.escape(id) + '"]'); if (!b || !st.t0) return; const left = Math.max(0, TextGame.LIMIT - Math.floor((t - st.t0) / 1000)); const m = String(Math.floor(left / 60)).padStart(2, '0'), s2 = String(left % 60).padStart(2, '0'); const el = b.querySelector('[data-tg-timer]'); if (el) { el.textContent = m + ':' + s2; el.classList.toggle('hot', left <= 30); } });
+  },
+  refresh(ta) {
+    const id = (ta.id || '').replace(/^ans-/, ''); const b = document.querySelector('.tg-bar[data-tg="' + CSS.escape(id) + '"]'); if (!b) return;
+    const st = TextGame.st(id); const r = TextGame.score(ta.value, st.t0 ? (Date.now() - st.t0) / 1000 : null, !!st.t0);
+    b.querySelector('[data-tg-fill]').style.width = r.pts + '%'; b.querySelector('[data-tg-pts]').textContent = r.pts; b.querySelector('[data-tg-lvl]').textContent = TextGame.level(r.pts);
+  }
+};
+setInterval(TextGame.tick, 500);
+document.addEventListener('input', ev => { const t = ev.target; if (t && t.tagName === 'TEXTAREA' && /^ans-/.test(t.id || '')) TextGame.refresh(t); });
+document.addEventListener('click', ev => { const b = ev.target.closest && ev.target.closest('[data-tg-start]'); if (!b) return; const id = b.getAttribute('data-tg-start'); const st = TextGame.st(id); st.t0 = Date.now(); b.disabled = true; b.textContent = '⏱ التحدي يعمل'; const ta = document.getElementById('ans-' + id); if (ta) { ta.focus(); TextGame.refresh(ta); } UI.toast('⏱ بدأ التحدي، اكتب بسرعة وبدقة!'); });
+/* ===== 06l-ai-sims.js ===== */
+// ---------------------------------------------------------------------
+// ألعاب ورشة «الذكاء الاصطناعي في التجارة الإلكترونية» (قوالب تُهيّأ من cfg داخل كل تمرين):
+// hunter (صياد الفرص) · agent (صمّم وكيلك) · factory (مصنع أفكار AI) · thirty (30 يومًا أو لا شيء)
+// interview (مقابلة العميل) · promptlab (مختبر الأوامر) · canvas (بطاقة الموظف الذكي الختامية)
+// ---------------------------------------------------------------------
+Object.assign(SIM_TYPES, { hunter: 'صياد الفرص (ميزانية وبطاقات منتجات)', agent: 'مصمم الوكيل الذكي (5 مراحل)', factory: 'مصنع الأفكار (آلة توليد ومؤقت)', thirty: '30 يومًا أو لا شيء (موارد وقرارات)', interview: 'محاكي مقابلة العميل', promptlab: 'مختبر بناء الأمر (Prompt)', canvas: 'بطاقة المشروع الختامية' });
+
+const AIK = {
+  dots(v, max, cls) { let t = ''; for (let i = 1; i <= (max || 5); i++) t += '<i class="' + (i <= v ? 'on' : '') + '"></i>'; return '<span class="ai-dots ' + (cls || '') + '">' + t + '</span>'; },
+  copyBtn(id, label) { return '<button class="btn btn-soft btn-sm" data-ai-copy="' + h(id) + '">📋 ' + h(label || 'انسخ النص') + '</button>'; },
+  pts(v) { return '<b class="num ai-pt ' + (v > 0 ? 'up' : v < 0 ? 'down' : '') + '">' + (v > 0 ? '+' : '') + v + '</b>'; },
+  pct(v, max) { return max > 0 ? Math.max(0, Math.min(100, Math.round(v / max * 100))) : 0; },
+  sel(s, k) { return !!(s && s[k]); },
+  keys(o) { return Object.keys(o || {}).filter(k => o[k]); }
+};
+// نسخ النصوص الجاهزة (الأوامر ومواصفات الوكيل) بنقرة
+document.addEventListener('click', ev => {
+  const b = ev.target.closest && ev.target.closest('[data-ai-copy]'); if (!b) return;
+  const el = document.getElementById(b.getAttribute('data-ai-copy')); if (!el) return;
+  const txt = el.innerText || el.textContent || '';
+  const done = () => UI.toast('📋 نُسخ النص، الصقه في أداة الذكاء الاصطناعي التي تستخدمها');
+  try { navigator.clipboard.writeText(txt).then(done, () => { fallback(); }); } catch (e) { fallback(); }
+  function fallback() { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { UI.toast('حدّد النص وانسخه يدويًا'); } ta.remove(); }
+});
+
+// ================= صياد الفرص: ميزانية 10,000 ريال وست بطاقات منتجات =================
+SIMS.hunter = (cfg, exId) => {
+  const items = cfg.items || [], pick = cfg.pick || 2, budget = cfg.budget || 10000;
+  const V = cfg.verdicts || [['now', '🥇 أختبره الآن'], ['more', '🥈 أبحث أكثر'], ['skip', '🥉 أتجاهله']];
+  const vl = k => (V.find(x => x[0] === k) || [])[1] || '';
+  const M = cfg.metrics || [['demand', 'الطلب'], ['comp', 'المنافسة'], ['margin', 'هامش الربح'], ['ship', 'صعوبة الشحن']];
+  const it = k => items.find(x => x.k === k);
+  const lines = s => {
+    const out = []; const pk = AIK.keys(s.pk); let spend = 0;
+    pk.forEach(k => { const p = it(k); const v = (s.v || {})[k]; if (!p || !v) return; arr((p.fx || {})[v]).forEach(([n, t]) => out.push({ n: +n, t: p.e + ' ' + p.t + ': ' + t })); if (v === 'now') spend += +p.cost || 0; });
+    if (spend > budget) out.push({ n: -3, t: 'تجاوزت الميزانية: تكلفة الاختبار ' + QAR(spend) + ' ريال من أصل ' + QAR(budget) });
+    return { out, spend };
+  };
+  const total = s => lines(s).out.reduce((t, x) => t + x.n, 0);
+  const best = (() => { let mx = 1; const ks = items.map(x => x.k); for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) { let bestPair = -99; V.forEach(a => V.forEach(b => { const s = { pk: { [ks[i]]: true, [ks[j]]: true }, v: { [ks[i]]: a[0], [ks[j]]: b[0] } }; bestPair = Math.max(bestPair, total(s)); })); mx = Math.max(mx, bestPair); } return mx; })();
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔁 صيد جديد', savedMsg: '✅ حُفظت نتيجتك في لوحة الصيادين', wide: true,
+    def() { return { pk: {}, v: {}, done: false }; },
+    score(s) { return AIK.pct(total(s), best); },
+    canSave(s) { return !!s.done; },
+    act(s, name, arg) {
+      if (s.done) return 'none';
+      if (name === 'pick') { s.pk = Object.assign({}, s.pk); if (s.pk[arg]) { delete s.pk[arg]; s.v = Object.assign({}, s.v); delete s.v[arg]; return; } if (AIK.keys(s.pk).length >= pick) { UI.toast('اختر ' + pick + ' منتجين فقط للتحقيق'); return 'none'; } s.pk[arg] = true; return; }
+      if (name === 'v') { const [k, v] = String(arg).split(':'); s.v = Object.assign({}, s.v, { [k]: v }); return; }
+      if (name === 'done') { const pk = AIK.keys(s.pk); if (pk.length !== pick || pk.some(k => !(s.v || {})[k])) { UI.toast('اختر ' + pick + ' منتجين وصنّف كل واحد منهما'); return 'none'; } s.done = true; return { done: true }; }
+    },
+    form(s, id, dis) {
+      const pk = AIK.keys(s.pk); const L = lines(s);
+      let out = '<div class="ai-budget"><span>💰 الميزانية</span><b class="num">' + QAR(budget) + '</b><small>ريال</small><span class="grow"></span><span>المصروف على الاختبار</span><b class="num ' + (L.spend > budget ? 'over' : '') + '">' + QAR(L.spend) + '</b></div>' +
+        (cfg.intro ? '<div class="sim-intro">' + h(cfg.intro) + '</div>' : '') + '<div class="ai-prod-grid">';
+      out += items.map(p => {
+        const on = !!(s.pk || {})[p.k]; const v = (s.v || {})[p.k];
+        return '<div class="ai-prod ' + (on ? 'on' : '') + (s.done && on ? ' done' : '') + '"><div class="ai-prod-top"><span class="ai-prod-e">' + h(p.e) + '</span><div class="grow"><b>' + h(p.t) + '</b><small>' + h(p.d || '') + '</small></div></div>' +
+          '<div class="ai-prod-m">' + M.map(([k, l]) => '<div><span>' + h(l) + '</span>' + AIK.dots(+((p.m || {})[k]) || 0, 5, k) + '</div>').join('') +
+          '<div><span>تقييم العملاء</span><b class="num">' + h(p.rate || '') + ' ⭐</b></div></div>' +
+          (p.prob ? '<div class="ai-prod-q">💬 «' + h(p.prob) + '»</div>' : '') +
+          '<div class="ai-prod-cost">تكلفة اختبار أولي: <b class="num">' + QAR(+p.cost || 0) + '</b> ريال</div>' +
+          (s.done ? '' : '<button class="btn btn-block btn-sm ' + (on ? 'btn-primary' : 'btn-ghost') + '" data-sm="pick" data-a="' + h(p.k) + '" data-ex="' + h(id) + '" ' + dis + '>' + (on ? '🔍 قيد التحقيق (اضغط للإلغاء)' : '🔍 حقّق فيه') + '</button>') +
+          (on ? '<div class="ai-verdicts">' + V.map(([k, l]) => '<button class="ai-vd ' + (v === k ? 'on' : '') + '" data-sm="v" data-a="' + h(p.k + ':' + k) + '" data-ex="' + h(id) + '" ' + (s.done ? 'disabled' : dis) + '>' + h(l) + '</button>').join('') + '</div>' : '') +
+          (s.done && on ? '<div class="ai-why">' + arr((p.fx || {})[v]).map(([n, t]) => '<div>' + AIK.pts(+n) + ' ' + h(t) + '</div>').join('') + (p.lesson ? '<small>' + h(p.lesson) + '</small>' : '') + '</div>' : '') + '</div>';
+      }).join('') + '</div>';
+      out += s.done ? '<div class="ai-final">🎯 ' + h(cfg.final || 'أنت لم تبحث عن المنتج الأفضل. أنت بحثت عن الفرضية الأفضل للاختبار.') + '</div>' :
+        '<button class="btn btn-primary btn-block" data-sm="done" data-ex="' + h(id) + '" ' + (dis || pk.length !== pick || pk.some(k => !(s.v || {})[k]) ? 'disabled' : '') + '>✅ اعتمد قراري (' + pk.length + '/' + pick + ')</button>';
+      return out;
+    },
+    live(s) {
+      const L = lines(s); const n = AIK.keys(s.pk).length;
+      return '<div class="sim-live">' + (s.done ? SimKit.gauge(S.score(s), 'نقاط الصياد: ' + total(s) + ' من ' + best, S.score(s) >= 80 ? 'صيد احترافي 🎯' : S.score(s) >= 50 ? 'قرار معقول، راجع النقاط السالبة' : 'جرّب صيدًا جديدًا 💪') + '<div class="ai-lines">' + L.out.map(x => '<div>' + AIK.pts(x.n) + ' ' + h(x.t) + '</div>').join('') + '</div>'
+        : SimKit.gauge(AIK.pct(n, pick), 'اخترت ' + n + ' من ' + pick, 'اقرأ المؤشرات والشكوى المتكررة، ثم صنّف قرارك.')) +
+        '<div class="ai-rules">' + arr(cfg.rules).map(r => { const m = String(r).match(/^([+-]?\d+)\s+(.*)$/); return '<div>' + (m ? AIK.pts(+m[1]) + ' ' + h(m[2]) : h(r)) + '</div>'; }).join('') + '</div></div>';
+    },
+    summary(s) { return 'نقاط ' + total(s) + ' · ' + AIK.keys(s.pk).map(k => (it(k) || {}).t + ': ' + vl((s.v || {})[k])).join('، '); },
+    metric(s) { return S.score(s); }
+  };
+  return S;
+};
+
+// ================= صمّم وكيلك: خمس مراحل تنتج بطاقة وكيل جاهزة للنسخ =================
+SIMS.agent = (cfg, exId) => {
+  const tasks = cfg.tasks || [], bank = cfg.steps || [], tools = cfg.tools || [], outs = cfg.outputs || [], perm = cfg.perm || { q: '', options: [], best: 1 };
+  const STG = ['المهمة', 'الخطوات', 'الأدوات', 'الصلاحيات', 'المخرج'];
+  const task = s => tasks.find(t => t.k === s.task);
+  const parts = s => {
+    const r = []; const seq = arr(s.seq).map(Number).map(i => bank[i]).filter(Boolean);
+    r.push(['🎯 المهمة', s.task ? 10 : 0, 10, s.task ? 'مهمة واضحة ومحددة' : 'لم تختر مهمة']);
+    let st = 0; const first = seq[0], iv = seq.indexOf(cfg.verify || 'تحقق'), ia = seq.indexOf(cfg.analyze || 'تحليل'), ir = seq.indexOf(cfg.report || 'تقرير'), id = seq.indexOf(cfg.decide || 'قرار');
+    const notes = [];
+    if (first === (cfg.start || 'بحث')) { st += 6; notes.push('يبدأ بالبحث'); }
+    if (iv > -1 && (ia === -1 || iv < ia)) { st += 6; notes.push('يتحقق قبل أن يحلل'); }
+    if (ir > -1) { st += 6; notes.push('يسلّمك تقريرًا'); }
+    if (id === -1 || (ir > -1 && id > ir)) { st += 6; notes.push('القرار بعد التقرير'); } else notes.push('يقرر قبل أن يكتب التقرير');
+    if (seq.length >= 4 && seq.length <= 6) { st += 6; notes.push('عدد خطوات مناسب'); }
+    r.push(['🪜 الخطوات', st, 30, notes.join('، ') || 'رتّب الخطوات']);
+    const fit = arr((cfg.toolFit || {})[s.task]); const tk = AIK.keys(s.tools); let tl = 0;
+    if (tk.length) { const good = tk.filter(k => fit.indexOf(k) > -1).length; tl = Math.round(good / Math.max(tk.length, 2) * 20); if (tk.length > 4) tl = Math.max(0, tl - 6); }
+    r.push(['🧰 الأدوات', tl, 20, tk.length > 4 ? 'أدوات كثيرة تعني صلاحيات ومخاطر أكثر' : tk.length ? 'أدوات مرتبطة بالمهمة' : 'لم تختر أدوات']);
+    const pv = s.perm == null || s.perm === '' ? -1 : +s.perm; const pp = pv === +perm.best ? 20 : pv === -1 ? 0 : +((perm.options[pv] || {}).v || 0);
+    r.push(['🔐 الصلاحيات', pp, 20, pv === -1 ? 'لم تحدد الصلاحية' : (perm.options[pv] || {}).fb || '']);
+    const ok = AIK.keys(s.outs).filter(k => (outs.find(o => o.k === k) || {}).core).length; const coreN = outs.filter(o => o.core).length || 1;
+    r.push(['📦 المخرج', Math.round(ok / coreN * 20), 20, ok + ' من ' + coreN + ' عناصر أساسية']);
+    return r;
+  };
+  const score = s => parts(s).reduce((t, p) => t + p[1], 0);
+  const spec = s => {
+    const t = task(s); if (!t) return '';
+    const seq = arr(s.seq).map(Number).map(i => bank[i]).filter(Boolean);
+    const tk = AIK.keys(s.tools).map(k => (tools.find(x => x.k === k) || {}).t).filter(Boolean);
+    const po = (perm.options[+s.perm] || {}).rule || '';
+    const ok = AIK.keys(s.outs).map(k => (outs.find(x => x.k === k) || {}).t).filter(Boolean);
+    return 'أنت وكيل «' + t.t + '» لمتجر تجارة إلكترونية في السعودية.\n\nهدفك: ' + (t.goal || '') + '\n\nفي كل دورة نفّذ الخطوات التالية بالترتيب:\n' + seq.map((x, i) => (i + 1) + '. ' + x + ((cfg.stepHint || {})[x] ? ': ' + cfg.stepHint[x] : '')).join('\n') +
+      '\n\nالأدوات والمصادر المسموح بها: ' + (tk.join('، ') || 'تُحدد لاحقًا') + '.\n\nالقواعد:\n- ' + [po].concat(arr(cfg.rules)).filter(Boolean).join('\n- ') + '\n\nالمخرج المطلوب في نهاية كل دورة:\n' + ok.map(x => '- ' + x).join('\n');
+  };
+  const S = {
+    noReset: false, resetLabel: '🔄 تصميم جديد', saveLabel: '🤖 اعتمد الوكيل واحفظه', savedMsg: '🤖 الوكيل جاهز وحُفظ في لوحة الوكلاء', wide: true,
+    def() { return { stg: 0, task: '', seq: [], tools: {}, perm: '', outs: {} }; },
+    canSave(s, msg) { const ok = s.task && arr(s.seq).length >= 3 && AIK.keys(s.tools).length && s.perm !== '' && AIK.keys(s.outs).length; return msg ? 'أكمل المراحل الخمس أولًا' : !!ok; },
+    act(s, name, arg) {
+      if (name === 'stg') { s.stg = Math.max(0, Math.min(4, +arg)); return; }
+      if (name === 'task') { s.task = arg; return; }
+      if (name === 'add') { const i = +arg; s.seq = arr(s.seq).map(Number); if (s.seq.indexOf(i) === -1) s.seq.push(i); return; }
+      if (name === 'rm') { s.seq = arr(s.seq).map(Number); s.seq.splice(+arg, 1); return; }
+      if (name === 'tool') { s.tools = Object.assign({}, s.tools); s.tools[arg] = !s.tools[arg]; return; }
+      if (name === 'perm') { s.perm = String(arg); return; }
+      if (name === 'out') { s.outs = Object.assign({}, s.outs); s.outs[arg] = !s.outs[arg]; return; }
+    },
+    form(s, id, dis) {
+      const tab = '<div class="ai-stages">' + STG.map((t, i) => { const okd = [!!s.task, arr(s.seq).length >= 3, AIK.keys(s.tools).length > 0, s.perm !== '', AIK.keys(s.outs).length > 0][i];
+        return '<button class="ai-stg ' + (s.stg === i ? 'on' : '') + (okd ? ' ok' : '') + '" data-sm="stg" data-a="' + i + '" data-ex="' + h(id) + '"><span class="num">' + (i + 1) + '</span>' + t + '</button>'; }).join('') + '</div>';
+      let body = '';
+      if (s.stg === 0) body = '<div class="ai-q">ما المهمة التي ستسلّمها لوكيلك؟</div><div class="ai-cards">' + tasks.map(t => '<button class="ai-card ' + (s.task === t.k ? 'on' : '') + '" data-sm="task" data-a="' + h(t.k) + '" data-ex="' + h(id) + '" ' + dis + '><span class="ai-card-e">' + h(t.e) + '</span><b>' + h(t.t) + '</b><small>' + h(t.d || '') + '</small></button>').join('') + '</div>';
+      else if (s.stg === 1) { const seq = arr(s.seq).map(Number);
+        body = '<div class="ai-q">رتّب خطوات العمل بالضغط عليها بالتسلسل (من 4 إلى 6 خطوات)</div><div class="od-list">' + seq.map((v, pos) => '<button class="od-it" data-sm="rm" data-a="' + pos + '" data-ex="' + h(id) + '" ' + dis + '><span class="num">' + (pos + 1) + '</span><b>' + h(bank[v]) + '</b><em>✕</em></button>').join('') + (seq.length ? '' : '<div class="od-slot"><span class="num">1</span></div>') + '</div>' +
+          '<div class="od-pool">' + bank.map((b, i) => seq.indexOf(i) > -1 ? '' : '<button class="chip" data-sm="add" data-a="' + i + '" data-ex="' + h(id) + '" ' + dis + '>' + h(b) + '</button>').join('') + '</div>'; }
+      else if (s.stg === 2) body = '<div class="ai-q">ما الأدوات والمصادر التي يحتاجها؟ (اختر ما يلزم فقط)</div><div class="ai-cards three">' + tools.map(t => '<button class="ai-card sm ' + ((s.tools || {})[t.k] ? 'on' : '') + '" data-sm="tool" data-a="' + h(t.k) + '" data-ex="' + h(id) + '" ' + dis + '><span class="ai-card-e">' + h(t.e) + '</span><b>' + h(t.t) + '</b></button>').join('') + '</div>';
+      else if (s.stg === 3) body = '<div class="ai-q">' + h(perm.q) + '</div><div class="br-opts">' + perm.options.map((o, k) => { const on = String(s.perm) === String(k);
+        return '<button class="br-opt ' + (on ? (k === +perm.best ? 'right' : 'wrong') : '') + '" data-sm="perm" data-a="' + k + '" data-ex="' + h(id) + '" ' + dis + '><span class="sk-l">' + LETTERS[k] + '</span><span class="grow"><b>' + h(o.t) + '</b>' + (on && o.fb ? '<small>' + (k === +perm.best ? '✅ ' : '⚠️ ') + h(o.fb) + '</small>' : '') + '</span></button>'; }).join('') + '</div>' + (cfg.permRule && s.perm !== '' ? '<div class="rule-box"><span class="lbl">💡 القاعدة</span>' + h(cfg.permRule) + '</div>' : '');
+      else body = '<div class="ai-q">ماذا تريد أن تستلم في نهاية كل دورة؟</div><div class="ai-checks">' + outs.map(o => '<button class="ai-chk ' + ((s.outs || {})[o.k] ? 'on' : '') + '" data-sm="out" data-a="' + h(o.k) + '" data-ex="' + h(id) + '" ' + dis + '><span class="box"></span>' + h(o.t) + '</button>').join('') + '</div>';
+      const nav = '<div class="row ai-nav">' + (s.stg > 0 ? '<button class="btn btn-ghost btn-sm" data-sm="stg" data-a="' + (s.stg - 1) + '" data-ex="' + h(id) + '">السابق</button>' : '') + '<span class="grow"></span>' + (s.stg < 4 ? '<button class="btn btn-primary btn-sm" data-sm="stg" data-a="' + (s.stg + 1) + '" data-ex="' + h(id) + '">التالي</button>' : '') + '</div>';
+      return tab + body + nav;
+    },
+    live(s) {
+      const sc = score(s); const sp = spec(s); const pid = 'aispec-' + exId;
+      return '<div class="sim-live">' + SimKit.gauge(sc, 'Agent Design Score: ' + sc + '/100', sc >= 85 ? '🤖 وكيل جاهز للتجربة' : sc >= 60 ? 'قريب، راجع المراحل الأقل نقاطًا' : 'أكمل المراحل الخمس', '') +
+        '<div class="ai-parts">' + parts(s).map(p => SimKit.meter(p[0], p[1], p[2]) + '<small class="muted">' + h(p[3]) + '</small>').join('') + '</div>' +
+        (sp ? '<div class="ai-spec-h"><b>📄 بطاقة الوكيل (جاهزة للنسخ)</b>' + AIK.copyBtn(pid, 'انسخ التعليمات') + '</div><pre class="ai-spec" id="' + h(pid) + '">' + h(sp) + '</pre>' : SimKit.note('ستظهر هنا تعليمات وكيلك كاملة لتنسخها وتجربها في أي أداة ذكاء اصطناعي.')) + '</div>';
+    },
+    summary(s) { const t = task(s); return (t ? t.e + ' ' + t.t : 'وكيل') + ' · ' + score(s) + '/100'; },
+    metric(s) { return score(s); },
+    unit: '/100'
+  };
+  return S;
+};
+
+// ================= مصنع أفكار AI: آلة توليد الفرص + 60 ثانية + تقييم ذاتي =================
+const FactoryClock = { h: null, start() { if (FactoryClock.h) return; FactoryClock.h = setInterval(() => { $$('[data-ai-clock]').forEach(el => { const end = +el.getAttribute('data-ai-clock'); const left = Math.max(0, Math.ceil((end - Date.now()) / 1000)); el.textContent = left; el.parentNode.classList.toggle('late', left <= 10); el.parentNode.classList.toggle('over', left === 0); }); }, 250); } };
+SIMS.factory = (cfg, exId) => {
+  const decks = cfg.decks || [], sec = cfg.sec || 60, crit = cfg.crit || [], qs = cfg.qs || [];
+  const bands = cfg.bands || [[21, '🔥 تستحق التجربة'], [16, '🟡 تحتاج تضييق'], [0, '🔴 فكرة جميلة، لكنها ليست مشروعًا بعد']];
+  const total = s => crit.reduce((t, _, i) => t + (+((s.r || {})[i]) || 0), 0);
+  const band = n => (bands.find(b => n >= b[0]) || bands[bands.length - 1])[1];
+  FactoryClock.start();
+  const S = {
+    saveLabel: '🏭 أرسل فكرتي إلى المعرض', savedMsg: '🏭 فكرتك الآن في معرض الأفكار', resetLabel: '🔄 فكرة جديدة', wide: true, sortBy: 'ts',
+    def() { return { d: {}, lock: {}, spins: 0, end: 0, a: {}, r: {} }; },
+    canSave(s, msg) { const ok = s.spins > 0 && qs.every((_, i) => String((s.a || {})[i] || '').trim().length >= 3) && crit.every((_, i) => +((s.r || {})[i]) > 0); return msg ? 'ولّد فرصة، وأجب عن الأسئلة الثلاثة، وقيّم فكرتك' : ok; },
+    extra(s) { return { idea: decks.map((d, i) => d.items[(s.d || {})[i]] || '').join(' + '), total: total(s) }; },
+    act(s, name, arg) {
+      if (name === 'spin') { s.d = Object.assign({}, s.d); decks.forEach((dk, i) => { if (!(s.lock || {})[i] || s.d[i] == null) s.d[i] = Math.floor(Math.random() * dk.items.length); }); s.spins = (s.spins || 0) + 1; s.end = Date.now() + sec * 1000; s.anim = Date.now(); return; }
+      if (name === 'lock') { s.lock = Object.assign({}, s.lock); s.lock[arg] = !s.lock[arg]; return; }
+      if (name === 'rate') { const [i, v] = String(arg).split(':').map(Number); s.r = Object.assign({}, s.r, { [i]: v }); return; }
+    },
+    onSet() { return 'none'; },
+    form(s, id, dis) {
+      const has = s.spins > 0; const fresh = s.anim && Date.now() - s.anim < 1200;
+      let out = '<div class="ai-slots">' + decks.map((d, i) => { const v = (s.d || {})[i]; const lk = !!(s.lock || {})[i];
+        return '<div class="ai-slot ' + (fresh && !lk ? 'spin' : '') + (lk ? ' lock' : '') + '" style="--d:' + (i * 0.12) + 's"><small>' + h(d.e || '') + ' ' + h(d.t) + '</small><b>' + (v != null && d.items[v] != null ? h(d.items[v]) : '؟') + '</b>' +
+          (has ? '<button class="ai-lock" data-sm="lock" data-a="' + i + '" data-ex="' + h(id) + '" ' + dis + ' title="ثبّت البطاقة">' + (lk ? '🔒 مثبتة' : '🔓 ثبّت') + '</button>' : '') + '</div>'; }).join('') + '</div>' +
+        '<button class="btn btn-primary btn-block ai-spin" data-sm="spin" data-ex="' + h(id) + '" ' + dis + '>🎲 ' + (has ? 'ولّد فرصة أخرى' : 'ولّد فرصة') + '</button>';
+      if (!has) return out + SimKit.note('اضغط الزر لتحصل على تركيبة عشوائية: مشكلة + بيانات + مهمة + عميل. يمكنك تثبيت بطاقة وإعادة تدوير الباقي.');
+      const left = Math.max(0, Math.ceil(((s.end || 0) - Date.now()) / 1000));
+      out += '<div class="ai-clock ' + (left <= 10 ? 'late' : '') + (left === 0 ? ' over' : '') + '">⏱️ <b class="num" data-ai-clock="' + (s.end || 0) + '">' + left + '</b> <small>ثانية لتصيغ فكرتك</small></div>';
+      out += qs.map((q, i) => '<div class="field"><label>' + (i + 1) + '. ' + h(q.t) + '</label><textarea rows="2" maxlength="220" data-sim-f="a.' + i + '" data-ex="' + h(id) + '" placeholder="' + h(q.ph || '') + '" ' + dis + '>' + h((s.a || {})[i] || '') + '</textarea></div>').join('');
+      out += '<div class="ai-q">قيّم فكرتك بصدق (1 إلى 5)</div><div class="ai-rates">' + crit.map((c, i) => '<div class="ai-rate"><span>' + h(c) + '</span><span class="ai-rate-b">' + [1, 2, 3, 4, 5].map(v => '<button class="' + (+((s.r || {})[i]) === v ? 'on' : '') + '" data-sm="rate" data-a="' + i + ':' + v + '" data-ex="' + h(id) + '" ' + dis + '>' + v + '</button>').join('') + '</span></div>').join('') + '</div>';
+      return out;
+    },
+    live(s) {
+      const n = total(s); const max = crit.length * 5; const rated = crit.every((_, i) => +((s.r || {})[i]) > 0);
+      return '<div class="sim-live">' + SimKit.gauge(n, 'تقييم الفكرة ' + n + '/' + max, rated ? band(n) : 'أكمل التقييم لتظهر النتيجة', '') +
+        '<div class="ai-bands">' + bands.map((b, i) => '<div class="' + (rated && band(n) === b[1] ? 'on' : '') + '"><b class="num">' + (i === 0 ? b[0] + '-' + max : i === bands.length - 1 ? 'أقل من ' + bands[i - 1][0] : b[0] + '-' + (bands[i - 1][0] - 1)) + '</b> ' + h(b[1]) + '</div>').join('') + '</div></div>';
+    },
+    summary(s) { return decks.map((d, i) => d.items[(s.d || {})[i]] || '').filter(Boolean).join(' + ') + ' · ' + total(s) + '/' + crit.length * 5; },
+    metric(s) { return total(s); }, unit: '',
+    feed(e, ps, keys, myKey, del) {
+      const L = k => Object.keys(Likes.count('posts/' + e.id + '/' + k, ps[k].likes)).length;
+      const ks = keys.slice().sort((a, b) => (L(b) - L(a)) || ((ps[b].total || 0) - (ps[a].total || 0)));
+      if (!ks.length) return '<div class="feed">' + LiveKit.head('🏭 معرض الأفكار', 0, 'فكرة') + LiveKit.empty('لم تصل أي فكرة بعد. كن أول المبتكرين!') + '</div>';
+      return '<div class="feed">' + LiveKit.head('🏭 معرض الأفكار (الأكثر إعجابًا أولًا)', ks.length, 'فكرة') + '<div class="ai-ideas">' + ks.map((k, i) => { const p = ps[k]; const st = p.state || {}; const n = total(st);
+        return '<div class="ai-idea ' + (k === myKey ? 'mine' : '') + '"><div class="ai-idea-h">' + (i < 3 ? ['🥇', '🥈', '🥉'][i] + ' ' : '') + '<b>' + h(LiveKit.who(e, Object.assign({ k }, p))) + '</b><span class="sim-badge num">' + n + '/' + crit.length * 5 + '</span></div>' +
+          '<div class="ai-idea-chips">' + decks.map((d, j) => d.items[(st.d || {})[j]] ? '<span>' + h(d.e || '') + ' ' + h(d.items[st.d[j]]) + '</span>' : '').join('') + '</div>' +
+          qs.map((q, j) => (st.a || {})[j] ? '<div class="ai-idea-a"><small>' + h(q.s || q.t) + '</small>' + h(st.a[j]) + '</div>' : '').join('') +
+          '<div class="post-foot"><span class="muted" style="font-size:12.5px">' + h(band(n)) + '</span><span class="grow"></span>' + Likes.btn('posts/' + e.id + '/' + k, p.likes) + del(k) + '</div></div>'; }).join('') + '</div></div>';
+    }
+  };
+  return S;
+};
+
+// ================= 30 يومًا أو لا شيء: أربعة موارد وقرارات متتابعة =================
+SIMS.thirty = (cfg, exId) => {
+  const rounds = cfg.rounds || [], R = rounds.length, meters = cfg.meters || [['b', '💰 الميزانية', 25], ['t', '⏱️ الوقت', 25], ['c', '👥 العملاء', 25], ['x', '🛠️ التقنية', 25]];
+  const val = s => { const v = {}; meters.forEach(m => { v[m[0]] = +m[2]; }); rounds.forEach((r, i) => { const p = (s.p || {})[i]; if (p == null) return; const ks = r.type === 'multi' ? AIK.keys(p).map(Number) : [+p]; ks.forEach(k => { const o = r.opts[k]; if (o) Object.keys(o.fx || {}).forEach(m => { if (m in v) v[m] += o.fx[m]; }); }); }); Object.keys(v).forEach(k => { v[k] = Math.max(0, Math.min(40, v[k])); }); return v; };
+  const total = s => { const v = val(s); return Object.keys(v).reduce((t, k) => t + v[k], 0); };
+  const max = meters.reduce((t, m) => t + 40, 0);
+  const answered = s => rounds.filter((_, i) => (s.p || {})[i] != null && (s.c || {})[i]).length;
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔁 ابدأ الثلاثين يومًا من جديد', wide: true, unit: ' نقطة',
+    def() { return { p: {}, c: {}, tmp: {} }; },
+    canSave(s) { return answered(s) >= R; },
+    act(s, name, arg) {
+      const i = answered(s); if (i >= R) return 'none'; const r = rounds[i];
+      if (name === 'one') { s.p = Object.assign({}, s.p, { [i]: +arg }); s.c = Object.assign({}, s.c, { [i]: true }); return { done: answered(s) >= R }; }
+      if (name === 'tog') { const t = Object.assign({}, (s.tmp || {})); if (t[arg]) delete t[arg]; else { if (AIK.keys(t).length >= (r.pick || 3)) { UI.toast('اختر ' + (r.pick || 3) + ' فقط'); return 'none'; } t[arg] = true; } s.tmp = t; return; }
+      if (name === 'conf') { if (AIK.keys(s.tmp).length !== (r.pick || 3)) { UI.toast('اختر ' + (r.pick || 3) + ' بالضبط'); return 'none'; } s.p = Object.assign({}, s.p, { [i]: Object.assign({}, s.tmp) }); s.c = Object.assign({}, s.c, { [i]: true }); s.tmp = {}; return { done: answered(s) >= R }; }
+    },
+    form(s, id, dis) {
+      const n = answered(s); const day = n >= R ? 30 : (rounds[n].day || 1);
+      let out = '<div class="ai-days"><div class="ai-days-bar"><em style="width:' + Math.round(day / 30 * 100) + '%"></em></div><b>اليوم <span class="num">' + day + '</span> من <span class="num">30</span></b></div>' + (cfg.intro && !n ? '<div class="sim-intro">' + h(cfg.intro) + '</div>' : '');
+      for (let i = 0; i < Math.min(R, n + 1); i++) {
+        const r = rounds[i]; const p = (s.p || {})[i]; const done = !!(s.c || {})[i];
+        out += '<div class="br-round ' + (done ? 'done' : 'cur') + '"><div class="br-who"><span class="num">' + (i + 1) + '/' + R + '</span><b>' + h(r.title || ('القرار ' + (i + 1))) + '</b>' + (r.day ? '<small class="muted"> · اليوم ' + r.day + '</small>' : '') + '</div><div class="br-say">' + h(r.say) + '</div>';
+        if (r.type === 'multi') {
+          const sel = done ? p : (s.tmp || {});
+          out += '<div class="ai-checks">' + r.opts.map((o, k) => { const on = !!(sel || {})[k]; const cls = done ? (on ? (o.good ? 'good' : 'bad') : (o.good ? 'miss' : '')) : (on ? 'on' : '');
+            return '<button class="ai-chk ' + cls + '" data-sm="tog" data-a="' + k + '" data-ex="' + h(id) + '" ' + (done ? 'disabled' : dis) + '><span class="box"></span><span class="grow">' + h(o.t) + (done && (on || o.good) && o.fb ? '<small>' + h(o.fb) + '</small>' : '') + '</span></button>'; }).join('') + '</div>' +
+            (done ? '' : '<button class="btn btn-primary btn-sm" data-sm="conf" data-ex="' + h(id) + '" ' + dis + '>اعتمد اختياراتي (' + AIK.keys(s.tmp).length + '/' + (r.pick || 3) + ')</button>');
+        } else {
+          out += '<div class="br-opts">' + r.opts.map((o, k) => { const ch = done && +p === k; const q = Object.keys(o.fx || {}).reduce((t, x) => t + o.fx[x], 0);
+            return '<button class="br-opt ' + (!done ? '' : ch ? (o.good ? 'right' : 'wrong') : o.good ? 'right ghost' : 'dim') + '" data-sm="one" data-a="' + k + '" data-ex="' + h(id) + '" ' + (done ? 'disabled' : dis) + '><span class="sk-l">' + (o.l || LETTERS[k]) + '</span><span class="grow"><b>' + h(o.t) + '</b>' + (done && (ch || o.good) && o.fb ? '<small>' + (o.good ? '✅ ' : '⚠️ ') + h(o.fb) + '</small>' : '') + '</span>' + (ch ? '<em class="num ai-fx">' + (q > 0 ? '+' : '') + q + '</em>' : '') + '</button>'; }).join('') + '</div>';
+        }
+        if (done && r.lesson) out += '<div class="ai-lesson">💡 ' + h(r.lesson) + '</div>';
+        out += '</div>';
+      }
+      if (n >= R) { const v = val(s); const win = v.c >= (cfg.winC || 30); out += '<div class="ai-final ' + (win ? 'win' : '') + '">' + (win ? '🎉 ' + h(cfg.win || 'وصلت إلى أول عميل يدفع خلال 30 يومًا!') : '⏳ ' + h(cfg.lose || 'انتهت الثلاثون يومًا قبل أول عميل يدفع. أعد المحاولة بقرارات أخف وأسرع.')) + '</div>'; }
+      return out;
+    },
+    live(s) {
+      const v = val(s); const n = answered(s); const t = total(s);
+      return '<div class="sim-live">' + SimKit.gauge(AIK.pct(t, max), 'رصيدك ' + t + ' نقطة', n >= R ? (v.c >= (cfg.winC || 30) ? 'أول عميل يدفع 💰' : 'لم تصل للعميل بعد') : 'القرار ' + Math.min(R, n + 1) + ' من ' + R) +
+        '<div class="sim-meters">' + meters.map(m => SimUI.bar(m[1], v[m[0]] / 40 * 100, v[m[0]] < 15 ? 'warm' : '').replace(/<b class="num">\d+<\/b>/, '<b class="num">' + v[m[0]] + '</b>')).join('') + '</div>' + SimKit.note(cfg.note || 'تبدأ بـ 25 نقطة في كل مورد. القرارات الذكية توفّر المال والوقت وتجلب العملاء.') + '</div>';
+    },
+    summary(s) { const v = val(s); return total(s) + ' نقطة · العملاء ' + v.c + (v.c >= (cfg.winC || 30) ? ' · أول عميل يدفع' : ''); },
+    metric(s) { return total(s); }
+  };
+  return S;
+};
+
+// ================= محاكي مقابلة العميل: اسأل لتتعلم، لا لتسمع المجاملة =================
+SIMS.interview = (cfg, exId) => {
+  const qs = cfg.qs || [], turns = cfg.turns || 5, insN = qs.filter(q => q.kind === 'insight').length || 1;
+  const asked = s => arr(s.q).map(Number);
+  const stats = s => { let ins = 0, fluff = 0, pitch = 0; asked(s).forEach(i => { const k = (qs[i] || {}).kind; if (k === 'insight') ins++; else if (k === 'pitch') pitch++; else fluff++; }); return { ins, fluff, pitch }; };
+  const score = s => { const t = stats(s); return Math.max(0, Math.min(100, Math.round(t.ins / Math.min(insN, turns) * 100) - t.pitch * 10)); };
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔁 مقابلة جديدة', wide: true,
+    def() { return { q: [] }; },
+    canSave(s) { return asked(s).length >= turns; },
+    act(s, name, arg) { if (name !== 'ask') return; const a = asked(s); if (a.length >= turns || a.indexOf(+arg) > -1) return 'none'; a.push(+arg); s.q = a; return { done: a.length >= turns }; },
+    form(s, id, dis) {
+      const a = asked(s); const end = a.length >= turns;
+      let out = '<div class="br-chat-head">🎙️ ' + h(cfg.persona || 'مقابلة عميل محتمل') + ' <small>' + (end ? 'انتهت المقابلة' : 'بقي ' + (turns - a.length) + ' أسئلة') + '</small></div><div class="ai-chat">' + (cfg.intro ? '<div class="ai-msg sys">' + h(cfg.intro) + '</div>' : '');
+      a.forEach(i => { const q = qs[i]; out += '<div class="ai-msg me">' + h(q.t) + '</div><div class="ai-msg them">' + h(q.a) + '</div>' + (q.kind === 'insight' ? '<div class="ai-tag ok">💎 معلومة حقيقية: ' + h(q.ins || '') + '</div>' : q.kind === 'pitch' ? '<div class="ai-tag bad">📣 تحوّلت إلى بائع: ' + h(q.ins || 'العميل يجاملك ولا يخبرك بشيء') + '</div>' : '<div class="ai-tag warn">🙂 مجاملة لطيفة: ' + h(q.ins || 'لا تكشف شيئًا عن المشكلة') + '</div>'); });
+      out += '</div>';
+      if (!end) out += '<div class="ai-q">اختر سؤالك التالي:</div><div class="ai-qpool">' + qs.map((q, i) => a.indexOf(i) > -1 ? '' : '<button class="chip" data-sm="ask" data-a="' + i + '" data-ex="' + h(id) + '" ' + dis + '>' + h(q.t) + '</button>').join('') + '</div>';
+      else out += '<div class="ai-final">' + h(score(s) >= 70 ? (cfg.win || 'خرجت بمعلومات حقيقية عن المشكلة، وهذا ما يبني المشروع.') : (cfg.lose || 'سمعت كلامًا لطيفًا لكنك لم تتعلم الكثير. اسأل عن الماضي والسلوك لا عن الرأي.')) + '</div>';
+      return out;
+    },
+    live(s) { const t = stats(s); return '<div class="sim-live">' + SimKit.gauge(score(s), 'جودة المقابلة', 'سؤال ' + Math.min(turns, asked(s).length) + ' من ' + turns) + '<div class="sim-meters">' + SimUI.bar('💎 معلومات حقيقية', AIK.pct(t.ins, Math.min(insN, turns))) + SimUI.bar('🙂 مجاملات', AIK.pct(t.fluff, turns), 'warm') + SimUI.bar('📣 بيع مبكر', AIK.pct(t.pitch, turns), 'warm') + '</div>' + SimKit.note(cfg.note || 'الأسئلة الجيدة تسأل عن الماضي والسلوك والتكلفة، لا عن رأيه في فكرتك.') + '</div>'; },
+    summary(s) { const t = stats(s); return t.ins + ' معلومات حقيقية · ' + t.fluff + ' مجاملات'; },
+    metric(s) { return score(s); }
+  };
+  return S;
+};
+
+// ================= مختبر الأمر: من طلب ضعيف إلى أمر احترافي يُنسخ ويُجرّب =================
+SIMS.promptlab = (cfg, exId) => {
+  const parts = cfg.parts || [], fields = cfg.fields || [];
+  const maxV = parts.reduce((t, p) => t + Math.max(0, +p.v || 0), 0) || 1;
+  const fill = (txt, s) => String(txt || '').replace(/\{(\w+)\}/g, (m, k) => { const f = fields.find(x => x.k === k); const v = String((s.f || {})[k] || '').trim(); return v || (f ? '[' + f.t + ']' : m); });
+  const text = s => { const on = parts.filter(p => (s.on || {})[p.k]); return [fill(cfg.base, s)].concat(on.map(p => fill(p.add, s))).filter(x => String(x).trim()).join('\n') || (cfg.weak || 'أعطني منتجات رائجة أبيعها.'); };
+  const score = s => AIK.pct(parts.filter(p => (s.on || {})[p.k]).reduce((t, p) => t + (+p.v || 0), 0), maxV);
+  const S = {
+    auto: true, noSave: true, noReset: false, resetLabel: '🔄 ابدأ من الطلب الضعيف', wide: true,
+    def() { return { on: {}, f: {} }; },
+    canSave(s) { return score(s) > 0; },
+    act(s, name, arg) { if (name === 'tog') { s.on = Object.assign({}, s.on); s.on[arg] = !s.on[arg]; } },
+    form(s, id, dis) {
+      return (fields.length ? '<div class="grid2">' + fields.map(f => '<div class="field"><label>' + h(f.t) + '</label><input data-sim-f="f.' + h(f.k) + '" data-ex="' + h(id) + '" value="' + h((s.f || {})[f.k] || '') + '" placeholder="' + h(f.ph || '') + '" ' + dis + '></div>').join('') + '</div>' : '') +
+        '<div class="ai-q">أضف مكونات الأمر واحدًا واحدًا وراقب الجودة:</div><div class="ai-checks">' + parts.map(p => '<button class="ai-chk ' + ((s.on || {})[p.k] ? 'on' : '') + '" data-sm="tog" data-a="' + h(p.k) + '" data-ex="' + h(id) + '" ' + dis + '><span class="box"></span><span class="grow"><b>' + h(p.t) + '</b>' + (p.d ? '<small>' + h(p.d) + '</small>' : '') + '</span></button>').join('') + '</div>';
+    },
+    live(s) {
+      const sc = score(s); const pid = 'aiprompt-' + exId;
+      return '<div class="sim-live">' + SimKit.gauge(sc, 'جودة الأمر', sc >= 85 ? 'أمر احترافي، جرّبه الآن' : sc >= 50 ? 'أفضل بكثير، أكمل المكونات' : 'ما زال طلبًا عامًا') +
+        '<div class="ai-spec-h"><b>✍️ الأمر كما سيُرسل</b>' + AIK.copyBtn(pid, 'انسخ الأمر') + '</div><pre class="ai-spec" id="' + h(pid) + '">' + h(text(s)) + '</pre></div>';
+    },
+    summary(s) { return 'جودة الأمر ' + score(s) + '%'; },
+    metric(s) { return score(s); }
+  };
+  return S;
+};
+
+// ================= بطاقة المشروع الختامية: صمّم موظفك الذكي =================
+SIMS.canvas = (cfg, exId) => {
+  const fields = cfg.fields || [];
+  const filled = s => fields.filter(f => String((s.v || {})[f.k] || '').trim().length >= 3).length;
+  const S = {
+    saveLabel: '🚀 انشر بطاقتي', savedMsg: '🚀 بطاقتك الآن على شاشة القاعة', resetLabel: '🔄 امسح البطاقة', wide: true, sortBy: 'ts',
+    def() { return { v: {} }; },
+    canSave(s, msg) { const ok = filled(s) >= Math.min(fields.length, cfg.min || fields.length); return msg ? 'أكمل حقول البطاقة أولًا' : ok; },
+    extra(s) { return { title: String((s.v || {})[fields[0] && fields[0].k] || '').slice(0, 120) }; },
+    form(s, id, dis) {
+      return fields.map((f, i) => '<div class="field"><label><span class="num ai-fn">' + (i + 1) + '</span> ' + h(f.t) + '</label>' + (f.opts ? '<div class="ai-seg">' + f.opts.map(o => '<label class="' + ((s.v || {})[f.k] === o ? 'on' : '') + '"><input type="radio" name="' + h(id + f.k) + '" data-sim-f="v.' + h(f.k) + '" data-ex="' + h(id) + '" value="' + h(o) + '" ' + ((s.v || {})[f.k] === o ? 'checked' : '') + ' ' + dis + '>' + h(o) + '</label>').join('') + '</div>' :
+        '<textarea rows="2" maxlength="240" data-sim-f="v.' + h(f.k) + '" data-ex="' + h(id) + '" placeholder="' + h(f.ph || '') + '" ' + dis + '>' + h((s.v || {})[f.k] || '') + '</textarea>') + '</div>').join('');
+    },
+    onSet(s, path) { if (/^v\./.test(path) && fields.some(f => f.opts && 'v.' + f.k === path)) return 'rerender'; },
+    live(s) {
+      const n = filled(s); const v = s.v || {}; const pid = 'aicanvas-' + exId;
+      const prompt = cfg.prompt ? String(cfg.prompt).replace(/\{(\w+)\}/g, (m, k) => String(v[k] || '').trim() || '[' + ((fields.find(f => f.k === k) || {}).t || k) + ']') : '';
+      return '<div class="sim-live">' + SimKit.gauge(AIK.pct(n, fields.length), 'اكتملت ' + n + ' من ' + fields.length, n === fields.length ? 'بطاقة جاهزة للعرض' : 'املأ الحقول لتكتمل بطاقتك') +
+        '<div class="ai-canvas">' + '<div class="ai-canvas-h">🤖 ' + h(cfg.title || 'موظفي الذكي') + '</div>' + fields.map(f => '<div class="ai-canvas-r"><small>' + h(f.s || f.t) + '</small><b>' + (String(v[f.k] || '').trim() ? h(v[f.k]) : '<span class="muted">؟</span>') + '</b></div>').join('') + '</div>' +
+        (prompt ? '<div class="ai-spec-h"><b>🧠 اختبر فكرتك الآن</b>' + AIK.copyBtn(pid, 'انسخ الأمر') + '</div><pre class="ai-spec sm" id="' + h(pid) + '">' + h(prompt) + '</pre>' : '') + '</div>';
+    },
+    summary(s) { return String((s.v || {})[fields[0] && fields[0].k] || '').slice(0, 140); },
+    metric(s) { return AIK.pct(filled(s), fields.length); },
+    feed(e, ps, keys, myKey, del) {
+      if (!keys.length) return '<div class="feed">' + LiveKit.head('🚀 بطاقات القاعة', 0, 'بطاقة') + LiveKit.empty('لم تُنشر أي بطاقة بعد') + '</div>';
+      return '<div class="feed">' + LiveKit.head('🚀 بطاقات القاعة', keys.length, 'بطاقة') + '<div class="ai-ideas">' + keys.map(k => { const p = ps[k]; const v = (p.state || {}).v || {};
+        return '<div class="ai-idea ai-canvas ' + (k === myKey ? 'mine' : '') + '"><div class="ai-canvas-h">🤖 ' + h(LiveKit.who(e, Object.assign({ k }, p))) + ' <small class="muted">' + h(p.role || '') + '</small></div>' + fields.map(f => String(v[f.k] || '').trim() ? '<div class="ai-canvas-r"><small>' + h(f.s || f.t) + '</small><b>' + h(v[f.k]) + '</b></div>' : '').join('') +
+          '<div class="post-foot"><span class="grow"></span>' + Likes.btn('posts/' + e.id + '/' + k, p.likes) + del(k) + '</div></div>'; }).join('') + '</div></div>';
+    }
+  };
+  return S;
+};
+
+// ================= مختبر التسعير: سعر وشحن وإعلان، والربح الشهري الحقيقي =================
+Object.assign(SIM_TYPES, { unitecon: 'مختبر التسعير والربحية' });
+SIMS.unitecon = (cfg, exId) => {
+  const c = Object.assign({ name: 'المنتج', cost: 40, ship: 25, fee: 2.5, ret: 8, retCost: 30, base: 300, ref: 99, el: 1.6, min: 59, max: 199, step: 5,
+    ads: [['بلا إعلان', 0, 0.55], ['إعلان متوسط', 12, 1], ['إعلان مكثف', 25, 1.35]], shipOpts: [['cust', 'العميل يدفع الشحن', 0, 0.8], ['free', 'شحن مجاني', 1, 1.15]] }, cfg);
+  const calc = (price, ad, sh) => {
+    const A = c.ads[ad] || c.ads[0], SO = c.shipOpts[sh] || c.shipOpts[0];
+    const orders = Math.max(0, Math.round(c.base * Math.pow(c.ref / price, c.el) * A[2] * SO[3]));
+    const shipMe = SO[2] ? c.ship : 0; const fee = price * c.fee / 100; const retLoss = c.ret / 100 * (c.retCost + shipMe);
+    const net = price - c.cost - fee - shipMe - A[1] - retLoss;
+    return { orders, net, margin: price ? net / price * 100 : 0, profit: orders * net, fee, shipMe, ad: A[1], retLoss };
+  };
+  const best = (() => { let mx = 1; for (let p = c.min; p <= c.max; p += c.step) for (let a = 0; a < c.ads.length; a++) for (let s = 0; s < c.shipOpts.length; s++) mx = Math.max(mx, calc(p, a, s).profit); return mx; })();
+  const st = s => calc(+s.price || c.ref, +s.ad || 0, +s.sh || 0);
+  const score = s => Math.max(0, Math.min(100, Math.round(st(s).profit / best * 100)));
+  const S = {
+    auto: true, noSave: true, resetLabel: '🔄 ابدأ من السعر المقترح', wide: true,
+    def() { return { price: c.ref, ad: 1, sh: 0, moved: false }; },
+    canSave(s) { return !!s.moved; },
+    onSet(s) { s.moved = true; },
+    form(s, id, dis) {
+      return '<div class="sim-intro">📦 <b>' + h(c.name) + '</b>: تكلفة القطعة <b class="num">' + c.cost + '</b> ريال، والشحن <b class="num">' + c.ship + '</b> ريال، ورسوم الدفع <b class="num">' + c.fee + '%</b>، والمرتجعات <b class="num">' + c.ret + '%</b>.</div>' +
+        SimKit.field('💰 سعر البيع: ' + SimKit.out('price', (+s.price || c.ref)) + ' ريال', SimKit.range(s, id, dis, 'price', c.min, c.max, c.step)) +
+        SimKit.field('📣 الإعلان (تكلفة الإعلان لكل طلب)', SimKit.seg(s, id, dis, 'ad', c.ads.map((x, k) => [String(k), x[0] + ' (' + x[1] + ' ر.س)']))) +
+        SimKit.field('🚚 سياسة الشحن', SimKit.seg(s, id, dis, 'sh', c.shipOpts.map((x, k) => [String(k), x[1]])));
+    },
+    live(s) {
+      const r = st(s); const sc = score(s);
+      const row = (l, v, cls) => '<div class="tc-row ' + (cls || '') + '"><span>' + l + '</span><b class="num">' + v + '</b></div>';
+      return '<div class="sim-live">' + SimKit.gauge(sc, 'الربح الشهري ' + QAR(r.profit) + ' ريال', r.net <= 0 ? '⚠️ تخسر في كل طلب!' : sc >= 90 ? 'قريب جدًا من أفضل توليفة 🎯' : sc >= 60 ? 'جيد، جرّب تعديل السعر أو الشحن' : 'هناك توليفة أربح بكثير') +
+        '<div class="tc-out">' + row('الطلبات المتوقعة شهريًا', QAR(r.orders)) + row('رسوم الدفع لكل طلب', r.fee.toFixed(1)) + row('شحن تتحمله أنت', r.shipMe) + row('إعلان لكل طلب', r.ad) + row('خسارة المرتجعات لكل طلب', r.retLoss.toFixed(1)) +
+        row('صافي الربح لكل طلب', r.net.toFixed(1) + ' ريال', 'strong') + row('هامش الربح الصافي', r.margin.toFixed(0) + '%', 'strong') + '</div>' + SimKit.note(c.note || 'نموذج تعليمي مبسط: رفع السعر يقلل الطلبات، والشحن المجاني والإعلان يزيدانها لكنهما يأكلان من ربح الطلب.') + '</div>';
+    },
+    summary(s) { const r = st(s); return 'سعر ' + (+s.price || c.ref) + ' · ربح شهري ' + QAR(r.profit) + ' ريال · هامش ' + r.margin.toFixed(0) + '%'; },
+    metric(s) { return score(s); }
+  };
+  return S;
+};
+/* ===== 06g-live.js ===== */
+// ---------------------------------------------------------------------
+// الحضور الحي على صفحات التمارين + دعوة المتدربين إلى تمرين
+// - كل متصفح (متدرب أو زائر) يسجل وجوده في presence/<التمرين>/<معرّف جلسته> ما دام على صفحة التمرين،
+//   ويُحذف السجل تلقائيًا عند مغادرة الصفحة أو إغلاقها أو انقطاع الاتصال (onDisconnect). لا يُحفظ أي عدد تراكمي.
+// - المدرب وحده يقرأ هذه العقدة، ويرى العدد في صفحة التمرين وفي لوحة التحكم، وبالضغط تظهر الأسماء.
+// - الدعوة: عقدة واحدة invite يكتبها المدرب؛ الدعوة الجديدة تحل محل السابقة تلقائيًا.
+// ---------------------------------------------------------------------
+const PRESENCE_STALE = 6 * 3600000; // سجل أقدم من 6 ساعات يُعد متروكًا (احتياط إن لم يعمل الحذف التلقائي)
+const Presence = {
+  cur: null, curSid: null, curSig: '',
+  tab: genId('t'), // لكل تبويب معرّف مستقل: إغلاق أحدهما لا يحذف تسجيل الآخر
+  sid() {
+    const a = typeof authUid === 'function' ? authUid() : null; if (a) return a + '-' + Presence.tab;
+    let s = SafeSS.get('ec_psid'); if (!s) { s = genId('s'); SafeSS.set('ec_psid', s); } return s;
+  },
+  target() {
+    if (!App.dataReady || Admin.ok() || !(Me.isReg() || Me.guest)) return null;
+    if (Router.cur.view === 'ex' && Content.ex(Router.cur.id)) return Router.cur.id;
+    return LiveSlides.curId(); // شريحة تحمل سؤالًا حيًا: يُحسب الحضور تحت presence/lv_<الشريحة>
+  },
+  payload() { const reg = Me.isReg(); return { n: reg ? String(Me.data.name || '').slice(0, 80) : '', u: reg ? String(Me.uid()).slice(0, 40) : '', g: !reg, ts: DB.now() }; },
+  path() { return 'presence/' + Presence.cur + '/' + Presence.curSid; },
+  update() {
+    const t = Presence.target(); const sid = Presence.sid(); const pl = Presence.payload(); const sig = t + '|' + sid + '|' + pl.u + '|' + pl.n;
+    if (sig === Presence.curSig) return;
+    if (Presence.cur && (Presence.cur !== t || Presence.curSid !== sid)) Presence.leave();
+    Presence.curSig = sig; if (!t) return;
+    Presence.cur = t; Presence.curSid = sid;
+    DB.presence(Presence.path(), pl).catch(() => {});
+  },
+  leave() {
+    if (!Presence.cur) { Presence.curSig = ''; return; }
+    const p = Presence.path(); Presence.cur = null; Presence.curSid = null; Presence.curSig = '';
+    DB.unpresence(p).catch(() => {});
+  },
+  // إعادة التسجيل بعد عودة الاتصال (الخادم يحذف السجل عند الانقطاع)
+  resync() { if (Presence.cur) DB.presence(Presence.path(), Presence.payload()).catch(() => {}); },
+  // تفسير رفض قاعدة البيانات: الغالب أن قواعد Firebase المنشورة لا تحوي العقد الجديدة (presence / invite / removed)
+  rulesHint(err) { return /permission/i.test(String((err && (err.code || err.message)) || '')) ? 'رفضت قاعدة البيانات الكتابة لأن <b>قواعد الأمان المنشورة في Firebase قديمة</b> ولا تحتوي العقد الجديدة (<span class="num" dir="ltr">presence</span> و<span class="num" dir="ltr">invite</span> و<span class="num" dir="ltr">removed</span>).<br><br>الحل: افتح Firebase Console ثم Realtime Database ثم <b>Rules</b>، والصق محتوى ملف <span class="num" dir="ltr">database.rules.json</span> المحدّث من المستودع، ثم اضغط <b>Publish</b>.' : 'تعذّر الحفظ: ' + h((err && err.message) || err); },
+  denied() { return !!(Watch.denied && Watch.denied['presence']); },
+  // شخص واحد بعدة تبويبات يُحسب مرة واحدة (بمعرّف جلسته قبل «-»)
+  list(ex) { const pr = (Store.presence || {})[ex] || {}; const now = DB.now(); const seen = {}; Object.keys(pr).forEach(k => { const p = pr[k]; if (!p || typeof p !== 'object' || now - (+p.ts || 0) >= PRESENCE_STALE) return; const id = k.split('-')[0]; if (!seen[id] || (+p.ts || 0) > (+seen[id].ts || 0)) seen[id] = p; }); return Object.keys(seen).map(id => seen[id]); },
+  counts(ex) { const l = Presence.list(ex); const names = []; const seen = {}; let guests = 0; l.forEach(p => { if (p.g || !p.u) guests++; else if (!seen[p.u]) { seen[p.u] = 1; names.push(p.n || 'متدرب'); } }); return { total: names.length + guests, names, guests }; },
+  chip(ex) {
+    if (!Admin.ok()) return ''; const c = Presence.counts(ex);
+    if (Presence.denied()) return '<button class="live-chip warn" data-act="presence-rules" title="قواعد Firebase المنشورة قديمة">⚠️ العداد معطّل، انشر قواعد Firebase المحدّثة</button>';
+    return '<button class="live-chip ' + (c.total ? 'on' : '') + '" data-act="presence-show" data-ex="' + h(ex) + '" title="من على صفحة هذا التمرين الآن"><span class="live-dot"></span><b class="num">' + c.total + '</b><span>على الصفحة الآن</span></button>';
+  },
+  show(ex) {
+    const body = () => { const c = Presence.counts(ex);
+      return '<h3>👥 على صفحة «' + h(Content.exTitle(ex)) + '» الآن</h3>' + (c.total ? '<div class="people-list">' + c.names.sort((a, b) => a.localeCompare(b, 'ar')).map(n => '<div class="person"><span class="live-dot"></span><span class="nm">' + h(n) + '</span></div>').join('') + (c.guests ? '<div class="person muted"><span class="nm">(<span class="num">' + c.guests + '</span>) زائر</span></div>' : '') + '</div>' : '<div class="empty">لا أحد على هذه الصفحة الآن.</div>') +
+        '<p class="muted" style="font-family:var(--f-ui);font-size:12.5px">العدد الحالي فقط، ويتحدث تلقائيًا.</p><div class="actions">' + Invite.btn(Content.ex(ex) || { id: ex }) + '<button class="btn btn-ghost" data-x>إغلاق</button></div>'; };
+    const m = UI.modal(body(), { onClose: () => { Presence._modal = null; } }); Presence._modal = { m, ex, body };
+    m.el.addEventListener('click', ev => { if (ev.target.closest('[data-x]')) m.close(); });
+  },
+  refreshModal() { const pm = Presence._modal; if (pm && pm.m.el.isConnected) pm.m.el.innerHTML = pm.body(); }
+};
+
+// زر كشف الإجابات: للمدرب فقط، في صفحة التمرين وفي صف التمرين بلوحة التحكم (لكل أنواع التمارين بما فيها المحاكاة)
+const Reveal = {
+  btn(e) {
+    if (!Admin.ok() || !e || e.kind === 'survey') return ''; const on = isRevealed(e);
+    return '<button class="btn btn-xs btn-mint" data-act="reveal" data-id="' + h(e.id) + '" title="' + (on ? 'الإجابات ظاهرة للمتدربين، اضغط لإخفائها' : 'يكشف الإجابات الصحيحة والتصحيح لكل المتدربين') + '">' + (on ? '🔒 إخفاء الإجابات' : '🔓 كشف الإجابات') + '</button>';
+  }
+};
+const INVITE_TTL = 3 * 3600000; // لا تظهر دعوة أقدم من 3 ساعات لمن يفتح المنصة لاحقًا
+const Invite = {
+  m: null, shownId: null,
+  active(exId) { const iv = Store.invite; return !!(iv && iv.id && iv.ex === exId); },
+  isSlide(iv) { return !!(iv && iv.ax && iv.s != null && !iv.ex); }, // دعوة إلى شريحة بعينها (سؤال حي)
+  btn(e) {
+    if (!Admin.ok() || !e) return ''; const on = Invite.active(e.id);
+    return '<button class="btn btn-xs ' + (on ? 'btn-mint' : 'btn-primary') + '" data-act="' + (on ? 'invite-cancel' : 'invite-send') + '" data-id="' + h(e.id) + '" title="' + (on ? 'الدعوة ظاهرة للمتدربين الآن، اضغط لإلغائها' : 'نافذة تدعو المتدربين إلى هذا التمرين (تحل محل أي دعوة سابقة)') + '">📣 ' + (on ? 'مدعوون الآن · إلغاء' : 'دعوة') + '</button>';
+  },
+  async send(exId) {
+    const e = Content.ex(exId); if (!e) return;
+    try { await DB.set('invite', { id: genId('i'), ex: exId, title: String(e.title || '').slice(0, 200), ts: DB.now() }, { quiet: true }); }
+    catch (err) { UI.alert(Presence.rulesHint(err), 'تعذّر إرسال الدعوة'); return; }
+    UI.toast('📣 أُرسلت الدعوة إلى «' + e.title + '»');
+  },
+  async cancel() { try { await DB.remove('invite', { quiet: true }); UI.toast('أُلغيت الدعوة'); } catch (err) { UI.alert(Presence.rulesHint(err), 'تعذّر إلغاء الدعوة'); } },
+  close() { if (Invite.m) { const m = Invite.m; Invite.m = null; m.close(); } },
+  seen(id) { SafeLS.set('ec_inv_seen', id); },
+  check() {
+    if (!App.dataReady) return;
+    const iv = Store.invite;
+    const sl = Invite.isSlide(iv);
+    if (!iv || !iv.id || Admin.ok() || !Me.isReg() || Me.isAdmin() || (sl ? !Content.axis(iv.ax) : !Content.ex(iv.ex)) || DB.now() - (+iv.ts || 0) > INVITE_TTL || SafeLS.get('ec_inv_seen') === iv.id) { Invite.close(); return; }
+    if (sl ? (Router.cur.view === 'axis' && Router.cur.id === iv.ax && (UIState.deck[iv.ax] || 0) === +iv.s) : (Router.cur.view === 'ex' && Router.cur.id === iv.ex)) { Invite.seen(iv.id); Invite.close(); return; }
+    if (Invite.shownId === iv.id && Invite.m) return;
+    Invite.close(); Invite.shownId = iv.id;
+    const e = sl ? { icon: '⚡', title: String((Content.axis(iv.ax).slides[+iv.s] || {}).title || iv.title || 'سؤال حي').replace(/\*\*/g, '') } : Content.ex(iv.ex); const ax = sl ? iv.ax : Content.axisOfEx(iv.ex); const a = ax ? Content.axis(ax) : null;
+    const m = Invite.m = UI.modal('<div class="center invite-pop"><div style="font-size:46px">📣</div><h3>دعوة من المدرّب</h3><p class="muted" style="font-family:var(--f-ui);margin:0">' + (sl ? 'شارك الآن في سؤال حي على الشريحة' : 'انضم الآن إلى') + '</p><div class="invite-title">' + h(e.icon || '✍️') + ' ' + h(e.title) + '</div>' + (a ? '<div class="muted" style="font-family:var(--f-ui);font-size:13px">' + h(a.title) + '</div>' : '') + '</div><div class="actions" style="justify-content:center"><button class="btn btn-primary" data-go-inv>' + (sl ? 'انتقل إلى الشريحة' : 'انتقل إلى التمرين') + '</button><button class="btn btn-ghost" data-x>إغلاق</button></div>',
+      { onClose: () => { if (Invite.m === m) { Invite.m = null; Invite.seen(iv.id); } } });
+    $('[data-go-inv]', m.el).onclick = () => { Invite.seen(iv.id); Invite.close(); if (sl) Router.go('axis', { id: iv.ax, s: +iv.s }); else Router.go('ex', { id: iv.ex }); };
+    $('[data-x]', m.el).onclick = () => { Invite.seen(iv.id); Invite.close(); };
+  }
+};
+/* ===== 06m-live-slides.js ===== */
+// ---------------------------------------------------------------------
+// الأسئلة الحية داخل الشرائح
+// شريحة تحمل الحقل live فيظهر سؤال سريع داخلها (استطلاع، اختيار من متعدد، إجابة قصيرة، سحابة كلمات، مقياس)
+// يجيب عنه المتدربون في مكانهم وتظهر النتائج حية داخل الشريحة نفسها (صفحة المحور، ملء الشاشة، نافذة العرض).
+// التخزين: posts/lv_<معرّف الشريحة>/<uid> (نفس عقدة المشاركات وقواعد ملكية الجهاز)، وإجابة المدرب لا تُحتسب.
+// التحديث تدريجي: نقارن العناصر بالمفتاح فلا تُعاد الرسوم المتحركة ولا تُعاد رسم الصفحة كلها.
+// ---------------------------------------------------------------------
+const LV_NAMES = { poll: 'استطلاع', mcq: 'اختيار من متعدد', text: 'إجابة قصيرة', cloud: 'سحابة كلمات', scale: 'مقياس' };
+const LV_PALETTE = ['var(--ac,var(--brand))', 'var(--brand)', 'var(--brand-2)', 'var(--mint)', '#B24BF3', '#1E88E5', '#E5484D', '#0E9F9A'];
+const LiveSlides = {
+  seen: {}, _wm: {}, _sig: {}, _qrOn: null, _st: null,
+  clamp(n, lo, hi) { n = +n; if (!isFinite(n)) n = lo; return Math.max(lo, Math.min(hi, n)); },
+  // تطبيع إعداد السؤال (يقبل ما يكتبه صاحب المحتوى ويعيد صيغة آمنة، أو null إن لم يصلح)
+  cfg(s) {
+    const l = s && s.live; if (!l || typeof l !== 'object' || !LV_NAMES[l.kind]) return null;
+    const c = { kind: l.kind, q: String(l.q || '').trim().slice(0, 300), note: String(l.note || '').trim().slice(0, 300) };
+    if (c.kind === 'poll' || c.kind === 'mcq') {
+      c.options = arr(l.options).map(x => String(x).trim()).filter(Boolean).slice(0, 6); if (c.options.length < 2) return null;
+      if (c.kind === 'mcq') { const an = parseInt(l.answer, 10); c.answer = an >= 0 && an < c.options.length ? an : -1; }
+    } else if (c.kind === 'text') { c.max = LiveSlides.clamp(l.max || 140, 10, 300); c.names = !!l.names; }
+    else if (c.kind === 'cloud') { c.max = LiveSlides.clamp(l.max || 24, 3, 40); c.words = Math.round(LiveSlides.clamp(l.words || 3, 1, 6)); }
+    else if (c.kind === 'scale') {
+      c.min = Math.round(LiveSlides.clamp(l.min == null || l.min === '' ? 1 : l.min, 0, 9)); const mx = Math.round(LiveSlides.clamp(l.scaleMax || l.max2 || 10, c.min + 1, c.min + 10));
+      c.smax = mx; c.lo = String(l.lo || '').trim().slice(0, 40); c.hi = String(l.hi || '').trim().slice(0, 40);
+    }
+    return c;
+  },
+  idOf(s, a, i) { return 'lv_' + String(SlideKit.sid(s, a, i)).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60); },
+  role() { return Admin.ok() ? 'admin' : Me.isReg() ? 'user' : 'visitor'; },
+  seenOf(id) { return LiveSlides.seen[id] || (LiveSlides.seen[id] = new Set()); },
+  // ---------- المحتوى الأولي (هيكل ثابت؛ تملؤه patchBox بالأرقام والإجابات) ----------
+  html(s, a, i) {
+    const c = LiveSlides.cfg(s); if (!c) return '';
+    const id = LiveSlides.idOf(s, a, i); const role = LiveSlides.role(); const usr = role === 'user'; const dis = usr ? '' : ' disabled tabindex="-1"';
+    let body = '';
+    if (c.kind === 'poll' || c.kind === 'mcq') {
+      body = '<div class="lv-opts n' + c.options.length + '">' + c.options.map((o, k) => '<button type="button" class="lv-opt" data-lv-pick="' + k + '"' + dis + '><em class="lv-fill"></em><span class="lv-l">' + h(LETTERS[k]) + '</span><span class="lv-t">' + h(o) + '</span><span class="lv-v"><b class="num" data-c>0</b><small class="num" data-p>0%</small></span><i class="lv-mk"></i></button>').join('') + '</div>';
+    } else if (c.kind === 'scale') {
+      let cols = ''; for (let v = c.min; v <= c.smax; v++) cols += '<button type="button" class="lv-sc-b" data-lv-pick="' + v + '"' + dis + '><span class="lv-sc-c num" data-c>0</span><span class="lv-sc-bar"><em></em></span><span class="lv-sc-n num">' + v + '</span></button>';
+      body = '<div class="lv-sc">' + cols + '</div><div class="lv-sc-ends"><span>' + h(c.lo) + '</span><span class="lv-avg">المتوسط <b class="num" data-avg>-</b></span><span>' + h(c.hi) + '</span></div>';
+    } else if (c.kind === 'text') {
+      body = (usr ? '<div class="lv-form lv-input"><textarea class="lv-ta" rows="2" maxlength="' + c.max + '" data-keep="lvin-' + h(id) + '" placeholder="اكتب إجابتك هنا"></textarea><div class="lv-form-r"><span class="lv-cc num"><b data-cc>0</b>/' + c.max + '</span><button type="button" class="btn btn-primary btn-sm" data-lv-act="send">إرسال</button></div></div>' : '') +
+        '<div class="lv-wall"><div class="lv-empty">ستظهر الإجابات هنا فور وصولها</div></div>';
+    } else if (c.kind === 'cloud') {
+      let ins = ''; for (let k = 0; k < c.words; k++) ins += '<input type="text" class="lv-in" maxlength="' + c.max + '" data-keep="lvin-' + h(id) + '-' + k + '" placeholder="كلمة ' + (k + 1) + '" autocomplete="off">';
+      body = (usr ? '<div class="lv-form lv-input lv-words">' + ins + '<button type="button" class="btn btn-primary btn-sm" data-lv-act="send">إرسال</button></div>' : '') +
+        '<div class="lv-cloud"><div class="lv-empty">تظهر الكلمات هنا مع أول مشاركة</div></div>';
+    }
+    const cta = role === 'visitor' ? '<div class="lv-cta lv-input">🔒 <span>سجّل دخولك للمشاركة</span><button type="button" class="btn btn-primary btn-xs" data-lv-act="login">تسجيل الدخول</button></div>' : '';
+    const tools = role === 'admin' ? '<div class="lv-tools">' +
+      '<button type="button" class="btn btn-xs btn-primary" data-lv-act="invite">📣 <span data-lv-inv>دعوة المتدربين إلى هذه الشريحة</span></button>' +
+      '<button type="button" class="btn btn-xs btn-soft" data-lv-act="qr">📱 باركود</button>' +
+      (c.kind === 'mcq' ? '<button type="button" class="btn btn-xs btn-mint" data-lv-act="reveal"><span data-lv-rv>🔓 كشف الإجابة</span></button>' : '') +
+      '<button type="button" class="btn btn-xs btn-ghost" data-lv-act="clear">🗑 مسح إجابات هذه الشريحة</button>' +
+      '<span class="lv-pres" title="عدد المتدربين على هذه الشريحة الآن">👀 <b class="num" data-lv-pres>0</b> على الشريحة الآن</span><span class="lv-msg" data-lv-msg></span></div>' : '';
+    return '<div class="lv-box lv-k-' + c.kind + ' lv-r-' + role + '" data-lv="' + h(id) + '" data-ax="' + h(a.id) + '" data-i="' + i + '" data-role="' + role + '" dir="rtl">' +
+      '<div class="lv-top"><span class="lv-tag"><span class="live-dot"></span>سؤال حي · ' + h(LV_NAMES[c.kind]) + '</span><span class="lv-stat">✍️ <b class="num" data-lv-n>0</b> <span data-lv-nl>مشاركة</span></span></div>' +
+      (c.q ? '<h3 class="lv-q">' + h(c.q) + '</h3>' : '') + (c.note ? '<div class="lv-note">' + h(c.note) + '</div>' : '') +
+      '<div class="lv-body">' + body + '</div>' + cta + tools + '</div>';
+  },
+  // ---------- بيانات الإجابات ----------
+  entries(id) { const ps = (Store.posts || {})[id]; if (!ps || typeof ps !== 'object') return []; return Object.keys(ps).filter(k => k !== 'admin' && ps[k] && typeof ps[k] === 'object').map(k => Object.assign({ k }, ps[k])); },
+  // كلمة السحابة: حذف التشكيل والتطويل وعلامات الترقيم وتوحيد المسافات (والمفتاح يوحّد الهمزات وحالة الأحرف)
+  normWord(w, max) {
+    let d = String(w == null ? '' : w).replace(/[ً-ٰٟـۖ-ۭ]/g, '').replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+    if (max) d = d.slice(0, max).trim(); if (!d) return null;
+    return { disp: d, key: d.toLowerCase().replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ـ/g, '') };
+  },
+  tally(c, id) {
+    const es = LiveSlides.entries(id); const me = Me.uid(); const T = { total: 0, mine: null };
+    if (c.kind === 'poll' || c.kind === 'mcq') {
+      T.counts = c.options.map(() => 0);
+      es.forEach(e => { const v = Number(e.v); if (!Number.isInteger(v) || v < 0 || v >= c.options.length) return; T.counts[v]++; T.total++; if (e.k === me) T.mine = v; });
+    } else if (c.kind === 'scale') {
+      T.counts = []; for (let v = c.min; v <= c.smax; v++) T.counts.push(0); let sum = 0;
+      es.forEach(e => { const v = Number(e.v); if (!Number.isInteger(v) || v < c.min || v > c.smax) return; T.counts[v - c.min]++; T.total++; sum += v; if (e.k === me) T.mine = v; });
+      T.avg = T.total ? sum / T.total : null;
+    } else if (c.kind === 'text') {
+      T.list = es.filter(e => typeof e.v === 'string' && e.v.trim()).map(e => ({ k: e.k, v: e.v.trim().replace(/\s+/g, ' ').slice(0, 300), n: typeof e.n === 'string' ? e.n.slice(0, 40) : '', ts: +e.ts || 0 })).sort((a, b) => b.ts - a.ts || (a.k < b.k ? -1 : 1));
+      T.total = T.list.length; const m = T.list.find(x => x.k === me); T.mine = m ? m.v : null;
+    } else if (c.kind === 'cloud') {
+      const map = {}; T.myWords = null;
+      es.forEach(e => {
+        const ws = arr(e.words); if (!ws.length) return; const own = {}; let any = false; const mine = [];
+        ws.slice(0, c.words).forEach(w => { const nw = LiveSlides.normWord(w, c.max); if (!nw) return; mine.push(nw.disp); if (own[nw.key]) return; own[nw.key] = 1; any = true; const m = map[nw.key] || (map[nw.key] = { key: nw.key, n: 0, forms: {}, ts: 0 }); m.n++; m.forms[nw.disp] = (m.forms[nw.disp] || 0) + 1; m.ts = Math.max(m.ts, +e.ts || 0); });
+        if (any) { T.total++; if (e.k === me) T.myWords = mine; }
+      });
+      T.words = Object.keys(map).map(k => { const m = map[k]; const f = Object.keys(m.forms).sort((a, b) => m.forms[b] - m.forms[a] || (a < b ? -1 : 1))[0]; return { key: k, disp: f, n: m.n, ts: m.ts }; }).sort((a, b) => b.n - a.n || b.ts - a.ts || (a.key < b.key ? -1 : 1)).slice(0, 60);
+    }
+    return T;
+  },
+  // ---------- تحديث تدريجي ----------
+  setTxt(el, t) { if (el && el.textContent !== String(t)) el.textContent = t; },
+  cfgOf(box) { const a = Content.axis(box.getAttribute('data-ax')); const s = a && a.slides[+box.getAttribute('data-i')]; return s ? LiveSlides.cfg(s) : null; },
+  mount(root) {
+    $$('.lv-box', root || document).forEach(box => LiveSlides.patchBox(box, true));
+    const inps = $$('.lv-box .lv-ta', root || document); inps.forEach(t => LiveSlides.ccount(t));
+  },
+  // إعادة رسم شريحة واحدة (تفاعل آخر داخلها) لا يجب أن يضيّع ما كتبه المتدرب ولم يرسله بعد
+  snap(slide) { return $$('.lv-ta,.lv-in', slide).map(x => [x.value, !!x._touched]); },
+  restore(slide, snap) { if (!snap || !snap.length) return; $$('.lv-ta,.lv-in', slide).forEach((x, k) => { if (snap[k] && (snap[k][1] || snap[k][0])) { x.value = snap[k][0]; x._touched = true; } }); $$('.lv-ta', slide).forEach(t => LiveSlides.ccount(t)); },
+  patchAll() { $$('.lv-box').forEach(b => LiveSlides.patchBox(b)); },
+  ccount(t) { const b = t.closest('.lv-box'); const cc = b && $('[data-cc]', b); if (cc) LiveSlides.setTxt(cc, t.value.length); },
+  patchBox(box, init) {
+    const c = LiveSlides.cfgOf(box); if (!c) return; const id = box.getAttribute('data-lv'); const role = box.getAttribute('data-role'); const T = LiveSlides.tally(c, id);
+    if (init) box.classList.add('lv-init');
+    LiveSlides.setTxt($('[data-lv-n]', box), T.total);
+    LiveSlides.setTxt($('[data-lv-nl]', box), c.kind === 'cloud' ? 'مشارك' : T.total === 1 ? 'إجابة' : 'إجابات');
+    const rv = isRevealed({ id }) || (Admin.ok() && !box.closest('.deck-show')); // نافذة العرض (مظهر القاعة) لا تكشف الإجابة قبل أن يكشفها المدرب
+    if (c.kind === 'poll' || c.kind === 'mcq') {
+      $$('.lv-opt', box).forEach((el, k) => {
+        const n = T.counts[k] || 0, p = T.total ? Math.round(n / T.total * 100) : 0;
+        LiveSlides.setTxt($('[data-c]', el), n); LiveSlides.setTxt($('[data-p]', el), p + '%');
+        const f = $('.lv-fill', el); const w = (T.total ? n / T.total * 100 : 0).toFixed(1) + '%'; if (f.style.width !== w) f.style.width = w;
+        el.classList.toggle('sel', T.mine === k);
+        if (c.kind === 'mcq' && c.answer >= 0) {
+          const right = rv && k === c.answer, wrong = rv && role === 'user' && T.mine === k && k !== c.answer;
+          el.classList.toggle('right', right); el.classList.toggle('wrong', wrong); el.classList.toggle('dim', rv && !right && !wrong);
+          LiveSlides.setTxt($('.lv-mk', el), right ? '✓' : wrong ? '✕' : '');
+        }
+        if (role === 'user') el.disabled = c.kind === 'mcq' && isRevealed({ id });
+      });
+    } else if (c.kind === 'scale') {
+      const mx = Math.max(1, ...T.counts);
+      $$('.lv-sc-b', box).forEach((el, k) => {
+        LiveSlides.setTxt($('[data-c]', el), T.counts[k] || 0); const e = $('.lv-sc-bar em', el); const hh = ((T.counts[k] || 0) / mx * 100).toFixed(1) + '%'; if (e.style.height !== hh) e.style.height = hh;
+        el.classList.toggle('sel', T.mine === c.min + k);
+      });
+      LiveSlides.setTxt($('[data-avg]', box), T.avg == null ? '-' : (Math.round(T.avg * 10) / 10).toString().replace(/\.0$/, ''));
+    } else if (c.kind === 'text') LiveSlides.patchWall(box, c, id, T);
+    else if (c.kind === 'cloud') LiveSlides.patchCloud(box, c, id, T);
+    if (role === 'user') LiveSlides.patchInput(box, c, T);
+    if (role === 'admin') {
+      const iv = Store.invite; const on = !!(iv && iv.id && iv.ax === box.getAttribute('data-ax') && +iv.s === +box.getAttribute('data-i'));
+      const ib = $('[data-lv-act="invite"]', box); if (ib) { ib.classList.toggle('btn-mint', on); ib.classList.toggle('btn-primary', !on); LiveSlides.setTxt($('[data-lv-inv]', box), on ? 'مدعوون الآن · إلغاء الدعوة' : 'دعوة المتدربين إلى هذه الشريحة'); }
+      LiveSlides.setTxt($('[data-lv-rv]', box), isRevealed({ id }) ? '🔒 إخفاء الإجابة' : '🔓 كشف الإجابة');
+      const pr = $('.lv-pres', box); if (pr) { const cnt = Presence.denied() ? null : Presence.counts(id).total; pr.style.display = cnt == null ? 'none' : ''; if (cnt != null) LiveSlides.setTxt($('[data-lv-pres]', box), cnt); }
+    }
+    if (init) requestAnimationFrame(() => requestAnimationFrame(() => box.classList.remove('lv-init')));
+  },
+  // حالة حقول إجابة المتدرب: تعبئة إجابته السابقة وتبديل نص الزر
+  patchInput(box, c, T) {
+    const btn = $('[data-lv-act="send"]', box);
+    if (c.kind === 'text') { const ta = $('.lv-ta', box); if (T.mine != null) { if (btn) LiveSlides.setTxt(btn, 'تحديث إجابتي'); if (ta && !ta.value && !ta._touched && document.activeElement !== ta) { ta.value = T.mine; LiveSlides.ccount(ta); } } else if (btn) LiveSlides.setTxt(btn, 'إرسال'); }
+    else if (c.kind === 'cloud') { const ins = $$('.lv-in', box); if (T.myWords) { if (btn) LiveSlides.setTxt(btn, 'تحديث كلماتي'); if (ins.every(x => !x.value) && !ins.some(x => x._touched) && !ins.includes(document.activeElement)) ins.forEach((x, k) => { x.value = T.myWords[k] || ''; }); } else if (btn) LiveSlides.setTxt(btn, 'إرسال'); }
+  },
+  patchWall(box, c, id, T) {
+    const wall = $('.lv-wall', box); if (!wall) return; const seen = LiveSlides.seenOf(id); const admin = box.getAttribute('data-role') === 'admin'; const me = Me.uid();
+    const have = {}; Array.prototype.forEach.call(wall.children, el => { const k = el.getAttribute('data-k'); if (k) have[k] = el; });
+    if (!T.list.length) seen.clear();
+    const keep = {}; const empty = $('.lv-empty', wall); if (empty) empty.style.display = T.list.length ? 'none' : '';
+    T.list.slice(0, 80).forEach((e, idx) => {
+      keep[e.k] = 1; let el = have[e.k];
+      if (!el) {
+        el = document.createElement('div'); el.className = 'lv-card' + (seen.has(e.k) ? '' : ' new'); el.setAttribute('data-k', e.k);
+        el.innerHTML = '<p></p><small></small>' + (admin ? '<button type="button" class="lv-x" data-lv-del="' + h(e.k) + '" title="حذف هذه الإجابة" aria-label="حذف هذه الإجابة">×</button>' : '');
+        wall.appendChild(el); seen.add(e.k); have[e.k] = el;
+      }
+      LiveSlides.setTxt(el.firstChild, e.v); const sm = el.children[1]; const nm = c.names ? e.n : ''; LiveSlides.setTxt(sm, nm); sm.style.display = nm ? '' : 'none';
+      if (el.style.order !== String(idx)) el.style.order = idx; el.classList.toggle('mine', e.k === me);
+    });
+    Object.keys(have).forEach(k => { if (!keep[k]) have[k].remove(); });
+  },
+  // ---------- سحابة الكلمات ----------
+  hash(s) { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return x >>> 0; },
+  rnd(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; },
+  makeWord(w, seen) {
+    const r = LiveSlides.rnd(LiveSlides.hash(w.key)); const now = Date.now() / 1000;
+    const dx = 9 + r() * 10, dy = 11 + r() * 11, ax = 8 + r() * 12, ay = 4 + r() * 6; const col = LV_PALETTE[Math.floor(r() * LV_PALETTE.length)];
+    const el = document.createElement('span'); el.className = 'lv-w' + (seen ? '' : ' pop'); el.setAttribute('data-w', w.key);
+    // المرحلة تُشتق من الساعة المطلقة فيستمر الحراك من موضعه نفسه حتى لو أُعيد بناء الصفحة
+    el.innerHTML = '<span class="lv-wp"><span class="lv-wd" style="--ax:' + ax.toFixed(1) + 'px;--dur:' + dx.toFixed(1) + 's;--dl:-' + (now % (2 * dx)).toFixed(2) + 's"><span class="lv-wi" style="--ay:' + ay.toFixed(1) + 'px;--dur:' + dy.toFixed(1) + 's;--dl:-' + (now % (2 * dy)).toFixed(2) + 's"></span></span></span>';
+    el.style.color = col; return el;
+  },
+  patchCloud(box, c, id, T) {
+    const cl = $('.lv-cloud', box); if (!cl) return; const seen = LiveSlides.seenOf(id);
+    const have = {}; Array.prototype.forEach.call(cl.children, el => { const k = el.getAttribute('data-w'); if (k) have[k] = el; });
+    if (!T.words.length) seen.clear();
+    const keep = {}; const empty = $('.lv-empty', cl); if (empty) empty.style.display = T.words.length ? 'none' : '';
+    T.words.forEach(w => {
+      keep[w.key] = 1; let el = have[w.key];
+      if (!el) { el = LiveSlides.makeWord(w, seen.has(w.key)); cl.appendChild(el); seen.add(w.key); have[w.key] = el; }
+      LiveSlides.setTxt($('.lv-wi', el), w.disp); el.setAttribute('title', w.disp + ' · ' + w.n);
+    });
+    Object.keys(have).forEach(k => { if (!keep[k]) have[k].remove(); });
+    const sig = T.words.map(w => w.key + ':' + w.n).join('|'); const first = !cl._ro;
+    cl._items = T.words;
+    if (first && window.ResizeObserver) { cl._ro = new ResizeObserver(() => { clearTimeout(cl._rt); cl._rt = setTimeout(() => LiveSlides.layout(cl), 120); }); cl._ro.observe(cl); }
+    if (first || sig !== cl._sig) { cl._sig = sig; LiveSlides.layout(cl); }
+  },
+  layout(cl) {
+    if (!cl.isConnected) return; const W = cl.clientWidth, H = cl.clientHeight; const items = cl._items || []; if (W < 60 || H < 60 || !items.length) return;
+    let meas = $('.lv-meas', cl); if (!meas) { meas = document.createElement('span'); meas.className = 'lv-meas'; cl.appendChild(meas); }
+    const wpp = d => { let v = LiveSlides._wm[d]; if (v == null) { meas.textContent = d; v = meas.getBoundingClientRect().width / 40; LiveSlides._wm[d] = v; } return v; };
+    const nmax = items[0].n, nmin = items[items.length - 1].n;
+    const lo = Math.max(14, Math.min(22, H * .09)), hi = Math.max(28, Math.min(72, H * .26, W * .11)); const gap = 12, mar = 8, ex = Math.max(1.3, Math.min(3, W / H));
+    const tryAt = sc => {
+      const rects = [], out = [];
+      for (let q = 0; q < items.length; q++) {
+        const it = items[q]; const t = items.length === 1 ? 1 : nmax === nmin ? .55 : Math.pow((it.n - nmin) / (nmax - nmin), .7);
+        const fs = Math.round((lo + (hi - lo) * t) * sc * 10) / 10; const w = wpp(it.disp) * fs + 10, hh = fs * 1.3 + 4; const a0 = LiveSlides.rnd(LiveSlides.hash(it.key))() * 6.283;
+        let hit = null;
+        for (let st = 0; st < 520; st++) {
+          const th = st * .3 + a0, r = 1.25 * st * .3 * 3.2 / 2.4; const x = W / 2 + r * Math.cos(th) * ex, y = H / 2 + r * Math.sin(th);
+          const x1 = x - w / 2, x2 = x + w / 2, y1 = y - hh / 2, y2 = y + hh / 2;
+          if (x1 < mar || x2 > W - mar || y1 < mar || y2 > H - mar) continue;
+          let bad = false; for (let k = 0; k < rects.length; k++) { const o = rects[k]; if (x1 < o[2] + gap && x2 > o[0] - gap && y1 < o[3] + gap && y2 > o[1] - gap) { bad = true; break; } }
+          if (!bad) { hit = [x, y, x1, y1, x2, y2]; break; }
+        }
+        if (!hit) return { ok: false, out, n: out.length };
+        rects.push([hit[2], hit[3], hit[4], hit[5]]); out.push({ it, x: hit[0], y: hit[1], fs });
+      }
+      return { ok: true, out, n: out.length };
+    };
+    let best = null; for (let k = 0, sc = 1; k < 9; k++, sc *= .87) { const res = tryAt(sc); if (!best || res.n > best.n) best = res; if (res.ok) { best = res; break; } }
+    const pos = {}; best.out.forEach(p => { pos[p.it.key] = p; });
+    Array.prototype.forEach.call(cl.children, el => {
+      const k = el.getAttribute('data-w'); if (!k) return; const p = pos[k];
+      if (!p) { el.style.visibility = 'hidden'; return; }
+      el.style.visibility = ''; el.style.left = (p.x / W * 100).toFixed(2) + '%'; el.style.top = (p.y / H * 100).toFixed(2) + '%'; el.style.fontSize = p.fs + 'px';
+      const op = (.72 + .28 * (items[0].n === items[items.length - 1].n ? 1 : (p.it.n - nmin) / (nmax - nmin))).toFixed(2); if (el.style.opacity !== op) el.style.opacity = op;
+    });
+  },
+  // بعد ضبط مقاس الشريحة: نعيد ترتيب السحابة فورًا (دون انتقال) حتى لا تتحرك الكلمات من الوسط عند كل رسم
+  afterFit(root) {
+    const boxes = $$('.lv-box', root || document).filter(b => $('.lv-cloud', b)); if (!boxes.length) return;
+    boxes.forEach(b => b.classList.add('lv-init')); LiveSlides.relayout(root);
+    requestAnimationFrame(() => requestAnimationFrame(() => boxes.forEach(b => b.classList.remove('lv-init'))));
+  },
+  relayout(root) { $$('.lv-cloud', root || document).forEach(cl => { cl._sig = null; if (cl._items) LiveSlides.layout(cl); }); },
+  // ---------- الكتابة ----------
+  async save(box, data) {
+    const id = box.getAttribute('data-lv'); const me = Me.uid(); if (!me || !Me.isReg() || Admin.ok()) return false;
+    data.ts = DB.now();
+    try { await DB.set('posts/' + id + '/' + me, data, { quiet: true }); return true; }
+    catch (e) { LiveSlides.msg(box, 'تعذّر الإرسال، حاول مرة أخرى', true); return false; }
+  },
+  msg(box, t, bad) {
+    let el = $('.lv-flash', box); if (!el) { el = document.createElement('span'); el.className = 'lv-flash'; (($('[data-lv-msg]', box) || $('.lv-form-r', box) || $('.lv-form', box) || $('.lv-top', box))).appendChild(el); }
+    el.textContent = t; el.classList.toggle('bad', !!bad); el.classList.remove('on'); void el.offsetWidth; el.classList.add('on'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('on'), 2600);
+  },
+  async pick(box, v) {
+    const c = LiveSlides.cfgOf(box); if (!c || LiveSlides.role() !== 'user') return; const id = box.getAttribute('data-lv');
+    if (c.kind === 'mcq' && isRevealed({ id })) return;
+    const T = LiveSlides.tally(c, id); if (T.mine === v) return;
+    if (c.kind === 'scale') { if (!Number.isInteger(v) || v < c.min || v > c.smax) return; } else if (!Number.isInteger(v) || v < 0 || v >= c.options.length) return;
+    await LiveSlides.save(box, { v });
+  },
+  async send(box) {
+    const c = LiveSlides.cfgOf(box); if (!c || LiveSlides.role() !== 'user') return; const btn = $('[data-lv-act="send"]', box);
+    if (btn && btn._busy) return; if (btn) { btn._busy = true; setTimeout(() => { btn._busy = false; }, 700); }
+    if (c.kind === 'text') {
+      const ta = $('.lv-ta', box); const v = String(ta.value || '').replace(/\s+/g, ' ').trim().slice(0, c.max);
+      if (!v) { LiveSlides.msg(box, 'اكتب إجابتك أولًا', true); return; }
+      const d = { v }; if (c.names) { const nm = String((Me.data && Me.data.name) || '').trim().split(/\s+/)[0] || ''; if (nm) d.n = nm.slice(0, 30); }
+      if (await LiveSlides.save(box, d)) { ta._touched = false; LiveSlides.msg(box, '✅ وصلت إجابتك'); }
+    } else if (c.kind === 'cloud') {
+      const seen = {}; const ws = []; $$('.lv-in', box).forEach(x => { const nw = LiveSlides.normWord(x.value, c.max); if (nw && !seen[nw.key] && ws.length < c.words) { seen[nw.key] = 1; ws.push(nw.disp); } });
+      if (!ws.length) { LiveSlides.msg(box, 'اكتب كلمة واحدة على الأقل', true); return; }
+      if (await LiveSlides.save(box, { words: ws })) { $$('.lv-in', box).forEach(x => { x._touched = false; }); LiveSlides.msg(box, '✅ وصلت كلماتك'); }
+    }
+  },
+  // ---------- أدوات المدرب ----------
+  async confirm(msg, o) { const p = UI.confirm(msg, o); const fe = document.fullscreenElement; const mb = $$('.modal-back').pop(); if (fe && mb) fe.appendChild(mb); return p; },
+  titleOf(box) { const a = Content.axis(box.getAttribute('data-ax')); const s = a && a.slides[+box.getAttribute('data-i')]; return s ? String(s.title || '').replace(/\*\*/g, '') : ''; },
+  async invite(box) {
+    const ax = box.getAttribute('data-ax'), i = +box.getAttribute('data-i'); const iv = Store.invite;
+    if (iv && iv.id && iv.ax === ax && +iv.s === i) { try { await DB.remove('invite', { quiet: true }); LiveSlides.msg(box, 'أُلغيت الدعوة'); } catch (e) { LiveSlides.msg(box, 'تعذّر إلغاء الدعوة', true); } return; }
+    try { await DB.set('invite', { id: genId('i'), ax, s: i, title: LiveSlides.titleOf(box).slice(0, 200), ts: DB.now() }, { quiet: true }); LiveSlides.msg(box, '📣 أُرسلت الدعوة إلى المتدربين'); }
+    catch (e) { UI.alert(Presence.rulesHint(e), 'تعذّر إرسال الدعوة'); }
+  },
+  async reveal(box) { const id = box.getAttribute('data-lv'); try { const cur = await DB.get('reveal/' + id); await DB.set('reveal/' + id, cur ? null : true, { quiet: true }); LiveSlides.msg(box, cur ? '🔒 أُخفيت الإجابة' : '🔓 كُشفت الإجابة للمتدربين'); } catch (e) { LiveSlides.msg(box, 'تعذّر التنفيذ', true); } },
+  async clear(box) {
+    const id = box.getAttribute('data-lv'); const n = LiveSlides.entries(id).length;
+    if (!(await LiveSlides.confirm('سيُحذف نهائيًا كل ما أجاب به المتدربون عن هذا السؤال (' + n + ' إجابة). هل تريد المتابعة؟', { danger: true, ok: 'مسح الإجابات', title: 'مسح إجابات هذه الشريحة' }))) return;
+    try { await DB.remove('posts/' + id, { quiet: true }); LiveSlides.seen[id] = new Set(); LiveSlides.msg(box, '🗑 مُسحت الإجابات'); } catch (e) { LiveSlides.msg(box, 'تعذّر المسح', true); }
+  },
+  // ---------- الرابط والباركود ----------
+  link(ax, i) { return location.href.split('#')[0].split('?')[0] + (DEMO_MODE ? location.search : '') + '#' + cparam() + 'v=axis&id=' + encodeURIComponent(ax) + '&s=' + i; },
+  async qrSvg(url) { await loadScript(QR_LIB); const q = window.qrcode(0, 'M'); q.addData(url); q.make(); return q.createSvgTag({ cellSize: 8, margin: 2, scalable: true }); },
+  qrCard(url, title) { return '<div class="lv-qrc"><h3>📱 امسح للمشاركة</h3>' + (title ? '<div class="lv-qr-t">' + h(title) + '</div>' : '') + '<div class="lv-qr-big"><div class="pr-empty">⏳</div></div><div class="lv-qr-url num" dir="ltr">' + h(url.replace(/^https?:\/\//, '')) + '</div></div>'; },
+  fillQr(el, url) { LiveSlides.qrSvg(url).then(svg => { const b = $('.lv-qr-big', el); if (b) b.innerHTML = svg; }).catch(() => { const b = $('.lv-qr-big', el); if (b) b.innerHTML = '<div class="pr-empty">تعذّر إنشاء الباركود، استخدم الرابط أدناه</div>'; }); },
+  qr(box) {
+    const ax = box.getAttribute('data-ax'), i = +box.getAttribute('data-i'); const url = LiveSlides.link(ax, i); const title = LiveSlides.titleOf(box);
+    const m = UI.modal(LiveSlides.qrCard(url, title) + '<div class="actions"><button type="button" class="btn btn-soft" data-copy-link>نسخ الرابط</button><button type="button" class="btn btn-ghost" data-x>إغلاق</button></div>', { wide: true, onClose: () => LiveSlides.projectQr(null) });
+    const fe = document.fullscreenElement; if (fe) fe.appendChild(m.el.parentNode);
+    $('[data-x]', m.el).onclick = () => m.close();
+    $('[data-copy-link]', m.el).onclick = async ev => { try { await navigator.clipboard.writeText(url); ev.target.textContent = 'تم النسخ'; } catch (e) { ev.target.textContent = 'انسخ الرابط من الأسفل'; } };
+    LiveSlides.fillQr(m.el, url); LiveSlides.projectQr({ ax, i, url, title });
+  },
+  // يُعرض الباركود أيضًا على نافذة العرض (البروجكتر) عبر قناة التزامن بين النوافذ
+  projectQr(st) { LiveSlides._qrOn = st; if (Deck.bc) try { Deck.bc.postMessage(st ? { t: 'lvqr', on: true, id: st.ax, url: st.url, title: st.title } : { t: 'lvqr', on: false }); } catch (e) {} },
+  onQr(m) {
+    $$('.lv-qr-over').forEach(x => x.remove()); if (!m.on || Router.cur.view !== 'show') return;
+    const host = document.fullscreenElement || document.body; const o = document.createElement('div'); o.className = 'lv-qr-over'; o.innerHTML = LiveSlides.qrCard(String(m.url || ''), String(m.title || '')); host.appendChild(o); LiveSlides.fillQr(o, String(m.url || ''));
+  },
+  resendQr() { const s = LiveSlides._qrOn; if (s) LiveSlides.projectQr(s); },
+  // ---------- التكامل مع الموجّه والمراقبات ----------
+  curId() {
+    if (Router.cur.view !== 'axis' && Router.cur.view !== 'show') return null; const a = Content.axis(Router.cur.id); if (!a) return null;
+    const i = UIState.deck[a.id] || 0; const s = a.slides[i]; return s && LiveSlides.cfg(s) ? LiveSlides.idOf(s, a, i) : null;
+  },
+  onSlide(id, i) {
+    if ((Router.cur.view === 'axis' || Router.cur.view === 'show') && Router.cur.id === id) { Router.cur.s = i; clearTimeout(LiveSlides._st); LiveSlides._st = setTimeout(() => Router.syncHash(), 250); }
+    try { Presence.update(); } catch (e) {}
+    const deck = $('[data-deck="' + id + '"]'); const sl = deck && $$('.slide', deck)[i]; if (sl) { LiveSlides.relayout(sl); $$('.lv-box', sl).forEach(b => LiveSlides.patchBox(b)); }
+  },
+  nonLv(v) { if (!v) return ''; const o = {}; let n = 0; Object.keys(v).forEach(k => { if (k.indexOf('lv_') !== 0) { o[k] = v[k]; n++; } }); return n ? JSON.stringify(o) : ''; },
+  // يعيد true إن كان التغيير لا يحتاج إعادة رسم الصفحة (نحدّث صناديق الأسئلة الحية فقط)
+  light(path, v) {
+    let same = false;
+    if (path === 'posts' || path === 'reveal') { const s = LiveSlides.nonLv(v); const prev = LiveSlides._sig[path]; LiveSlides._sig[path] = s; same = prev !== undefined && prev === s; }
+    else if (!DB.real && path !== 'presence' && path !== 'invite') { const s = JSON.stringify(v == null ? null : v); const prev = LiveSlides._sig[path]; LiveSlides._sig[path] = s; same = prev !== undefined && prev === s; }
+    const v0 = Router.cur.view; if ((v0 !== 'axis' && v0 !== 'show') || !App.dataReady || Course.stage !== 'full') return false;
+    if (path === 'posts' || path === 'reveal') { if (!same) return false; }
+    else if (path !== 'presence' && path !== 'invite') { if (DB.real || !same) return false; return true; }
+    LiveSlides.patchAll(); return true;
+  }
+};
+// ---------- التفاعلات ----------
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-lv-pick],[data-lv-act],[data-lv-del]'); if (!b || b.disabled) return; const box = b.closest('.lv-box'); if (!box) return;
+  if (!Session.check()) return; ev.stopPropagation();
+  if (b.hasAttribute('data-lv-pick')) { LiveSlides.pick(box, +b.getAttribute('data-lv-pick')); return; }
+  if (b.hasAttribute('data-lv-del')) { if (Admin.ok()) DB.remove('posts/' + box.getAttribute('data-lv') + '/' + b.getAttribute('data-lv-del'), { quiet: true }).catch(() => {}); return; }
+  const act = b.getAttribute('data-lv-act'); try { b.blur(); } catch (e) {} // حتى لا يعترض زر المؤشر مفتاح المسافة بعد الضغط
+  if (act === 'send') LiveSlides.send(box);
+  else if (act === 'login') { Presence.leave(); Me.clear(); syncWatchers(); App.render(); }
+  else if (!Admin.ok()) return;
+  else if (act === 'invite') LiveSlides.invite(box);
+  else if (act === 'qr') LiveSlides.qr(box);
+  else if (act === 'reveal') LiveSlides.reveal(box);
+  else if (act === 'clear') LiveSlides.clear(box);
+}, true);
+document.addEventListener('input', ev => {
+  const t = ev.target; if (!t.closest || !t.closest('.lv-box')) return; t._touched = true; if (t.classList.contains('lv-ta')) LiveSlides.ccount(t);
+});
+document.addEventListener('keydown', ev => {
+  const t = ev.target; if (!t || !t.closest || !t.closest('.lv-box') || ev.isComposing) return;
+  if (ev.key === 'Enter' && !ev.shiftKey && (t.classList.contains('lv-in') || t.classList.contains('lv-ta'))) { ev.preventDefault(); LiveSlides.send(t.closest('.lv-box')); }
+});
+try { if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => { LiveSlides._wm = {}; LiveSlides.relayout(); }); } catch (e) {}
+/* ===== 06h-search.js ===== */
+// ---------------------------------------------------------------------
+// البحث في الصفحة الرئيسية: أسماء المحاور والتمارين (والأنشطة وتقييم الختام) مع الدخول المباشر
+// - يتجاهل التشكيل واختلاف الهمزات والياء/الألف المقصورة والتاء المربوطة، ويطابق كل كلمة يكتبها المستخدم.
+// - نص البحث يُحفظ في UIState فتُعاد النتائج تلقائيًا عند تحديث الصفحة بالبيانات الحية.
+// ---------------------------------------------------------------------
+const HomeSearch = {
+  norm(s) {
+    return String(s || '').toLowerCase().replace(/[ً-ٰٟـ]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[ؤ]/g, 'و').replace(/[ئ]/g, 'ي')
+      .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  },
+  index() {
+    const list = []; const add = (kind, e, axis, section) => list.push({ kind, id: e.id, title: e.title, icon: e.icon, axis, section, mode: e.mode, format: e.format, n: HomeSearch.norm(e.title), h: '' }); // التمارين تُطابَق بعنوانها هي فقط (اسم المحور يُعرض تحتها للسياق)
+    Content.axes().forEach(a => { list.push({ kind: 'axis', id: a.id, title: a.title, icon: null, aicon: a.icon, color: Content.color(a), unit: Content.unitName(a.unit), soon: !!a._disabled, sub: a.classic || '', n: HomeSearch.norm(a.title), h: HomeSearch.norm(a.classic || '') }); if (!a._disabled) Content.exercisesOf(a.id).forEach(e => add('ex', e, a)); });
+    Content.activities().forEach(e => add('ex', e, null, 'أنشطة الطاقة'));
+    const sv = Content.survey(); if (sv) add('ex', sv, null, 'ختام البرنامج');
+    return list;
+  },
+  run(q) {
+    const toks = HomeSearch.norm(q).split(' ').filter(Boolean); if (!toks.length) return [];
+    const res = [];
+    HomeSearch.index().forEach(it => {
+      const all = it.n + ' ' + it.h; if (!toks.every(t => all.indexOf(t) > -1)) return;
+      let score = it.kind === 'axis' ? 10 : 0; const full = toks.join(' ');
+      if (it.n === full) score += 100; else if (it.n.indexOf(full) === 0) score += 60; else if (it.n.indexOf(full) > -1) score += 40; else if (toks.every(t => it.n.indexOf(t) > -1)) score += 25;
+      res.push({ it, score });
+    });
+    return res.sort((a, b) => b.score - a.score).map(x => x.it);
+  },
+  mark(text, q) { // إبراز الكلمات المطابقة في العنوان
+    const toks = HomeSearch.norm(q).split(' ').filter(Boolean); const raw = String(text || ''); if (!toks.length) return h(raw);
+    const nr = HomeSearch.norm(raw); if (nr.length !== raw.length) return h(raw); // اختلاف الطول = تطبيع غيّر المواضع، نتخلى عن الإبراز
+    const mask = new Array(raw.length).fill(false); toks.forEach(t => { let i = -1; while ((i = nr.indexOf(t, i + 1)) > -1) for (let k = i; k < i + t.length; k++) mask[k] = true; });
+    let out = '', open = false; for (let i = 0; i < raw.length; i++) { if (mask[i] && !open) { out += '<mark>'; open = true; } if (!mask[i] && open) { out += '</mark>'; open = false; } out += h(raw[i]); } return out + (open ? '</mark>' : '');
+  },
+  item(it, q) {
+    const go = it.kind === 'axis' ? 'data-act="open-axis" data-id="' + h(it.id) + '"' : 'data-go="ex" data-id="' + h(it.id) + '"';
+    const ico = it.kind === 'axis' ? '<span class="hs-ico" style="background:' + it.color + '">' + iconSvg(it.aicon || 'star', 18, '#fff') + '</span>' : '<span class="hs-ico ex">' + h(it.icon || '✍️') + '</span>';
+    const sub = it.kind === 'axis' ? 'محور' + (it.unit ? ' · ' + h(it.unit) : '') + (it.soon ? ' · قريبًا' : '') : (it.axis ? 'تمرين · ' + h(it.axis.title) : h(it.section || 'تمرين'));
+    const tag = it.kind === 'ex' ? '<span class="hs-tag">' + (it.mode === 'group' ? '👥' : '👤') + ' ' + h(FORMATS[it.format] || 'نصية') + '</span>' : '';
+    return '<button class="hs-item" role="option" ' + go + '>' + ico + '<span class="hs-txt"><b>' + HomeSearch.mark(it.title, q) + '</b><small>' + sub + '</small></span>' + tag + '<span class="hs-go">‹</span></button>';
+  },
+  results(q) {
+    if (!HomeSearch.norm(q)) return '';
+    const r = HomeSearch.run(q); if (!r.length) return '<div class="hs-empty">لا نتائج لـ «' + h(q.trim()) + '»، جرّب كلمة أقصر أو جزءًا من العنوان.</div>';
+    const axes = r.filter(x => x.kind === 'axis'), exs = r.filter(x => x.kind === 'ex'); const LIM = 8;
+    let out = '<div class="hs-count">' + r.length + ' نتيجة</div>';
+    if (axes.length) out += '<div class="hs-group">المحاور</div>' + axes.slice(0, LIM).map(x => HomeSearch.item(x, q)).join('') + (axes.length > LIM ? '<div class="hs-more">و<span class="num">' + (axes.length - LIM) + '</span> محاور أخرى، أضف كلمة لتضييق البحث</div>' : '');
+    if (exs.length) out += '<div class="hs-group">التمارين وأنشطة الطاقة</div>' + exs.slice(0, LIM + 4).map(x => HomeSearch.item(x, q)).join('') + (exs.length > LIM + 4 ? '<div class="hs-more">و<span class="num">' + (exs.length - LIM - 4) + '</span> نتيجة أخرى، أضف كلمة لتضييق البحث</div>' : '');
+    return out;
+  },
+  html() {
+    const q = UIState.homeQ || '';
+    return '<section class="home-search"><div class="hs-box"><span class="hs-lens">' + iconSvg('search', 18) + '</span><input type="search" id="homeSearch" data-keep="home-search" data-home-search autocomplete="off" enterkeyhint="search" placeholder="ابحث في المحاور والتمارين، مثال: تفاوض، قيمة، اعتراض" aria-label="بحث في المحاور والتمارين" value="' + h(q) + '"><button class="hs-clear" data-act="hs-clear" aria-label="مسح البحث" ' + (q ? '' : 'hidden') + '>✕</button></div>' +
+      '<div class="hs-results" id="homeSearchRes" role="listbox" aria-live="polite">' + HomeSearch.results(q) + '</div></section>';
+  },
+  update(val) {
+    UIState.homeQ = val; const box = document.getElementById('homeSearchRes'); if (box) box.innerHTML = HomeSearch.results(val);
+    const c = document.querySelector('.hs-clear'); if (c) c.hidden = !val;
+  }
+};
+document.addEventListener('input', ev => { const t = ev.target; if (t && t.hasAttribute && t.hasAttribute('data-home-search')) HomeSearch.update(t.value); });
+document.addEventListener('keydown', ev => {
+  const t = ev.target; if (!t || !t.hasAttribute || !t.hasAttribute('data-home-search')) {
+    if (t && t.classList && t.classList.contains('hs-item') && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) { ev.preventDefault(); const all = [...document.querySelectorAll('.hs-item')]; const i = all.indexOf(t); const n = all[i + (ev.key === 'ArrowDown' ? 1 : -1)]; if (n) n.focus(); else if (ev.key === 'ArrowUp') document.getElementById('homeSearch').focus(); }
+    return;
+  }
+  if (ev.key === 'Enter') { const f = document.querySelector('.hs-item'); if (f) { ev.preventDefault(); f.click(); } }
+  else if (ev.key === 'Escape') { t.value = ''; HomeSearch.update(''); }
+  else if (ev.key === 'ArrowDown') { const f = document.querySelector('.hs-item'); if (f) { ev.preventDefault(); f.focus(); } }
+});
+/* ===== 07-admin.js ===== */
+// ---------------------------------------------------------------------
+// لوحة الأدمن، شاشة واحدة متصلة + نماذج الإنشاء/التعديل
+// ---------------------------------------------------------------------
+const Bell = {
+  events() {
+    const ev = [];
+    Object.keys(Store.users || {}).forEach(u => { const x = Store.users[u]; if (x && x.ts) ev.push({ ts: x.ts, html: '🆕 <b>' + h(x.name) + '</b> سجّل في البرنامج' }); });
+    Object.keys(Store.posts || {}).forEach(exId => { if (exId.indexOf('lv_') === 0) return; const ps = Store.posts[exId] || {}; const t = Content.exTitle(exId); Object.keys(ps).forEach(k => { const p = ps[k]; if (p && p.ts) ev.push({ ts: p.ts, html: '✍️ <b>' + h(k.charAt(0) === 'g' && p.group ? Groups.label(p.group) + ' (' + (p.name || '') + ')' : (p.name || 'مشارك')) + '</b> شارك في «' + h(t) + '»' }); }); });
+    Object.keys(Store.labAnswers || {}).forEach(g => { const ga = Store.labAnswers[g] || {}; Object.keys(ga).forEach(s => { const a = ga[s]; if (a && a.ts) ev.push({ ts: a.ts, html: '🧪 <b>' + h(Groups.label(+g.slice(1))) + '</b> حفظت مرحلة في المختبر الختامي' }); }); });
+    ['pre', 'post'].forEach(ph => { const o = (Store.assess || {})[ph] || {}; Object.keys(o).forEach(u => { const x = o[u]; if (x && x.done && x.ts) ev.push({ ts: x.ts, html: '📋 <b>' + h(x.name || '') + '</b> أنجز ' + (ph === 'pre' ? 'التقييم القبلي' : 'التقييم البعدي') }); }); });
+    Object.keys(Store.attendance || {}).forEach(u => { const x = Store.attendance[u] || {}; Object.keys(x).filter(k => /^t\d+$/.test(k)).forEach(k => ev.push({ ts: x[k], html: '📍 <b>' + h((Store.users[u] || {}).name || '') + '</b> سجّل حضور اليوم ' + k.slice(1) })); });
+    return ev.sort((a, b) => b.ts - a.ts).slice(0, 80);
+  },
+  seen() { return +(SafeLS.get('ec_bell_seen') || 0); }, // تفضيل عرض محلي على جهاز المدرّب فقط
+  html() {
+    const ev = Bell.events(); const seen = Bell.seen(); const unread = ev.filter(e => e.ts > seen).length;
+    return '<div class="bell-wrap"><button class="icon-btn" data-act="bell" title="الإشعارات">' + iconSvg('bell', 19) + (unread ? '<span class="bell-dot num">' + (unread > 99 ? '99+' : unread) + '</span>' : '') + '</button>' +
+      (UIState.bellOpen ? '<div class="bell-menu">' + (ev.length ? ev.map(e => '<div class="bell-item ' + (e.ts > seen ? 'unread' : '') + '"><div class="grow">' + e.html + '<div class="t">' + ago(e.ts) + '</div></div></div>').join('') : '<div class="empty">لا توجد إشعارات بعد.</div>') + '</div>' : '') + '</div>';
+  }
+};
+function adminHeader(title) {
+  return '<div class="admin-top"><h1>' + h(title) + '</h1>' + Bell.html() + '<button class="btn btn-primary btn-sm" data-go="present">🎤 وضع العرض</button><button class="btn btn-ghost btn-sm" data-go="home" title="تصفح الواجهة التعليمية بحساب الإدارة مع إتاحة كل التمارين">🌐 عرض المنصة</button><button class="btn btn-danger btn-sm" data-act="admin-exit">خروج من الإدارة</button></div>';
+}
+function band(title, color, extra = '') { return '<div class="admin-band" style="--bc:' + color + '"><span class="bar"></span><h2>' + h(title) + '</h2><span class="grow"></span>' + extra + '</div>'; }
+function tool(key, icon, color, title, body, foot, cls = '') {
+  return '<div class="tool ' + cls + '" data-tool="' + key + '"><div class="th"><span class="ti" style="background:' + tint(color, .14) + ';color:' + color + '">' + icon + '</span><h4>' + h(title) + '</h4></div><div class="tb">' + body + '</div><div class="tf">' + foot + '</div></div>';
+}
+function drop(key, inner) { return UIState.openDrop.has(key) ? '<div class="tool-drop" data-drop="' + key + '">' + inner + '</div>' : ''; }
+function tags(x) { return (x._added ? '<span class="tag added">مضاف</span> ' : '') + (x._modified ? '<span class="tag mod">معدَّل</span> ' : '') + (x._hidden ? '<span class="tag hid">مخفي</span> ' : '') + (x._disabled ? '<span class="tag off">معطّل</span> ' : ''); }
+
+function exSummary(e) {
+  if (e.kind === 'survey') { const st = SurveyStats.of(Store.posts[e.id], e); if (st.n) return '<div class="summary"><b class="num">' + st.n + '</b> تقييم · متوسط الرضا <b class="num">' + (st.overall ? st.overall.toFixed(2) : '-') + '</b>/5 · NPS <b class="num">' + (st.nps == null ? '-' : st.nps) + '</b>' + st.rates.map((r, i) => '<div class="it"><span class="grow">' + h(r) + '</span><b class="num">' + (st.avgs[i] ? st.avgs[i].toFixed(2) : '-') + '</b></div>').join('') + '</div>'; }
+  const ps = Store.posts[e.id] || {}; const keys = Object.keys(ps).filter(k => ps[k]).sort((a, b) => (ps[b].ts || 0) - (ps[a].ts || 0));
+  if (!keys.length) return '<div class="summary">لا مشاركات بعد.</div>';
+  const reveal = isRevealed(e);
+  return '<div class="summary"><b class="num">' + keys.length + '</b> مشاركة' + (e.kind !== 'survey' ? ' · ' + (reveal ? '🔓 مكشوفة' : '🔒 غير مكشوفة') : '') +
+    keys.slice(0, 30).map(k => { const p = ps[k]; const who = k.charAt(0) === 'g' && e.mode === 'group' ? Groups.label(+k.slice(1)) : (p.name || 'مشارك');
+      let brief = '';
+      if (e.format === 'text') brief = h(String(p.text || '').slice(0, 140)) + (String(p.text || '').length > 140 ? '' : '');
+      else if (e.format === 'sim') brief = h(p.summary || '') + (p.metric != null && Sims.of(e).hidden ? ' · النتيجة <b class="num">' + h(p.metric) + '%</b>' : '');
+      else { const a = ansList(p.answers, e.items.length); let sc = 0; e.items.forEach((it, i) => { const v = a[i]; if (v == null) return; if (e.format === 'mcq' ? +v === +it.answer : e.format === 'truefalse' ? ((v === true || v === 'true') === !!it.answer) : v === it.answer) sc++; }); brief = 'الصحيح: ' + sc + ' من ' + e.items.length; }
+      return '<div class="it"><b>' + h(who) + ':</b><span class="grow">' + brief + '</span><button class="del-btn" data-act="del-post" data-ex="' + h(e.id) + '" data-k="' + h(k) + '" title="حذف هذه المشاركة وحدها">🗑</button></div>'; }).join('') + '</div>';
+}
+function exRow(e, o = {}) {
+  const isDef = !!DEF_EX[e.id];
+  return '<div class="ex-row"><div class="live-row">' + Presence.chip(e.id) + Invite.btn(e) + Reveal.btn(e) + '</div><div class="top"><span style="font-size:18px">' + h(e.icon || '✍️') + '</span><span class="nm">' + h(e.title) + ' ' + tags(e) + '<span class="tag fmt">' + h(FORMATS[e.format] || '') + ' · ' + (e.mode === 'group' ? 'جماعي' : 'فردي') + '</span></span>' +
+    (o.kind !== 'survey' ? '<button class="btn btn-ghost btn-xs" data-act="ex-move" data-d="-1" data-id="' + h(e.id) + '" data-key="' + h(o.axis || '_acts') + '" title="تحريك لأعلى">▲</button><button class="btn btn-ghost btn-xs" data-act="ex-move" data-d="1" data-id="' + h(e.id) + '" data-key="' + h(o.axis || '_acts') + '" title="تحريك لأسفل">▼</button>' : '') +
+    '<button class="btn btn-soft btn-xs" data-go="' + (o.kind === 'activity' || o.kind === 'survey' ? 'actEdit' : 'exEdit') + '" data-id="' + h(e.id) + '"' + (o.axis ? ' data-axis="' + h(o.axis) + '"' : '') + '>✏️ تعديل</button>' +
+    '<button class="btn btn-ghost btn-xs" data-act="toggle-vis" data-id="' + h(e.id) + '">' + (e._hidden ? '👁 إظهار' : '🙈 إخفاء') + '</button>' +
+    (o.kind !== 'survey' ? '<button class="btn btn-ghost btn-xs" data-act="copy-ex" data-id="' + h(e.id) + '">🧬 نسخ</button>' : '') +
+    (isDef && e._modified ? '<button class="btn btn-ghost btn-xs" data-act="reset-ex" data-id="' + h(e.id) + '">🔄 استرجاع الافتراضي</button>' : '') + (o.kind !== 'survey' ? '<button class="btn btn-danger btn-xs" data-act="delete-ex" data-id="' + h(e.id) + '">🗑 حذف التمرين</button>' : '') +
+    (o.kind !== 'survey' ? '<button class="btn btn-danger btn-xs" data-act="clear-posts" data-id="' + h(e.id) + '">🧹 مسح المشاركات</button>' : '') + // تقييمات الختام لها زر مسح مستقل في قسم «ختام البرنامج»
+    '</div>' + exSummary(e) + '</div>';
+}
+
+Views.admin = {
+  // المحاور والتمارين الأصلية المحذوفة: تبقى قابلة للاسترجاع (المشاركات حُذفت نهائيًا عند الحذف)
+  // مسح تقييمات ختام البرنامج: زر مستقل تمامًا، ولا تمسّها «إعادة الضبط الشاملة»
+  surveyClear(sv) {
+    const n = Object.keys((Store.posts || {})[sv.id] || {}).filter(k => (Store.posts[sv.id] || {})[k]).length;
+    return '<div class="survey-clear"><div><b>🗑 مسح تقييمات ختام البرنامج</b><div class="muted" style="font-size:12.5px">التقييمات المسجَّلة الآن: <b class="num">' + n + '</b>. هذا الزر مستقل عن «إعادة الضبط الشاملة» التي لا تمسّ هذه التقييمات أبدًا.</div></div>' +
+      '<button class="btn btn-danger btn-sm" data-act="survey-clear" ' + (n ? '' : 'disabled') + '>🗑 مسح التقييمات (<span class="num">' + n + '</span>)</button></div>';
+  },
+  removedBtn() { const r = Store.removed || {}; const n = Object.keys(r.axes || {}).length + Object.keys(r.ex || {}).length; return n ? '<button class="btn btn-ghost btn-sm" data-act="drop" data-k="removed">🗑 المحذوفات (<span class="num">' + n + '</span>)</button>' : ''; },
+  removedList() {
+    const r = Store.removed || {}; const row = (kind, id, title) => '<div class="person"><span class="nm">' + h(title) + '</span><span class="muted">' + (kind === 'axes' ? 'محور' : 'تمرين') + '</span><button class="btn btn-soft btn-xs" data-act="restore-removed" data-kind="' + kind + '" data-id="' + h(id) + '">🔄 استرجاع</button></div>';
+    return '<div class="tool-drop" data-drop="removed"><div class="people-list">' + Object.keys(r.axes || {}).filter(id => DEF_AXIS[id]).map(id => row('axes', id, DEF_AXIS[id].title)).join('') + Object.keys(r.ex || {}).filter(id => DEF_EX[id]).map(id => row('ex', id, DEF_EX[id].title)).join('') + '</div></div>';
+  },
+  html() {
+    const users = Store.users || {}; const uids = Object.keys(users).sort((a, b) => (users[a].ts || 0) - (users[b].ts || 0));
+    const ach = Progress.achievers(); const s = Content.site(); const pdf = Content.pdf();
+    let out = ''; const blocks = {}; let curId = null; const B = id => { if (curId) blocks[curId] = (blocks[curId] || '') + out; out = ''; curId = id; };
+    B('users');
+    out += tool('users', '👥', '#4C3AA7', 'المسجّلون', '<div class="bigno num">' + uids.length + '</div>اسم مسجّل في قاعدة البيانات', '<button class="btn btn-soft btn-xs" data-act="drop" data-k="users">' + (UIState.openDrop.has('users') ? 'إخفاء' : 'عرض') + ' القائمة</button><button class="btn btn-danger btn-xs" data-act="clear-names">مسح أسماء المسجّلين فقط</button>');
+    out += drop('users', '<div class="field"><input data-keep="users-search" data-filter=".person" placeholder="🔍 بحث بالاسم"></div><div class="people-list">' + (uids.length ? uids.map(u => '<div class="person" data-name="' + h((users[u].name || '').toLowerCase()) + '"><span class="nm">' + h(users[u].name) + '</span><span class="muted">' + h(users[u].role || '') + '</span><span class="pill num">#' + pad4(users[u].member || 0) + '</span>' + ((Store.secrets || {})[u] ? '<span class="pill num notranslate" translate="no" dir="ltr" title="رمز الدخول الشخصي" style="user-select:all">🔑 ' + h(Store.secrets[u]) + '</span>' : '<span class="pill" title="لا يوجد رمز دخول بعد">🔑 -</span>') + '<button class="btn btn-ghost btn-xs" data-act="code-copy" data-uid="' + h(u) + '" title="نسخ رسالة فيها رقم العضوية والرمز لإرسالها للمتدرب">📋</button><button class="btn btn-ghost btn-xs" data-act="code-new" data-uid="' + h(u) + '" title="توليد رمز جديد وإلغاء ربط الأجهزة الأخرى">🔄 رمز جديد</button><span class="muted">' + fmtDate(users[u].ts) + '</span><button class="btn btn-danger btn-xs" data-act="del-user" data-uid="' + h(u) + '" title="حذف حساب هذا المتدرب وكل مشاركاته نهائيًا">🗑 حذف</button></div>').join('') : '<div class="empty">لا يوجد مسجّلون.</div>') + '</div>');
+    B('groups');
+    out += tool('groups', '🧩', '#00A653', 'إدارة المجموعات', '<div class="feat-sws"><button class="feat-sw' + (Groups.enabled() ? ' on' : '') + '" data-act="groups-toggle" role="switch" aria-checked="' + Groups.enabled() + '"><i></i><span>وضع المجموعات</span></button></div>' + (Groups.enabled() ? '' : '<div class="notice" style="margin:0 0 8px">معطّل: كل تمارين المجموعات تعمل الآن كتمارين فردية، ولا يُطلب من المتدرب اختيار مجموعة.</div>') + '<div class="row"><input type="number" min="2" max="30" id="grpCount" data-keep="grp-count" value="' + Groups.count() + '" style="width:80px;border:1px solid var(--line);border-radius:10px;padding:6px 8px"><button class="btn btn-soft btn-xs" data-act="save-groups">حفظ العدد</button></div><div style="margin-top:6px">عدد المجموعات (2-30). التوزيع اليدوي إرشادي لا إلزامي.</div>', '<button class="btn btn-primary btn-xs" data-act="assign-open">🧭 توزيع</button>');
+    B('congrats');
+    out += tool('congrats', '🏆', '#F34D00', 'تهنئة الإنجاز', '<div class="bigno num">' + ach.length + '</div>متدرب بلغ <span class="num">80%</span> إجمالًا', '<button class="btn btn-soft btn-xs" data-act="drop" data-k="ach">الأسماء</button><button class="btn btn-soft btn-xs" data-act="congrats-preview" data-kind="congrats">معاينة</button><button class="btn btn-ghost btn-xs" data-act="drop" data-k="congEdit">تعديل المحتوى</button>');
+    out += drop('ach', ach.length ? '<div class="people-list">' + ach.map(u => '<div class="person"><span class="nm">🏆 ' + h(u.name) + '</span><span class="muted">' + h(u.role || '') + '</span></div>').join('') + '</div>' : '<div class="empty">لم يبلغ أحد 80% بعد.</div>');
+    out += drop('congEdit', Views.admin.congratsEditor('congrats'));
+    B('regform');
+    out += tool('regform', '📝', '#5B3A8A', 'نموذج التسجيل والخصوصية', '<span class="num">' + RegFields.visible().length + '</span> حقول ظاهرة من <span class="num">' + RegFields.all().length + '</span>. تحكم في الحقول المطلوبة والاختيارية وأضف حقولًا جديدة، وعدّل إشعار الخصوصية.', '<button class="btn btn-soft btn-xs" data-act="drop" data-k="regEdit">حقول التسجيل</button><button class="btn btn-ghost btn-xs" data-act="drop" data-k="privEdit">إشعار الخصوصية</button><button class="btn btn-ghost btn-xs" data-act="users-csv">📥 المسجّلون CSV</button>');
+    out += drop('regEdit', Views.admin.regEditor());
+    out += drop('privEdit', Views.admin.privacyEditor());
+    const ac = Attend.cfg(); const holders = Attend.holders(); const aOn = Attend.on(), cOn = Attend.certOn();
+    B('attend');
+    // مفاتيح تفعيل الميزتين: عند تعطيلهما يختفي كل ما يرتبط بهما عند المتدرب وفي التقارير ولوحة المشرف
+    const sw = (f, on, label, dis) => '<button class="feat-sw' + (on ? ' on' : '') + '" data-act="att-feature" data-f="' + f + '" role="switch" aria-checked="' + on + '"' + (dis ? ' disabled title="فعّل تسجيل الحضور أولًا، الشهادة تُمنح بنسبة الحضور"' : '') + '><i></i><span>' + label + '</span></button>';
+    const sws = '<div class="feat-sws">' + sw('enabled', aOn, 'تسجيل الحضور') + sw('cert', cOn, 'شهادة المشاركة', !aOn) + '</div>';
+    out += tool('attend', '📍', '#3A2A8A', 'الحضور وشهادة المشاركة', sws + (aOn ? (cOn ? '<div class="bigno num">' + holders.length + '</div>مستحق للشهادة (حضور ≥ <span class="num">' + ac.threshold + '%</span>)' : '<div class="muted" style="font-family:var(--f-ui);font-size:12.5px;margin-bottom:6px">الشهادة معطّلة، لا تظهر للمتدربين ولا في التقارير.</div>') + Attend.days().map(d => { const cd = ac.codes['d' + d] || {}; return '<div class="att-day"><b>اليوم <span class="num">' + d + '</span></b>' + (cd.code ? '<span class="att-code num notranslate" translate="no">' + h(cd.code) + '</span>' : '') + '<span class="pill ' + (cd.open ? 'open-pill' : '') + '">' + (cd.open ? 'مفتوح' : 'مغلق') + '</span></div>'; }).join('') : '<div class="muted" style="font-family:var(--f-ui);font-size:12.5px">معطّل، لا يظهر للمتدربين شريط تسجيل الحضور ولا نسبة الحضور ولا الشهادة، وتُحذف مؤشراتها من التقارير ولوحة المشرف (مثلًا إن كانت الجهة الراعية تتابع الحضور وتصدر الشهادات بنفسها). البيانات المسجّلة سابقًا تبقى محفوظة.</div>'),
+      aOn ? '<button class="btn btn-primary btn-xs" data-act="drop" data-k="attCtl">إدارة الحضور</button><button class="btn btn-soft btn-xs" data-act="drop" data-k="attSheet">سجل الحضور</button>' + (cOn ? '<button class="btn btn-ghost btn-xs" data-act="drop" data-k="certEdit">محتوى الشهادة</button><button class="btn btn-ghost btn-xs" data-act="congrats-preview" data-kind="cert">معاينة</button>' : '') : '');
+    if (aOn) { out += drop('attCtl', Views.admin.attCtl()); out += drop('attSheet', Views.admin.attSheet()); }
+    if (cOn) out += drop('certEdit', Views.admin.congratsEditor('cert'));
+    const acfg = Assess.cfg(); const apre = Assess.avg('pre'), apost = Assess.avg('post');
+    B('assess');
+    out += tool('assess', '📋', '#382F8A', 'التقييم القبلي والبعدي', '<div class="row" style="gap:14px"><div><div class="bigno num">' + (apre == null ? '-' : Math.round(apre) + '%') + '</div>قبلي · <span class="num">' + Assess.list('pre').length + '</span></div><div><div class="bigno num">' + (apost == null ? '-' : Math.round(apost) + '%') + '</div>بعدي · <span class="num">' + Assess.list('post').length + '</span></div></div>' + (apre != null && apost != null ? '<div style="margin-top:4px">التحسن: <b class="num">' + (apost - apre >= 0 ? '+' : '') + Math.round(apost - apre) + '</b> نقطة</div>' : ''),
+      '<button class="btn btn-xs ' + (acfg.pre === 'open' ? 'btn-danger' : 'btn-primary') + '" data-act="as-toggle" data-ph="pre">' + (acfg.pre === 'open' ? '🔒 إغلاق القبلي' : '🟢 فتح القبلي') + '</button><button class="btn btn-xs ' + (acfg.post === 'open' ? 'btn-danger' : 'btn-primary') + '" data-act="as-toggle" data-ph="post">' + (acfg.post === 'open' ? '🔒 إغلاق البعدي' : '🟢 فتح البعدي') + '</button><button class="btn btn-mint btn-xs" data-act="as-reveal">' + (acfg.reveal ? '🔒 إخفاء النتائج' : '🔓 كشف النتائج') + '</button><button class="btn btn-soft btn-xs" data-act="drop" data-k="asRes">النتائج</button><button class="btn btn-ghost btn-xs" data-go="assessEdit">✏️ الأسئلة</button>');
+    out += drop('asRes', Views.admin.assessResults());
+    B('broadcast');
+    out += tool('broadcast', '📣', '#F34D00', 'بث رسالة مباشرة', '<textarea id="bcText" data-keep="bc-text" rows="2" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-family:var(--f-body)" placeholder="رسالة تظهر كشريط أعلى الصفحة لكل المتصفحين الآن"></textarea>' + (Store.broadcast && Store.broadcast.text ? '<div class="muted" style="margin-top:4px">الحالية: ' + h(Store.broadcast.text) + '</div>' : ''), '<button class="btn btn-primary btn-xs" data-act="bc-send">إرسال</button>' + (Store.broadcast && Store.broadcast.text ? '<button class="btn btn-ghost btn-xs" data-act="bc-stop">إيقاف البث</button>' : ''));
+    const mc = Monitor.cfg(); const lds = Leads.list(); const coh = Cohort.cur(); const cl = Cohort.list();
+    B('monitor');
+    out += tool('monitor', '👁', '#484371', 'رابط متابعة للمشرف', 'لوحة حية للقراءة فقط لممثل الجهة الراعية: الحضور والتقييمات والمشاركة والرضا والاهتمامات، مع تنزيل التقرير. ' + (mc.enabled ? '<span class="tag added">مفعّل</span>' : '<span class="tag off">معطّل</span>'), '<button class="btn btn-xs ' + (mc.enabled ? 'btn-danger' : 'btn-primary') + '" data-act="mon-toggle">' + (mc.enabled ? 'إيقاف الرابط' : 'تفعيل الرابط') + '</button>' + (mc.enabled ? '<button class="btn btn-soft btn-xs" data-act="mon-copy">📋 نسخ الرابط</button><button class="btn btn-ghost btn-xs" data-act="mon-open">👀 معاينة</button><button class="btn btn-ghost btn-xs" data-act="mon-new">رابط جديد</button>' : ''));
+    B('leads');
+    out += tool('leads', '🤝', '#00A653', 'المهتمون ببرامج الدعم', '<div class="bigno num">' + lds.length + '</div>مشروع طلب التواصل بخصوص برامج الدعم', '<button class="btn btn-soft btn-xs" data-act="drop" data-k="leadsList">القائمة</button><button class="btn btn-primary btn-xs" data-act="leads-csv">📥 CSV</button><button class="btn btn-ghost btn-xs" data-act="drop" data-k="leadsCfg">إعدادات النموذج</button>');
+    out += drop('leadsList', lds.length ? '<div class="table-wrap"><table class="att-table"><thead><tr><th>الاسم</th><th>المشروع</th><th>البرامج</th><th>الاحتياج</th><th>التواصل</th><th>التاريخ</th></tr></thead><tbody>' + lds.map(l => { const u = Store.users[l.uid] || {}; return '<tr><td><b>' + h(l.name || u.name || '') + '</b></td><td>' + h(l.org || RegFields.val(u, 'org')) + '<div class="muted" style="font-size:11.5px">' + h(RegFields.val(u, 'sector')) + '</div></td><td>' + l.programs.map(h).join('<br>') + '</td><td>' + h(l.need || '') + '</td><td>' + h(l.method || '') + '<div class="num">' + h(l.contact || '') + '</div></td><td>' + fmtDate(l.ts) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="empty">لا توجد طلبات بعد.</div>');
+    const lc = Leads.cfg();
+    out += drop('leadsCfg', '<div class="field"><label>النص التعريفي</label><textarea id="lcIntro" data-keep="lc-intro" rows="2">' + h(lc.intro) + '</textarea></div><div class="field"><label>البرامج (سطر لكل برنامج)</label><textarea id="lcProgs" data-keep="lc-progs" rows="6">' + h(lc.programs.join('\n')) + '</textarea></div><div class="field"><label>نص الموافقة</label><input id="lcConsent" data-keep="lc-consent" value="' + h(lc.consent) + '"></div><div class="field"><label>يظهر النموذج أيضًا أسفل المحور</label><select id="lcAxis"><option value="">- لا يظهر في محور -</option>' + Content.axes({ all: true }).map(a => '<option value="' + h(a.id) + '" ' + (a.id === lc.axis ? 'selected' : '') + '>' + h(a.title) + '</option>').join('') + '</select><span class="help">ويظهر دائمًا في صفحة «حسابي».</span></div><div class="row"><button class="btn btn-primary btn-sm" data-act="leads-cfg-save">💾 حفظ</button><button class="btn btn-ghost btn-sm" data-act="leads-cfg-reset">🔄 الافتراضي</button></div>');
+    const fuc = Followup.cfg(); const endD = Followup.endDate();
+    B('followup');
+    out += tool('followup', '📈', '#5B3A8A', 'المتابعة بعد البرنامج', 'نماذج قياس الأثر بعد 30 و60 و90 يومًا من تاريخ نهاية الدفعة' + (endD ? ' (<span class="num">' + fmtDate(endD) + '</span>)' : '، <b>حدد تاريخ نهاية الدفعة أولًا</b>') + '.' + FU_DAYS.map(n => '<div class="att-day"><b>بعد <span class="num">' + n + '</span> يومًا</b><span class="pill ' + (Followup.isOpen(n) ? 'open-pill' : '') + '">' + (Followup.isOpen(n) ? 'مفتوحة' : 'مغلقة') + '</span><span class="muted num">' + Followup.list(n).length + ' رد</span></div>').join(''), '<button class="btn btn-soft btn-xs" data-act="drop" data-k="fuCtl">إدارة وإرسال التذكير</button><button class="btn btn-ghost btn-xs" data-act="fu-csv">📥 النتائج CSV</button>');
+    out += drop('fuCtl', '<p class="help muted" style="font-family:var(--f-ui);font-size:12.5px;margin-top:0">تُفتح كل متابعة تلقائيًا في موعدها، ويمكنك فتحها أو إغلاقها يدويًا. الإرسال الآلي للبريد يحتاج خادم بريد؛ لذلك يفتح زر البريد رسالة جاهزة في برنامج بريدك إلى من وافقوا على المتابعة ولم يردوا بعد (نسخة مخفية BCC)، ويمكنك نسخ رسالة واتساب لمجموعة البرنامج.</p>' +
+      FU_DAYS.map(n => { const st = fuc.open[n] || 'auto'; return '<div class="att-row"><b>بعد <span class="num">' + n + '</span> يومًا</b><span class="muted">' + (Followup.due(n) ? 'موعدها ' + fmtDate(Followup.due(n)) : 'بلا موعد') + '</span><button class="btn btn-ghost btn-xs" data-act="fu-state" data-n="' + n + '">الحالة: ' + ({ auto: '⏱ تلقائي', open: '🟢 مفتوحة يدويًا', closed: '🔒 مغلقة يدويًا' })[st] + '</button><button class="btn btn-primary btn-xs" data-act="fu-mail" data-n="' + n + '">📧 تذكير بالبريد</button><button class="btn btn-soft btn-xs" data-act="fu-wa" data-n="' + n + '">💬 رسالة واتساب</button><span class="pill num">' + Followup.list(n).length + ' رد</span></div>'; }).join(''));
+    const gm = Points.cfg();
+    B('gamify');
+    out += tool('gamify', '🏆', '#D07A32', 'النقاط ولوحة الصدارة', 'نقاط للمشاركة والإعجابات والحضور والتقييمات، ولوحة صدارة للأفراد والمجموعات، وشارات خاصة (أول مشارك، الأكثر إعجابًا).', '<button class="btn btn-xs ' + (gm.enabled ? 'btn-danger' : 'btn-primary') + '" data-act="gm-toggle" data-k="enabled">' + (gm.enabled ? 'إيقاف النقاط' : 'تفعيل النقاط') + '</button><button class="btn btn-ghost btn-xs" data-act="gm-toggle" data-k="names">' + (gm.names ? '🙈 إخفاء الأسماء في اللوحة' : '👁 إظهار الأسماء') + '</button><button class="btn btn-soft btn-xs" data-act="drop" data-k="lbView">عرض اللوحة</button>');
+    out += drop('lbView', leaderboardHtml(20));
+    B('tplTool');
+    out += tool('tplTool', '📚', '#3A2A8A', 'صندوق الأدوات والقوالب', '7 حاسبات عملية و' + TEMPLATES.length + ' قوالب قابلة للتحميل للمتدربين.', '<button class="btn btn-soft btn-xs" data-act="drop" data-k="tplVis">إظهار/إخفاء القوالب</button><button class="btn btn-ghost btn-xs" data-go="tools">👀 فتح الصندوق</button>');
+    out += drop('tplVis', '<div class="people-list">' + TEMPLATES.map(t => '<div class="person"><span class="nm">' + t.icon + ' ' + h(t.title) + '</span><button class="btn btn-ghost btn-xs" data-act="tpl-vis" data-id="' + t.id + '">' + (Content.isHidden('tpl_' + t.id) ? '👁 إظهار' : '🙈 إخفاء') + '</button></div>').join('') + '</div>');
+    B('cohorts');
+    out += tool('cohorts', '📦', '#9A3D12', 'الدفعات والأرشيف', 'الدفعة الحالية: <b>' + h(coh.name) + '</b> · في الأرشيف: <b class="num">' + cl.length + '</b> دفعة', '<button class="btn btn-soft btn-xs" data-act="drop" data-k="cohList">المقارنة والأرشيف</button><button class="btn btn-ghost btn-xs" data-act="drop" data-k="cohEdit">بيانات الدفعة</button><button class="btn btn-danger btn-xs" data-act="cohort-close">📦 إغلاق وأرشفة</button>');
+    out += drop('cohEdit', '<div class="grid2"><div class="field"><label>اسم الدفعة</label><input id="cohName" data-keep="coh-name" value="' + h(coh.name) + '"></div><div class="field"><label>تاريخ البداية</label><input id="cohStart" type="date" data-keep="coh-start" value="' + h(coh.start) + '"></div><div class="field"><label>تاريخ النهاية</label><input id="cohEnd" type="date" data-keep="coh-end" value="' + h(coh.end) + '"></div></div><button class="btn btn-primary btn-sm" data-act="cohort-save">💾 حفظ</button>');
+    if (UIState.openDrop.has('cohList')) { const live = cohortSummary(reportData()); const rows = cl.map(c => ({ c, s: c.summary || {} })).concat([{ c: Object.assign({ id: '' }, coh), s: live, live: true }]); const v = x => x == null ? '-' : x;
+      out += drop('cohList', '<div class="table-wrap"><table class="att-table"><thead><tr><th>الدفعة</th><th>المشاركون</th><th>الحضور</th><th>الشهادات</th><th>قبلي</th><th>بعدي</th><th>التحسن</th><th>الرضا</th><th>NPS</th><th>المهتمون</th><th></th></tr></thead><tbody>' +
+        rows.map(r => '<tr><td><b>' + h(r.c.name || '') + '</b>' + (r.live ? ' <span class="tag added">حالية</span>' : '') + '<div class="muted num" style="font-size:11.5px">' + h(r.c.start || '') + (r.c.end ? ' · ' + h(r.c.end) : '') + '</div></td><td class="num">' + v(r.s.participants) + '</td><td class="num">' + v(r.s.attAvg) + '%</td><td class="num">' + v(r.s.certs) + '</td><td class="num">' + (r.s.preAvg == null ? '-' : r.s.preAvg + '%') + '</td><td class="num">' + (r.s.postAvg == null ? '-' : r.s.postAvg + '%') + '</td><td class="num">' + (r.s.gain == null ? '-' : (r.s.gain >= 0 ? '+' : '') + r.s.gain) + '</td><td class="num">' + v(r.s.sat) + '</td><td class="num">' + v(r.s.nps) + '</td><td class="num">' + v(r.s.leads) + '</td><td>' +
+          (r.live ? '' : '<button class="btn btn-soft btn-xs" data-act="coh-report" data-cid="' + h(r.c.id) + '" data-lang="ar">PDF</button><button class="btn btn-ghost btn-xs" data-act="coh-report" data-cid="' + h(r.c.id) + '" data-lang="en">EN</button><button class="btn btn-ghost btn-xs" data-act="coh-csv" data-cid="' + h(r.c.id) + '">CSV</button><button class="btn btn-ghost btn-xs" data-act="coh-json" data-cid="' + h(r.c.id) + '">JSON</button><button class="btn btn-danger btn-xs" data-act="coh-del" data-cid="' + h(r.c.id) + '">🗑</button>') + '</td></tr>').join('') + '</tbody></table></div>'); }
+    B('pdf');
+    out += tool('pdf', '📄', '#3A2A8A', 'ملف المحتوى PDF', 'A5 مصمَّم: أغلفة، فهرس، وشرائح كل محور. ' + (pdf.enabled === false ? '<span class="tag off">معطّل للمتدربين</span>' : '<span class="tag added">متاح للمتدربين</span>'), '<button class="btn btn-soft btn-xs" data-act="drop" data-k="pdfEdit">بيانات الملف</button><button class="btn btn-primary btn-xs" data-act="content-pdf">معاينة الآن</button>');
+    out += drop('pdfEdit', Views.admin.pdfEditor());
+    B('guide');
+    out += tool('guide', '📘', '#484371', 'دليل المدرب', 'ملف PDF يضم أهداف البرنامج ومنهجيته وجدول اليومين ومخرجات كل محور وملاحظة لكل شريحة، إضافة إلى التمارين ومفتاح إجابات التقييم، جاهز للتسليم قبل التدريب.', '<button class="btn btn-primary btn-xs" data-act="guide-pdf">📘 تصدير الدليل PDF</button><button class="btn btn-soft btn-xs" data-act="drop" data-k="guideEdit">تعديل الأهداف والجدول</button>');
+    out += drop('guideEdit', Views.admin.guideEditor());
+    B('report');
+    out += tool('report', '📑', '#4C3AA7', 'تقرير ختام البرنامج', 'تقرير مؤسسي آلي بشعار الجهة الراعية: ملخص تنفيذي، ملف المشاركين، نتائج التقييم القبلي والبعدي، التفاعل، الرضا وNPS، الاهتمام ببرامج الدعم، وتوصيات آلية، بالعربية أو الإنجليزية.', '<button class="btn btn-primary btn-xs" data-act="report-pdf" data-lang="ar">📑 عربي</button><button class="btn btn-primary btn-xs" data-act="report-pdf" data-lang="en">📑 English</button><button class="btn btn-soft btn-xs" data-act="report-csv">📊 CSV</button><button class="btn btn-ghost btn-xs" data-act="drop" data-k="logoEdit">شعار الجهة الراعية</button>');
+    out += drop('logoEdit', '<p class="help muted" style="font-family:var(--f-ui);font-size:12.5px;margin-top:0">ارفع الشعار الرسمي للجهة الراعية (PNG بخلفية شفافة أو بيضاء). يظهر في الغلاف وأعلى كل صفحة من التقرير. بدون شعار يُستخدم عنوان البرنامج نصيًا.</p>' + ImgPick.html('brandLogo', (Store.site || {}).brandLogo) + '<div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-act="logo-save">💾 حفظ الشعار</button></div>');
+    B('csv');
+    out += tool('csv', '📊', '#00A653', 'تصدير المشاركات', 'كل إجابات المحاور والأنشطة والاستطلاع والمختبر والتقييمين في ملف CSV واحد يفتح في Excel.', '<button class="btn btn-primary btn-xs" data-act="export-csv">📥 تصدير CSV</button>');
+    B('person');
+    out += tool('person', '🗂️', '#484371', 'مشاركات فردية', 'ملف PDF وCSV لمشاركات كل متدرب على حدة، أو للجميع في ملف ZIP.', '<button class="btn btn-soft btn-xs" data-act="drop" data-k="persons">' + (UIState.openDrop.has('persons') ? 'إخفاء' : 'فتح') + ' القائمة</button>');
+    out += drop('persons', '<div class="row" style="margin-bottom:10px"><input data-keep="persons-search" data-filter=".person" placeholder="🔍 بحث بالاسم" style="flex:1;min-width:180px;border:1px solid var(--line);border-radius:10px;padding:8px 10px"><button class="btn btn-primary btn-xs" data-act="export-all-pdf">📦 تصدير الكل PDF</button><button class="btn btn-soft btn-xs" data-act="export-all-csv">📦 تصدير الكل CSV</button></div><div class="people-list">' + (uids.length ? uids.map(u => '<div class="person" data-name="' + h((users[u].name || '').toLowerCase()) + '"><span class="nm">' + h(users[u].name) + '</span><button class="btn btn-soft btn-xs" data-act="person-pdf" data-uid="' + h(u) + '">PDF</button><button class="btn btn-ghost btn-xs" data-act="person-csv" data-uid="' + h(u) + '">CSV</button></div>').join('') : '<div class="empty">لا يوجد مسجّلون.</div>') + '</div>');
+    B('backup');
+    out += tool('backup', '💾', '#E8520C', 'النسخة الاحتياطية للمحتوى', 'كل تعديلات وإضافات المحتوى (بلا مشاركات المتدربين) في ملف JSON.', '<button class="btn btn-soft btn-xs" data-act="backup">📥 تنزيل</button><button class="btn btn-primary btn-xs" data-act="export-all" title="كل عقد القاعدة: المحتوى والمدخلات والنسخ والأرشيف">💾 نسخة كاملة</button><label class="btn btn-ghost btn-xs">⬆️ استيراد<input type="file" accept="application/json,.json" hidden data-act-change="import-backup"></label>');
+    const bks = Object.keys(Store.backupIndex || {}).sort().reverse();
+    B('autobk');
+    out += tool('autobk', '🛟', '#00A653', 'نسخ يومي تلقائي للمدخلات', 'نسخة يومية تلقائية من التسجيل والمشاركات والتقييمات والحضور (آخر <span class="num">' + BACKUP_KEEP + '</span> يومًا). آخر نسخة: <b class="num">' + (bks[0] || '-') + '</b>', '<button class="btn btn-soft btn-xs" data-act="drop" data-k="bkList">النسخ المتاحة</button><button class="btn btn-ghost btn-xs" data-act="bk-now">نسخة الآن</button>');
+    out += drop('bkList', bks.length ? '<div class="people-list">' + bks.map(d => { const x = Store.backupIndex[d]; return '<div class="person"><span class="nm num">' + h(d) + '</span><span class="muted"><span class="num">' + (x.users || 0) + '</span> مسجّل · <span class="num">' + (x.posts || 0) + '</span> مشاركة · <span class="num">' + (x.kb || 0) + '</span> KB</span><button class="btn btn-soft btn-xs" data-act="bk-dl" data-d="' + h(d) + '">📥 تنزيل</button><button class="btn btn-danger btn-xs" data-act="bk-restore" data-d="' + h(d) + '">🔄 استعادة</button></div>'; }).join('') + '</div>' : '<div class="empty">لا توجد نسخ بعد، تُؤخذ أول نسخة تلقائيًا عند توفر مدخلات.</div>');
+    const accH = UIState.openAcc.has('home-ui');
+    B('homeUi');
+    out += '<div class="acc ' + (accH ? 'open' : '') + '" style="--ac:#F34D00;--acg:' + tint('#F34D00', .08) + '"><div class="acc-head" data-act="acc" data-k="home-ui"><span class="aico">' + iconSvg('home', 20, '#fff') + '</span><h3>تعديل الشريط العلوي والقسم البارز والتذييل وعدد المسجّلين</h3><span class="arrow">◀</span></div><div class="acc-body">' + (accH ? Views.admin.homeEditor() : '') + '</div></div>';
+    const accL = UIState.openAcc.has('landing');
+    B('landing');
+    out += '<div class="acc ' + (accL ? 'open' : '') + '" style="--ac:#4C3AA7;--acg:' + tint('#4C3AA7', .08) + '"><div class="acc-head" data-act="acc" data-k="landing"><span class="aico">🛬</span><h3>الصفحة التعريفية (قبل الدخول)، نبذة، أهداف، مزايا، محتوى، رحلة، مخرجات</h3><span class="arrow">◀</span></div><div class="acc-body">' + (accL ? Views.admin.landingEditor() : '') + '</div></div>';
+    const accS = UIState.openAcc.has('home-secs');
+    B('homeSecs');
+    out += '<div class="acc ' + (accS ? 'open' : '') + '" style="--ac:#F34D00;--acg:' + tint('#F34D00', .08) + '"><div class="acc-head" data-act="acc" data-k="home-secs"><span class="aico">' + iconSvg('grid', 20, '#fff') + '</span><h3>أقسام الصفحة الرئيسية، ترتيب، إظهار وإخفاء، تعديل، إضافة وحذف <span class="muted num" style="font-size:12.5px">(' + Content.homeSections({ all: true }).length + ')</span></h3><span class="arrow">◀</span></div><div class="acc-body">' + (accS ? Views.admin.sectionsList() : '') + '</div></div>';
+    B('stories'); out += '<div class="row blk-actions">' + '<button class="btn btn-primary btn-sm" data-go="storyEdit" data-id="new">➕ إضافة قصة</button>' + '</div>';
+    const accSt = UIState.openAcc.has('storiesAcc'); const sts = Content.stories({ all: true });
+    out += '<div class="acc ' + (accSt ? 'open' : '') + '" style="--ac:#9A3D12;--acg:' + tint('#9A3D12', .08) + '"><div class="acc-head" data-act="acc" data-k="storiesAcc"><span class="aico">🌟</span><h3>قصص النجاح الحقيقية <span class="muted num" style="font-size:12.5px">(' + sts.length + ')</span></h3><span class="arrow">◀</span></div><div class="acc-body">' + (accSt ? sts.map((st, i) => '<div class="ex-row"><div class="top"><span style="font-size:18px">' + h(st.flag || '🌟') + '</span><span class="nm">' + h(st.title) + ' ' + tags(st) + '<span class="tag fmt"><span class="num">' + st.sources.length + '</span> مصادر · 👏 <span class="num">' + Object.keys((Store.storyLikes[st.id] || {}).likes || {}).length + '</span></span></span>' +
+      '<button class="btn btn-ghost btn-xs" data-act="story-move" data-d="-1" data-id="' + h(st.id) + '" ' + (i === 0 ? 'disabled' : '') + '>▲</button><button class="btn btn-ghost btn-xs" data-act="story-move" data-d="1" data-id="' + h(st.id) + '" ' + (i === sts.length - 1 ? 'disabled' : '') + '>▼</button><button class="btn btn-soft btn-xs" data-go="storyEdit" data-id="' + h(st.id) + '">✏️ تعديل</button><button class="btn btn-ghost btn-xs" data-act="toggle-vis" data-id="' + h(st.id) + '">' + (st._hidden ? '👁 إظهار' : '🙈 إخفاء') + '</button><button class="btn btn-ghost btn-xs" data-go="story" data-id="' + h(st.id) + '">👀 عرض</button>' +
+      (st._added ? '<button class="btn btn-danger btn-xs" data-act="story-delete" data-id="' + h(st.id) + '">🗑 حذف نهائي</button>' : (st._modified ? '<button class="btn btn-ghost btn-xs" data-act="story-reset" data-id="' + h(st.id) + '">🔄 استرجاع الافتراضي</button>' : '')) + '</div></div>').join('') : '') + '</div></div>';
+    const axBtns = '<button class="btn btn-primary btn-sm" data-go="axisEdit" data-id="new">➕ إضافة محور جديد</button><button class="btn btn-soft btn-sm" data-go="actEdit" data-id="new">➕ إضافة نشاط طاقة جديد</button>'; B('units');
+    const accU = UIState.openAcc.has('units');
+    out += '<div class="acc ' + (accU ? 'open' : '') + '" style="--ac:#484371;--acg:' + tint('#484371', .08) + '"><div class="acc-head" data-act="acc" data-k="units"><span class="aico">' + iconSvg('layers', 20, '#fff') + '</span><h3>أسماء الوحدات (العناوين الجانبية فوق المحاور)</h3><span class="arrow">◀</span></div><div class="acc-body">' + (accU ? Views.admin.unitsEditor() : '') + '</div></div>';
+    B('axes'); out += '<div class="row blk-actions">' + axBtns + Views.admin.removedBtn() + '</div>' + (UIState.openDrop.has('removed') ? Views.admin.removedList() : '');
+    out += '<p class="muted" style="font-family:var(--f-ui);font-size:13px;margin:10px 0">اسحب المحاور من المقبض ⠿ أو استخدم ▲▼ لإعادة ترتيبها. اضغط عنوان المحور لعرض تمارينه.</p><div id="axisAcc">';
+    Content.axes({ all: true }).forEach(a => {
+      const col = Content.color(a); const open = UIState.openAcc.has(a.id); const isDef = !!DEF_AXIS[a.id];
+      const exs = Content.exercisesOf(a.id, { all: true });
+      out += '<div class="acc ' + (open ? 'open' : '') + '" draggable="true" data-axis-drag="' + h(a.id) + '" style="--ac:' + col + ';--acg:' + tint(col, .08) + '"><div class="acc-head" data-act="acc" data-k="' + h(a.id) + '"><span class="drag-handle" title="اسحب لإعادة الترتيب">⠿</span><span class="aico">' + iconSvg(a.icon || 'star', 20, '#fff') + '</span><h3>' + h(a.title) + ' <span class="muted" style="font-weight:500;font-size:12.5px">· ' + h(Content.unitName(a.unit) || 'بدون وحدة') + ' · <span class="num">' + exs.length + '</span> تمرين</span> ' + tags(a) + '</h3>' +
+        '<div class="acc-actions"><button class="btn btn-ghost btn-xs" data-act="axis-move" data-d="-1" data-id="' + h(a.id) + '" title="تحريك لأعلى">▲</button><button class="btn btn-ghost btn-xs" data-act="axis-move" data-d="1" data-id="' + h(a.id) + '" title="تحريك لأسفل">▼</button><button class="btn btn-soft btn-xs" data-go="axisEdit" data-id="' + h(a.id) + '">✏️ تعديل</button><button class="btn btn-ghost btn-xs" data-act="toggle-vis" data-id="' + h(a.id) + '">' + (a._hidden ? '👁 إظهار' : '🙈 إخفاء') + '</button><button class="btn btn-ghost btn-xs" data-act="toggle-en" data-id="' + h(a.id) + '">' + (a._disabled ? '⏸ معطّل ⇄ تفعيل' : '✅ مفعّل ⇄ تعطيل') + '</button><button class="btn btn-ghost btn-xs" data-act="copy-axis" data-id="' + h(a.id) + '">🧬 نسخ</button>' +
+        (isDef && a._modified ? '<button class="btn btn-ghost btn-xs" data-act="reset-axis" data-id="' + h(a.id) + '">🔄 استرجاع الافتراضي</button>' : '') + '<button class="btn btn-danger btn-xs" data-act="delete-axis" data-id="' + h(a.id) + '">🗑 حذف المحور</button>' + '</div><span class="arrow">◀</span></div>' +
+        '<div class="acc-body">' + (open ? (exs.length ? exs.map(e => exRow(e, { axis: a.id })).join('') : '<div class="empty">لا توجد تمارين.</div>') + '<div style="margin-top:10px"><button class="btn btn-soft btn-sm" data-go="exEdit" data-id="new" data-axis="' + h(a.id) + '">➕ أضف تمرينًا لهذا المحور</button></div>' : '') + '</div></div>';
+    });
+    out += '</div>';
+    const openAct = UIState.openAcc.has('acts');
+    B('acts');
+    out += '<div class="acc ' + (openAct ? 'open' : '') + '" style="--ac:#484371;--acg:' + tint('#484371', .08) + '"><div class="acc-head" data-act="acc" data-k="acts"><span class="aico">⚡</span><h3>قسم «أنشطة الطاقة» <span class="muted num" style="font-size:12.5px">(' + Content.activities({ all: true }).length + ')</span></h3><span class="arrow">◀</span></div><div class="acc-body">' + (openAct ? Content.activities({ all: true }).map(e => exRow(e, { kind: 'activity' })).join('') : '') + '</div></div>';
+    const sv = Content.survey({ all: true }); const openSv = UIState.openAcc.has('survey');
+    B('survey');
+    out += '<div class="acc ' + (openSv ? 'open' : '') + '" style="--ac:#F34D00;--acg:' + tint('#F34D00', .08) + '"><div class="acc-head" data-act="acc" data-k="survey"><span class="aico">🎓</span><h3>ختام البرنامج، ' + h(sv.title) + ' ' + tags(sv) + '</h3><span class="arrow">◀</span></div><div class="acc-body">' + (openSv ? Views.admin.surveyClear(sv) + exRow(sv, { kind: 'survey' }) : '') + '</div></div>';
+    const L = Content.lab(); const openLab = UIState.openAcc.has('labAcc');
+    B('lab');
+    out += '<div class="acc ' + (openLab ? 'open' : '') + '" style="--ac:#1F0894;--acg:' + tint('#1F0894', .08) + '"><div class="acc-head" data-act="acc" data-k="labAcc"><span class="aico">🧪</span><h3>المختبر الختامي، ' + h(L.title) + ' ' + (L._modified ? '<span class="tag mod">معدَّل</span> ' : '') + (Content.isHidden('home_lab') ? '<span class="tag hid">مخفي من الرئيسية</span>' : '') + '</h3><span class="arrow">◀</span></div><div class="acc-body">' + (openLab ? '<div class="ex-row"><div class="top"><span class="nm"><span class="num">' + L.stages.length + '</span> مراحل × <span class="num">' + L.minutes + '</span> دقائق · <span class="num">' + Object.keys(Store.labAnswers || {}).length + '</span> مجموعة شاركت</span><button class="btn btn-soft btn-xs" data-go="labEdit">✏️ تعديل المختبر ومراحله</button>' + (L._modified ? '<button class="btn btn-ghost btn-xs" data-act="lab-reset-content">🔄 استرجاع الافتراضي</button>' : '') + '<button class="btn btn-danger btn-xs" data-act="lab-clear">🧹 مسح إجابات ومؤقتات المختبر</button></div></div>' : '') + '</div></div>';
+    B('reset');
+    out += '<div class="tool danger-tool" style="min-height:0"><div class="th"><span class="ti" style="background:#FDECEC;color:#C62F35">⚠️</span><h4>إعادة ضبط شاملة، مسح جميع المدخلات من السيرفر</h4></div><div class="tb">يأخذ نسخة احتياطية تلقائيًا ثم يمسح كل مشاركات التمارين والأنشطة (<b>ولا يمسّ تقييمات ختام البرنامج</b>؛ لها زر مسح مستقل في قسم «ختام البرنامج»)، ومؤقتات وإجابات المختبر، والتقييم القبلي والبعدي، وسجل الحضور، وقائمة المسجّلين والتعيينات، ويُلزم كل متصفح قديم بتسجيل اسم جديد. لا يمس المحتوى وتعديلاته.</div><div class="tf"><button class="btn btn-danger btn-sm" data-act="global-reset">مسح جميع المدخلات من السيرفر</button></div></div>';
+    B(null);
+    return Views.admin.shell(blocks);
+  },
+  homeEditor() {
+    const s = Content.site();
+    const f = (k, label, ph = '') => '<div class="field"><label>' + label + '</label><input data-home="' + k + '" data-keep="home-' + k + '" value="' + h(s[k] || '') + '" placeholder="' + h(ph) + '"></div>';
+    return '<div class="grid2">' + f('headerTitle', 'عنوان الشريط العلوي') + f('headerSub', 'الوصف الفرعي للشريط العلوي') + '</div>' + f('heroTitle', 'العنوان الرئيسي للقسم البارز') +
+      '<div class="field"><label>وصف القسم البارز</label>' + RTE.html('heroDesc', s.heroDesc) + '</div>' +
+      '<div class="field"><label>صورة الغلاف (اختيارية، تركها فارغة يُبقي الرسم التوليدي)</label>' + ImgPick.html('heroImage', s.heroImage) + '</div>' +
+      '<div class="field"><label>عدد المسجّلين المعروض في «مسجّل حتى الآن»</label><div class="row"><input type="number" min="0" data-keep="home-reg" id="regCountIn" value="' + (Number(Store.registered) || 0) + '" style="width:140px;border:1px solid var(--line);border-radius:10px;padding:8px"><button class="btn btn-soft btn-xs" data-act="reg-set">حفظ الرقم</button><button class="btn btn-danger btn-xs" data-act="reg-zero">تصفير</button></div><span class="help">عدّاد مستقل يزيد تلقائيًا مع كل تسجيل جديد، ولا يتأثر بمسح قائمة الأسماء.</span></div>' +
+      '<h4 style="margin:10px 0">التذييل (يظهر في كل الصفحات)</h4><div class="grid2">' + f('footerName', 'الاسم') + f('footerUrl', 'الرابط الشخصي') + '</div>' + f('footerBio', 'التعريف') +
+      '<div class="grid2">' + f('linkedin', 'LinkedIn', 'رابط الحساب') + f('x', 'X / تويتر', 'رابط الحساب') + f('instagram', 'Instagram', 'رابط الحساب') + f('whatsapp', 'واتساب', 'رقم دولي مثل 9665xxxxxxxx') + f('email', 'البريد الإلكتروني', 'name@example.com') + '</div>' +
+      '<div class="row"><button class="btn btn-primary btn-sm" data-act="home-save">💾 حفظ الواجهة</button><button class="btn btn-ghost btn-sm" data-act="home-reset">🔄 استرجاع الافتراضي</button></div>';
+  },
+  congratsEditor(kind) {
+    const c = Content.doc(kind); const K = kind + '-';
+    return '<p class="help muted" style="font-family:var(--f-ui);font-size:12.5px">رموز الاستبدال المتاحة داخل أي فقرة: {{name}} و{{courseTitle}} و{{date}}</p><div class="grid2"><div class="field"><label>العنوان</label><input data-cg="title" data-keep="' + K + 'title" value="' + h(c.title) + '"></div><div class="field"><label>الرمز / الإيموجي</label><input data-cg="emoji" data-keep="' + K + 'emoji" value="' + h(c.emoji) + '"></div></div>' +
+      '<div class="field"><label>الفقرات</label><div data-cg-paras>' + c.paragraphs.map((p, i) => '<div class="row" style="margin-bottom:6px"><textarea data-cg-para rows="2" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-family:var(--f-body)">' + h(p) + '</textarea><button class="btn btn-danger btn-xs" data-act="cg-del-para">🗑</button></div>').join('') + '</div><button class="btn btn-soft btn-xs" data-act="cg-add-para">➕ فقرة</button></div>' +
+      '<div class="grid2"><div class="field"><label>تذييل يمين</label><input data-cg="footerRight" data-keep="' + K + 'fr" value="' + h(c.footerRight) + '"></div><div class="field"><label>تذييل يسار</label><input data-cg="footerLeft" data-keep="' + K + 'fl" value="' + h(c.footerLeft) + '"></div></div>' +
+      '<div class="field"><label>نص الإشعار أسفل ' + (kind === 'cert' ? 'الشهادة' : 'التهنئة') + '</label><textarea data-cg="notice" data-keep="' + K + 'notice" rows="2">' + h(c.notice) + '</textarea></div><div class="row"><button class="btn btn-primary btn-sm" data-act="cg-save" data-kind="' + kind + '">💾 حفظ</button><button class="btn btn-ghost btn-sm" data-act="cg-reset" data-kind="' + kind + '">🔄 استرجاع الافتراضي</button></div>';
+  },
+  regEditor() {
+    const fs = UIState.regDraft || RegFields.all(); UIState.regDraft = fs;
+    return '<p class="help muted" style="font-family:var(--f-ui);font-size:12.5px;margin-top:0">الاسم الكامل إلزامي دائمًا. غيّر العنوان والنوع والخيارات، وأظهر أو أخفِ أي حقل، واجعله إلزاميًا أو اختياريًا، ورتّبه بـ ▲▼. الحقول المخفية لا تُحذف بياناتها السابقة.</p><div id="regRows">' +
+      fs.map((f, i) => '<div class="reg-row" data-rrow="' + i + '"><div class="row"><span class="pill num">' + (i + 1) + '</span><input data-rr="label" data-keep="rr-' + f.key + '-label" value="' + h(f.label) + '" class="grow" style="min-width:160px">' +
+        '<select data-rr="type" ' + (f.builtin ? 'disabled' : '') + '>' + Object.keys(REG_TYPES).map(t => '<option value="' + t + '" ' + (t === f.type ? 'selected' : '') + '>' + REG_TYPES[t] + '</option>').join('') + '</select>' +
+        '<label class="sim-cb"><input type="checkbox" data-rr="visible" ' + (f.visible ? 'checked' : '') + ' ' + (f.key === 'name' ? 'disabled' : '') + '> ظاهر</label><label class="sim-cb"><input type="checkbox" data-rr="required" ' + (f.required ? 'checked' : '') + ' ' + (f.key === 'name' ? 'disabled' : '') + '> إلزامي</label>' +
+        '<button class="btn btn-ghost btn-xs" data-act="rr-move" data-d="-1" data-i="' + i + '" ' + (i === 0 ? 'disabled' : '') + '>▲</button><button class="btn btn-ghost btn-xs" data-act="rr-move" data-d="1" data-i="' + i + '" ' + (i === fs.length - 1 ? 'disabled' : '') + '>▼</button>' + (f.builtin ? '' : '<button class="btn btn-danger btn-xs" data-act="rr-del" data-i="' + i + '">🗑</button>') + '</div>' +
+        '<div class="row" style="margin-top:6px"><input data-rr="ph" data-keep="rr-' + f.key + '-ph" value="' + h(f.ph || '') + '" placeholder="نص توضيحي داخل الحقل (اختياري)" class="grow"></div>' +
+        (f.type === 'select' ? '<textarea data-rr="options" data-keep="rr-' + f.key + '-options" rows="3" placeholder="خيارات القائمة (سطر لكل خيار)" style="width:100%;margin-top:6px">' + h(f.options.join('\n')) + '</textarea>' : '') + '</div>').join('') + '</div>' +
+      '<div class="row" style="margin-top:8px"><button class="btn btn-soft btn-xs" data-act="rr-add">➕ إضافة حقل</button><button class="btn btn-primary btn-sm" data-act="rr-save">💾 حفظ نموذج التسجيل</button><button class="btn btn-ghost btn-sm" data-act="rr-reset">🔄 الافتراضي</button></div>';
+  },
+  privacyEditor() {
+    const pv = Content.privacy(); const raw = Object.assign({}, (Store.site && Store.site.privacy) || {});
+    const sw = (k, label) => { const on = raw[k] !== false; return '<button class="feat-sw' + (on ? ' on' : '') + '" data-act="pv-toggle" data-k="' + k + '" role="switch" aria-checked="' + on + '"><i></i><span>' + label + '</span></button>'; };
+    return '<div class="feat-sws">' + sw('showConsent', 'خانة الموافقة على إشعار الخصوصية') + sw('showFollow', 'خانة موافقة التواصل للمتابعة') + '</div><p class="help muted" style="font-family:var(--f-ui);font-size:12.5px;margin-top:0">عند إخفاء خانة الموافقة يتم التسجيل دون اشتراطها. رابط «إشعار الخصوصية» يبقى متاحًا في «حسابي».' + (raw.showFollow !== false && !String(pv.followup || '').trim() ? ' <b>نص موافقة المتابعة فارغ، لذلك لا تظهر خانتها.</b>' : '') + '</p>' +
+      '<div class="field"><label>نص إشعار الخصوصية</label><textarea id="pvText" data-keep="pv-text" rows="7">' + h(pv.text) + '</textarea></div><div class="field"><label>نص خانة الموافقة الإلزامية</label><input id="pvConsent" data-keep="pv-consent" value="' + h(pv.consent) + '"></div><div class="field"><label>نص موافقة التواصل للمتابعة (اختيارية)</label><input id="pvFollow" data-keep="pv-follow" value="' + h(pv.followup) + '"></div><div class="row"><button class="btn btn-primary btn-sm" data-act="pv-save">💾 حفظ</button><button class="btn btn-ghost btn-sm" data-act="pv-reset">🔄 الافتراضي</button></div>';
+  },
+  guideEditor() {
+    const g = Content.guide(); const dayTxt = d => d.map(x => [x.t, x.min, x.act, x.note].join(' | ')).join('\n');
+    return '<div class="field"><label>أهداف البرنامج (سطر لكل هدف)</label><textarea id="gObj" data-keep="g-obj" rows="5">' + h(g.objectives.join('\n')) + '</textarea></div><div class="field"><label>المنهجية (سطر لكل بند)</label><textarea id="gMeth" data-keep="g-meth" rows="5">' + h(g.methodology.join('\n')) + '</textarea></div>' +
+      g.days.map((_, i) => i).map(i => '<div class="field"><label>جدول الجلسة ' + (i + 1) + ' (سطر لكل فقرة: الوقت | الدقائق | النشاط | ملاحظة)</label><textarea id="gDay' + i + '" data-keep="g-day' + i + '" rows="8" dir="auto">' + h(dayTxt(g.days[i])) + '</textarea><span class="help num">المجموع: ' + g.days[i].reduce((a, b) => a + (+b.min || 0), 0) + ' دقيقة</span></div>').join('') +
+      '<div class="row"><button class="btn btn-primary btn-sm" data-act="guide-save">💾 حفظ</button><button class="btn btn-ghost btn-sm" data-act="guide-reset">🔄 استرجاع الافتراضي</button></div><p class="help muted" style="font-family:var(--f-ui);font-size:12.5px">مخرجات المحاور وملاحظات الشرائح تُعدَّل من صفحة تعديل كل محور.</p>';
+  },
+  attCtl() {
+    const c = Attend.cfg();
+    return '<div class="grid2"><div class="field"><label>عدد أيام البرنامج</label><input type="number" min="1" max="10" id="attDays" data-keep="att-days" value="' + c.days + '"></div><div class="field"><label>ساعات كل يوم</label><input type="number" min="1" max="12" id="attHours" data-keep="att-hours" value="' + c.hours + '"></div><div class="field"><label>نسبة الحضور المطلوبة للشهادة %</label><input type="number" min="0" max="100" id="attTh" data-keep="att-th" value="' + c.threshold + '"></div></div><button class="btn btn-soft btn-xs" data-act="att-cfg-save">💾 حفظ الإعدادات</button>' +
+      '<h4 style="margin:14px 0 6px">تسجيل الحضور الذاتي برمز</h4><p class="help muted" style="font-family:var(--f-ui);font-size:12.5px">ولّد رمزًا لليوم واعرضه على الشاشة، ثم افتح التسجيل: يظهر للمتدربين شريط لإدخال الرمز، ويُسجَّل لمن يدخله حضور كامل لذلك اليوم (يمكنك تعديل الساعات يدويًا من «سجل الحضور»).</p>' +
+      Attend.days().map(d => { const cd = c.codes['d' + d] || {}; const cnt = Object.keys(Store.users || {}).filter(u => Attend.hoursOf(u, d) > 0).length; return '<div class="att-row"><b>اليوم <span class="num">' + d + '</span></b><span class="att-code num notranslate" translate="no">' + h(cd.code || '-، - -') + '</span><button class="btn btn-soft btn-xs" data-act="att-code" data-d="' + d + '">🎲 رمز جديد</button><button class="btn btn-xs ' + (cd.open ? 'btn-danger' : 'btn-primary') + '" data-act="att-open" data-d="' + d + '" ' + (cd.code ? '' : 'disabled') + '>' + (cd.open ? '🔒 إغلاق التسجيل' : '🟢 فتح التسجيل') + '</button><button class="btn btn-ghost btn-xs" data-act="att-show" data-d="' + d + '" ' + (cd.code ? '' : 'disabled') + '>🖥 عرض الرمز بملء الشاشة</button><button class="btn btn-ghost btn-xs" data-act="att-all" data-d="' + d + '">✔ حضور كامل للجميع</button><span class="pill num">' + cnt + ' حاضر</span></div>'; }).join('');
+  },
+  attSheet() {
+    const users = Store.users || {}; const uids = Object.keys(users).sort((a, b) => (users[a].name || '').localeCompare(users[b].name || '', 'ar')); const c = Attend.cfg();
+    if (!uids.length) return '<div class="empty">لا يوجد مسجّلون.</div>';
+    return '<div class="field"><input data-keep="att-search" data-filter=".att-person" placeholder="🔍 بحث بالاسم"></div><div class="table-wrap"><table class="att-table"><thead><tr><th>المتدرب</th>' + Attend.days().map(d => '<th>اليوم <span class="num">' + d + '</span> (ساعات)</th>').join('') + '<th>النسبة</th><th>الشهادة</th></tr></thead><tbody>' +
+      uids.map(u => '<tr class="att-person" data-name="' + h((users[u].name || '').toLowerCase()) + '"><td><b>' + h(users[u].name) + '</b><div class="muted" style="font-size:12px">' + h(users[u].role || '') + '</div></td>' + Attend.days().map(d => '<td><input type="number" min="0" max="' + c.hours + '" step="0.5" class="att-in num" data-att-u="' + h(u) + '" data-att-d="' + d + '" value="' + Attend.hoursOf(u, d) + '"></td>').join('') + '<td class="num"><b>' + Attend.pct(u) + '%</b></td><td>' + (Attend.eligible(u) ? '<span class="pill ok-pill">✔ مستحق</span>' : '<span class="pill">-</span>') + '</td></tr>').join('') + '</tbody></table></div><div class="row" style="margin-top:8px"><button class="btn btn-soft btn-xs" data-act="att-csv">📥 تصدير سجل الحضور CSV</button><button class="btn btn-danger btn-xs" data-act="att-clear">🧹 مسح سجل الحضور</button></div>';
+  },
+  assessResults() {
+    const A = Content.assess(); const pq = Assess.perQuestion('pre'), qq = Assess.perQuestion('post');
+    const pre = {}; Assess.list('pre').forEach(x => { pre[x.uid] = x; }); const post = {}; Assess.list('post').forEach(x => { post[x.uid] = x; });
+    const uids = Object.keys(Object.assign({}, pre, post)); const n = A.items.length;
+    let out = '<h4 style="margin:4px 0 8px">نسبة الإجابة الصحيحة لكل سؤال</h4><div class="q-compare">' + A.items.map((it, i) => '<div class="qc-row"><span class="qn num">' + (i + 1) + '</span><span class="grow qc-q">' + h(clip(it.q, 90)) + '</span><span class="qc-bars"><span class="qc-bar pre" style="width:' + (pq[i] || 0) + '%"></span><span class="qc-bar post" style="width:' + (qq[i] || 0) + '%"></span></span><span class="num qc-v">' + (pq[i] == null ? '-' : pq[i] + '%') + ' إلى ' + (qq[i] == null ? '-' : qq[i] + '%') + '</span></div>').join('') + '</div><div class="muted" style="font-family:var(--f-ui);font-size:12px;margin-top:4px">■ قبلي (فاتح) · ■ بعدي (داكن)</div>';
+    out += '<h4 style="margin:14px 0 8px">النتائج الفردية <span class="pill num">' + uids.length + '</span></h4>' + (uids.length ? '<div class="table-wrap"><table class="att-table"><thead><tr><th>المتدرب</th><th>القبلي</th><th>البعدي</th><th>التغير</th></tr></thead><tbody>' + uids.map(u => { const a = pre[u], b = post[u]; const nm = (a || b).name || ((Store.users || {})[u] || {}).name || ''; return '<tr><td>' + h(nm) + '</td><td class="num">' + (a ? a.score + '/' + n : '-') + '</td><td class="num">' + (b ? b.score + '/' + n : '-') + '</td><td class="num"><b>' + (a && b ? ((b.score - a.score) >= 0 ? '+' : '') + (b.score - a.score) : '-') + '</b></td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="empty">لا توجد إجابات بعد.</div>');
+    return out + '<div class="row" style="margin-top:10px"><button class="btn btn-danger btn-xs" data-act="as-clear" data-ph="pre">🧹 مسح نتائج القبلي</button><button class="btn btn-danger btn-xs" data-act="as-clear" data-ph="post">🧹 مسح نتائج البعدي</button></div>';
+  },
+  landingEditor() {
+    const ord = Landing.order(); const F = { kicker: 'السطر الصغير', title: 'العنوان', sub: 'الوصف', cta: 'نص الزر الرئيسي', cta2: 'نص الزر الثانوي' };
+    return '<p class="help muted" style="font-family:var(--f-ui);font-size:12.5px;margin-top:0">أول ما يراه الزائر قبل التسجيل، وينتهي بزر «الدخول للمنصة التعليمية» الذي يفتح نموذج التسجيل. العناصر تُكتب سطرًا لكل عنصر بصيغة: <b>أيقونة | عنوان | وصف</b>. قسم «المحتوى» يُبنى تلقائيًا من المحاور والوحدات.</p><div class="row" style="margin-bottom:10px"><button class="btn btn-primary btn-sm" data-go="landing">👁 معاينة الصفحة التعريفية</button></div>' +
+      ord.map((k, i) => { const sc = Landing.sec(k); const hid = Landing.hidden(k); const open = UIState.openDrop.has('lp_' + k);
+        const fields = Object.keys(F).filter(f => f in DEFAULT_LANDING[k]).map(f => '<div class="field"><label>' + F[f] + (k === 'hero' && f === 'title' ? ' (فارغ = عنوان البرنامج)' : '') + '</label>' + (f === 'sub' ? '<textarea rows="3" id="lp_' + k + '_' + f + '" data-keep="lp-' + k + '-' + f + '">' + h(sc[f] || '') + '</textarea>' : '<input id="lp_' + k + '_' + f + '" data-keep="lp-' + k + '-' + f + '" value="' + h(sc[f] || '') + '">') + '</div>').join('') +
+          ('items' in DEFAULT_LANDING[k] ? '<div class="field"><label>' + (k === 'logos' ? 'الأسماء (سطر لكل اسم)' : k === 'objectives' ? 'الأهداف (سطر لكل هدف، فارغ = أهداف دليل المدرب)' : 'العناصر: أيقونة | عنوان | وصف') + '</label><textarea rows="' + (k === 'logos' ? 6 : 7) + '" id="lp_' + k + '_items" data-keep="lp-' + k + '-items" style="font-family:var(--f-ui);font-size:13px">' + h(k === 'objectives' && !sc.items ? '' : sc.items || '') + '</textarea></div>' : '');
+        return '<div class="sec-row" style="flex-wrap:wrap"><span class="grow"><b>' + h(LANDING_NAMES[k]) + '</b>' + (sc._modified ? ' <span class="tag mod">معدّل</span>' : '') + (hid ? ' <span class="tag hid">مخفي</span>' : '') + '</span>' +
+          '<button class="btn btn-ghost btn-xs" data-act="lp-move" data-d="-1" data-k="' + k + '" ' + (i === 0 ? 'disabled' : '') + '>▲</button><button class="btn btn-ghost btn-xs" data-act="lp-move" data-d="1" data-k="' + k + '" ' + (i === ord.length - 1 ? 'disabled' : '') + '>▼</button>' +
+          '<button class="btn btn-soft btn-xs" data-act="drop" data-k="lp_' + k + '">' + (open ? 'إغلاق' : '✏️ تعديل') + '</button><button class="btn btn-ghost btn-xs" data-act="lp-vis" data-k="' + k + '">' + (hid ? '👁 إظهار' : '🙈 إخفاء') + '</button></div>' +
+          (open ? '<div class="card pad" style="margin:6px 0 12px">' + fields + '<div class="row"><button class="btn btn-primary btn-sm" data-act="lp-save" data-k="' + k + '">💾 حفظ</button>' + (sc._modified ? '<button class="btn btn-ghost btn-sm" data-act="lp-reset" data-k="' + k + '">🔄 استرجاع الافتراضي</button>' : '') + '</div></div>' : ''); }).join('') +
+      '<div class="row" style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-act="lp-reset-order">🔄 الترتيب الافتراضي</button></div>';
+  },
+  sectionsList() {
+    const list = Content.homeSections({ all: true });
+    const lay = HomeNav.layout();
+    return '<div class="layout-pick"><span class="lp-lbl">تخطيط الرئيسية:</span><button class="lp-opt ' + (lay === 'sidebar' ? 'on' : '') + '" data-act="home-layout" data-v="sidebar">▤ قائمة جانبية <small>كل قسم يُعرض عند الضغط على عنوانه</small></button><button class="lp-opt ' + (lay === 'classic' ? 'on' : '') + '" data-act="home-layout" data-v="classic">☰ صفحة طويلة <small>كل الأقسام متتالية (التخطيط السابق)</small></button></div>' +
+      '<p class="help muted" style="font-family:var(--f-ui);font-size:12.5px;margin-top:0">القسم البارز (العنوان والوصف والإحصاءات) يبقى أعلى الصفحة دائمًا. رتّب بقية الأقسام بالسحب أو ▲▼، وأخفِ ما لا تريده، وأضف أقسامًا جديدة (نص، فيديو، صورة وإعلان، زر رابط).</p><div id="secList">' +
+      list.map((x, i) => '<div class="sec-row" draggable="true" data-sec-drag="' + h(x.key) + '"><span class="drag-handle">⠿</span><span style="font-size:18px">' + h(x.icon || (x.type === 'video' ? '🎬' : x.type === 'image' ? '🖼️' : x.type === 'cta' ? '🔗' : '📝')) + '</span><span class="grow"><b>' + h(stripHtml(x.title) || (x.key === 'lab' ? Content.lab().title : '') || '(بدون عنوان)') + '</b> <span class="tag fmt">' + (x.builtin ? 'قسم أساسي' : 'مضاف · ' + h(SECTION_TYPES[x.type] || '')) + '</span>' + (x._hidden ? ' <span class="tag hid">مخفي</span>' : '') + '</span>' +
+        '<button class="btn btn-ghost btn-xs" data-act="sec-move" data-d="-1" data-k="' + h(x.key) + '" ' + (i === 0 ? 'disabled' : '') + '>▲</button><button class="btn btn-ghost btn-xs" data-act="sec-move" data-d="1" data-k="' + h(x.key) + '" ' + (i === list.length - 1 ? 'disabled' : '') + '>▼</button>' +
+        '<button class="btn btn-soft btn-xs" data-go="secEdit" data-id="' + h(x.key) + '">✏️ تعديل</button><button class="btn btn-ghost btn-xs" data-act="toggle-vis" data-id="home_' + h(x.key) + '">' + (x._hidden ? '👁 إظهار' : '🙈 إخفاء') + '</button>' +
+        (x.builtin ? '' : '<button class="btn btn-ghost btn-xs" data-act="sec-copy" data-k="' + h(x.key) + '">🧬 نسخ</button><button class="btn btn-danger btn-xs" data-act="sec-del" data-k="' + h(x.key) + '">🗑 حذف</button>') + '</div>').join('') + '</div>' +
+      '<div class="row" style="margin-top:10px"><select id="newSecType" style="border:1px solid var(--line);border-radius:10px;padding:7px">' + Object.keys(SECTION_TYPES).map(k => '<option value="' + k + '">' + SECTION_TYPES[k] + '</option>').join('') + '</select><button class="btn btn-primary btn-sm" data-act="sec-add">➕ إضافة قسم جديد</button><button class="btn btn-ghost btn-sm" data-act="sec-reset-order">🔄 الترتيب الافتراضي</button></div>';
+  },
+  unitsEditor() {
+    return '<p class="help muted" style="font-family:var(--f-ui);font-size:12.5px;margin-top:0">تظهر هذه العناوين في الرئيسية قبل محاور كل وحدة، وعلى بطاقات المحاور وملفات PDF. اختر وحدة كل محور من صفحة تعديله.</p>' +
+      UNIT_IDS.map(n => '<div class="grid2 unit-ed"><div class="field"><label>السطر الصغير (' + h(UNIT_KICKERS[n]) + ')</label><input data-unit-k="' + n + '" data-keep="unit-k-' + n + '" value="' + h(Content.unitKicker(n)) + '"></div><div class="field"><label>عنوان الوحدة</label><input data-unit-n="' + n + '" data-keep="unit-n-' + n + '" value="' + h(Content.unitName(n)) + '"></div></div>').join('') +
+      '<div class="row"><button class="btn btn-primary btn-sm" data-act="units-save">💾 حفظ أسماء الوحدات</button><button class="btn btn-ghost btn-sm" data-act="units-reset">🔄 استرجاع الافتراضي</button></div>';
+  },
+  pdfEditor() {
+    const p = Content.pdf();
+    const f = (k, l, ph = '') => '<div class="field"><label>' + l + '</label><input data-pdf="' + k + '" data-keep="pdf-' + k + '" value="' + h(p[k] || '') + '" placeholder="' + h(ph) + '"></div>';
+    return '<label class="row" style="font-family:var(--f-ui);font-weight:700;margin-bottom:10px"><input type="checkbox" id="pdfEnabled" ' + (p.enabled !== false ? 'checked' : '') + '> إتاحة زر «استخراج المحتوى» للمتدربين</label>' +
+      '<div class="grid2">' + f('coverTitle', 'عنوان الغلاف الأمامي', 'يُقرأ من عنوان الدورة إن تُرك فارغًا') + f('coverSub', 'وصف الغلاف الأمامي') + f('trainerName', 'اسم المدرّب (الغلاف الخلفي)') + f('trainerRole', 'المسمى') + '</div>' + f('trainerBio', 'نبذة') + f('trainerContact', 'وسيلة تواصل (اختيارية)') +
+      '<button class="btn btn-primary btn-sm" data-act="pdf-save">💾 حفظ بيانات الملف</button>';
+  },
+  after(root) {
+    RTE.mount(root); ImgPick.mount(root); Views.admin.afterNav(root);
+    // السحب والإفلات لترتيب المحاور
+    let dragId = null;
+    $$('[data-axis-drag]', root).forEach(el => {
+      el.addEventListener('dragstart', e => { dragId = el.getAttribute('data-axis-drag'); el.classList.add('dragging'); try { e.dataTransfer.setData('text/plain', dragId); e.dataTransfer.effectAllowed = 'move'; } catch (er) {} });
+      el.addEventListener('dragend', () => { el.classList.remove('dragging'); $$('.drop-target', root).forEach(x => x.classList.remove('drop-target')); });
+      el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drop-target'); });
+      el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+      el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('drop-target'); const target = el.getAttribute('data-axis-drag'); if (!dragId || dragId === target) return; const ids = Content.axisIds().filter(x => x !== dragId); ids.splice(ids.indexOf(target), 0, dragId); DB.set('order/axes', ids); UI.toast('تم حفظ الترتيب الجديد'); });
+    });
+    let secDrag = null;
+    $$('[data-sec-drag]', root).forEach(el => {
+      el.addEventListener('dragstart', e => { secDrag = el.getAttribute('data-sec-drag'); el.classList.add('dragging'); try { e.dataTransfer.setData('text/plain', secDrag); } catch (er) {} });
+      el.addEventListener('dragend', () => el.classList.remove('dragging'));
+      el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drop-target'); });
+      el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+      el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('drop-target'); const target = el.getAttribute('data-sec-drag'); if (!secDrag || secDrag === target) return; const ids = Content.homeSections({ all: true }).map(x => x.key).filter(x => x !== secDrag); ids.splice(ids.indexOf(target), 0, secDrag); DB.set('site/homeOrder', ids); UI.toast('تم حفظ ترتيب الأقسام'); });
+    });
+    // تعديل ساعات الحضور مباشرة من الجدول
+    $$('[data-att-u]', root).forEach(inp => inp.addEventListener('change', () => { const v = Math.max(0, Math.min(Attend.cfg().hours, parseFloat(inp.value) || 0)); DB.set('attendance/' + inp.getAttribute('data-att-u') + '/d' + inp.getAttribute('data-att-d'), v || null); }));
+  }
+};
+
+// ============ نموذج المحور ============
+const FormState = { slides: [], items: [], axisId: null, exId: null, format: 'text' };
+function slideEditorHtml(s, i, n) {
+  const k = 's' + i; const t = s.type || 'principle';
+  let f = '<div class="slide-editor" data-se="' + i + '"><div class="se-head"><span class="pill num">' + (i + 1) + '</span><select data-sf="type" style="border:1px solid var(--line);border-radius:10px;padding:6px">' + Object.keys(SLIDE_TYPES).map(x => '<option value="' + x + '" ' + (x === t ? 'selected' : '') + '>' + SLIDE_TYPES[x] + '</option>').join('') + '</select><span class="grow"></span>' +
+    '<button type="button" class="btn btn-ghost btn-xs" data-act="se-up" data-i="' + i + '" ' + (i === 0 ? 'disabled' : '') + '>▲</button><button type="button" class="btn btn-ghost btn-xs" data-act="se-down" data-i="' + i + '" ' + (i === n - 1 ? 'disabled' : '') + '>▼</button><button type="button" class="btn btn-danger btn-xs" data-act="se-del" data-i="' + i + '">🗑 حذف الشريحة</button></div>' +
+    '<div class="field"><label>عنوان الشريحة</label><input data-sf="title" value="' + h(s.title || '') + '"></div>';
+  if (t === 'design') { const lay = DESIGN_LAYOUTS[s.layout] ? s.layout : 'bento';
+    f += '<div class="grid2"><div class="field"><label>التخطيط</label><select data-sf="layout">' + Object.keys(DESIGN_LAYOUTS).map(x => '<option value="' + x + '" ' + (x === lay ? 'selected' : '') + '>' + DESIGN_LAYOUTS[x] + '</option>').join('') + '</select></div><div class="field"><label>سطر صغير أعلى العنوان (اختياري)</label><input data-sf="kicker" value="' + h(s.kicker || '') + '"></div></div>' +
+      '<div class="field"><label>النص الرئيسي (اختياري، ** ** لإبراز كلمة)</label><textarea data-sf="dtext" rows="4">' + h(String(s.text || '').replace(/<\/?p>/g, '')) + '</textarea></div>' +
+      '<div class="field"><label>العناصر (سطر لكل عنصر: ' + h(DESIGN_HELP[lay] || '') + ')</label><textarea data-sf="items" rows="6">' + h(arr(s.items).join('\n')) + '</textarea></div>' +
+      '<div class="field"><label>رسالة ختامية (اختيارية)</label><textarea data-sf="drule" rows="2">' + h(String(s.rule || '').replace(/<\/?p>/g, '')) + '</textarea></div>'; }
+  else if (t === 'opening' || t === 'summary') f += '<div class="field"><label>النص الرئيسي</label>' + RTE.html(k + 'text', s.text) + '</div><div class="field"><label>قاعدة تذكّرها</label>' + RTE.html(k + 'rule', s.rule) + '</div>';
+  else if (t === 'principle') f += '<div class="field"><label>مقدمة المبدأ العلمي</label>' + RTE.html(k + 'intro', s.intro) + '</div><div class="field"><label>النقاط (سطر لكل نقطة)</label><textarea data-sf="points" rows="5">' + h(arr(s.points).join('\n')) + '</textarea><span class="help">المصطلح قبل «:» أو «-» يُبرز تلقائيًا.</span></div><div class="field"><label>جملة الربط / الرسالة</label>' + RTE.html(k + 'rule', s.rule) + '</div>';
+  else if (SK_TYPES.indexOf(t) > -1) {
+    const help = { hook: 'غير مستخدم في هذا النمط', myth: 'الخرافة :: الحقيقة', scenario: 'الخيار :: التعليق عليه، ضع * قبل الخيار الأفضل', numbers: 'الرقم :: ما يعنيه :: المصدر (اختياري)', framework: 'الحرف أو الرمز :: الكلمة :: الشرح', checklist: 'البند :: توضيح (اختياري)', versus: 'العنصر :: قبل :: بعد التحسين', journey: 'أيقونة :: المرحلة :: الشرح' }[t];
+    const lbl = { hook: 'النص', scenario: 'وصف الموقف' }[t];
+    if (t === 'hook' || t === 'framework') f += '<div class="grid2"><div class="field"><label>' + (t === 'hook' ? 'الرقم الكبير (مثال: 70%)' : 'اسم الإطار (مثال: S.C.O.P.E)') + '</label><input data-sf="big" value="' + h(s.big || '') + '"></div>' + (t === 'hook' ? '<div class="field"><label>ما يعنيه الرقم</label><input data-sf="label" value="' + h(s.label || '') + '"></div>' : '<div></div>') + '</div>';
+    f += lbl ? '<div class="field"><label>' + lbl + '</label>' + RTE.html(k + 'text', s.text) + '</div>' : '<div class="field"><label>مقدمة (اختيارية)</label>' + RTE.html(k + 'intro', s.intro) + '</div>';
+    if (t !== 'hook') f += '<div class="field"><label>العناصر (سطر لكل عنصر بصيغة: ' + help + ')</label><textarea data-sf="items" rows="6">' + h(arr(s.items).join('\n')) + '</textarea></div>';
+    if (t === 'hook' || t === 'numbers') f += '<div class="field"><label>المصدر (اختياري)</label><input data-sf="src" value="' + h(s.src || '') + '"></div>';
+    f += '<div class="field"><label>' + (t === 'hook' ? 'سؤال للقاعة' : t === 'scenario' ? 'الخلاصة (تظهر بعد الاختيار)' : 'الفكرة الذهبية (اختيارية)') + '</label>' + RTE.html(k + 'rule', s.rule) + '</div>';
+  }
+  else f += '<div class="field"><label>' + (t === 'mistakes' ? 'الأخطاء وتصحيحاتها' : t === 'tools' ? 'الأدوات واستخداماتها' : 'الأمثلة') + ' (سطر لكل عنصر، بصيغة: العنوان :: التفصيل)</label><textarea data-sf="items" rows="5">' + h(arr(s.items).map(x => String(x).replace('::', ' :: ')).join('\n')) + '</textarea></div><div class="field"><label>الرسالة (اختيارية)</label>' + RTE.html(k + 'rule', s.rule) + '</div>';
+  f += '<div class="field"><label>صورة الشريحة (اختيارية، تظهر أعلى محتواها)</label>' + ImgPick.html(k + 'img', s.image) + '</div>' +
+    '<div class="grid2"><div class="field"><label>رابط مصدر للتوسع (اختياري)</label><input data-sf="srcUrl" value="' + h(s.srcUrl || '') + '" placeholder="https://"></div><div class="field"><label>نص الرابط</label><input data-sf="srcLabel" value="' + h(s.srcLabel || '') + '" placeholder="مصدر للتوسع"></div></div>' +
+    '<div class="field"><label>رابط فيديو (يوتيوب أو Google Drive)</label><input data-sf="videoUrl" value="' + h(s.videoUrl || '') + '" placeholder="الصق رابط المشاركة كما هو"></div>' +
+    '<div class="field"><label>🎤 ملاحظات المدرب لهذه الشريحة (تظهر للأدمن فقط وفي دليل المدرب)</label><textarea data-sf="note" rows="2">' + h(s.note || '') + '</textarea></div>' +
+    (s.chart ? '<div class="notice" style="margin-top:0">📊 لهذه الشريحة رسم بياني مبني في الكود؛ يبقى كما هو ولا يُعدَّل من هنا.</div>' : '') + '</div>';
+  return f;
+}
+function collectSlides(root) {
+  return $$('[data-se]', root).map(box => {
+    const i = +box.getAttribute('data-se'); const k = 's' + i; const old = FormState.slides[i] || {};
+    const g = n => { const el = $('[data-sf="' + n + '"]', box); return el ? el.value : ''; };
+    const t = g('type') || old.type; const s = { id: old.id || genId('sl'), type: t, title: g('title').trim() };
+    if (t === 'design') { s.layout = g('layout') || old.layout || 'bento'; s.kicker = g('kicker').trim(); s.text = g('dtext').trim(); s.rule = g('drule').trim(); s.items = g('items').split('\n').map(x => x.trim()).filter(Boolean); if (old.scene) s.scene = old.scene; if (old.chatTitle) s.chatTitle = old.chatTitle; }
+    else if (t === 'opening' || t === 'summary') { s.text = RTE.val(box, k + 'text'); s.rule = RTE.val(box, k + 'rule'); }
+    else if (t === 'principle') { s.intro = RTE.val(box, k + 'intro'); s.points = g('points').split('\n').map(x => x.trim()).filter(Boolean); s.rule = RTE.val(box, k + 'rule'); }
+    else if (SK_TYPES.indexOf(t) > -1) {
+      if (t === 'hook' || t === 'scenario') s.text = RTE.val(box, k + 'text'); else s.intro = RTE.val(box, k + 'intro');
+      if (t !== 'hook') s.items = g('items').split('\n').map(x => x.trim()).filter(Boolean).map(x => x.replace(/\s*::\s*/g, ' :: '));
+      ['big', 'label', 'src'].forEach(x => { const el = $('[data-sf="' + x + '"]', box); if (el) s[x] = el.value.trim(); });
+      s.rule = RTE.val(box, k + 'rule');
+    }
+    else { s.items = g('items').split('\n').map(x => x.trim()).filter(Boolean).map(x => x.replace(/\s*::\s*/, '::')); s.rule = RTE.val(box, k + 'rule'); }
+    // الحقول الخاصة بالأنواع الأخرى تُحفظ من الحالة القديمة عند تبديل النوع حتى لا تضيع
+    ['text', 'intro', 'points', 'items', 'rule', 'big', 'label', 'src'].forEach(x => { if (s[x] === undefined && old[x] !== undefined) s[x] = old[x]; });
+    s.note = g('note').trim(); s.image = ImgPick.val(k + 'img'); s.srcUrl = g('srcUrl').trim(); s.srcLabel = g('srcLabel').trim(); s.videoUrl = g('videoUrl').trim();
+    if (old.chart) s.chart = old.chart;
+    if (old.live) s.live = old.live; // السؤال الحي يُكتب في المحتوى فقط ويبقى كما هو عند تعديل المحور
+    return s;
+  });
+}
+Views.axisEdit = {
+  html() {
+    const id = Router.cur.id; const isNew = id === 'new'; const a = isNew ? { title: '', classic: '', desc: '', duration: '', highlights: [], icon: 'star', slides: [], unit: 0 } : Content.axis(id);
+    if (!a) return adminHeader('تعديل محور') + '<div class="empty">المحور غير موجود.</div>';
+    if (FormState.axisId !== id) { FormState.axisId = id; FormState.slides = isNew ? ['opening', 'principle', 'examples', 'mistakes', 'tools', 'summary'].map(t => ({ type: t, title: '' })) : a.slides.map(s => Object.assign({}, s)); }
+    const col = isNew ? AXIS_COLORS[Content.axisIds().length % AXIS_COLORS.length] : Content.color(a);
+    let out = adminHeader(isNew ? '➕ محور جديد' : '✏️ تعديل المحور') + Layout.crumbs() + '<div class="form-page" style="--ac:' + col + '">' +
+      '<div class="card pad"><div class="grid2"><div class="field"><label>العنوان (الإبداعي)</label><input id="axTitle" data-keep="ax-title" value="' + h(a.title) + '"></div><div class="field"><label>العنوان التقليدي (اختياري)</label><input id="axClassic" data-keep="ax-classic" value="' + h(a.classic || '') + '"></div></div>' +
+      '<div class="field"><label>الوصف</label>' + RTE.html('axDesc', a.desc) + '</div>' +
+      '<div class="grid2"><div class="field"><label>المدة</label><input id="axDur" data-keep="ax-dur" value="' + h(a.duration || '') + '" placeholder="مثال: 90 دقيقة"></div><div class="field"><label>الأيقونة</label><select id="axIcon">' + AXIS_ICON_CHOICES.map(x => '<option value="' + x + '" ' + (x === a.icon ? 'selected' : '') + '>' + x + '</option>').join('') + '</select><span id="axIconPrev" style="display:inline-flex;margin-top:6px;width:44px;height:44px;border-radius:12px;background:' + col + ';align-items:center;justify-content:center">' + iconSvg(a.icon || 'star', 24, '#fff') + '</span></div></div>' +
+      '<div class="field"><label>الوحدة التي ينتمي إليها المحور</label><select id="axUnit">' + ['<option value="0">بدون وحدة (محاور إضافية)</option>'].concat(UNIT_IDS.map(n => '<option value="' + n + '" ' + (+a.unit === n ? 'selected' : '') + '>' + h(Content.unitKicker(n) + ' · ' + Content.unitName(n)) + '</option>')).join('') + '</select></div>' +
+      '<div class="field"><label>🎯 مخرج التعلم (يظهر في دليل المدرب)</label><input id="axOutcome" data-keep="ax-out" value="' + h(a.outcome || '') + '"></div>' +
+      '<div class="field"><label>أبرز النقاط (سطر لكل نقطة)</label><textarea id="axHl" data-keep="ax-hl" rows="4">' + h(arr(a.highlights).join('\n')) + '</textarea></div>' +
+      '<div class="field"><label>صورة المحور (اختيارية، تظهر في بطاقته بالرئيسية بدل الرسم التلقائي)</label>' + ImgPick.html('axImg', a.image) + '</div>' +
+      '<div class="notice">🖼 تُضغط الصور تلقائيًا عند الرفع (حتى 1600 بكسل بصيغة WebP) وتُحفظ في مسار مستقل يُحمَّل عند الحاجة فقط، فلا تُبطئ مزامنة المحتوى (حد الرفع 5 ميجابايت للصورة الأصلية).<br>📊 الرسوم البيانية داخل الشرائح ليست جزءًا من هذا التعديل في هذه النسخة، وتبقى قابلة للتعديل عبر الكود فقط.</div></div>' +
+      '<h3 style="margin:22px 0 10px">🎞️ الشرائح <span class="pill num">' + FormState.slides.length + '</span></h3><div id="slidesEd">' + FormState.slides.map((s, i) => slideEditorHtml(s, i, FormState.slides.length)).join('') + '</div>' +
+      '<div class="row"><select id="newSlideType" style="border:1px solid var(--line);border-radius:10px;padding:8px">' + Object.keys(SLIDE_TYPES).map(x => '<option value="' + x + '">' + SLIDE_TYPES[x] + '</option>').join('') + '</select><button class="btn btn-soft btn-sm" data-act="se-add">➕ إضافة شريحة</button></div>';
+    if (!isNew) {
+      const exs = Content.exercisesOf(id, { all: true });
+      out += '<h3 style="margin:26px 0 10px">✍️ تمارين هذا المحور <span class="pill num">' + exs.length + '</span></h3><div class="card pad">' + (exs.length ? exs.map(e => exRow(e, { axis: id })).join('') : '<div class="empty">لا توجد تمارين بعد.</div>') + '<div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-go="exEdit" data-id="new" data-axis="' + h(id) + '" data-from="axisEdit">➕ أضف تمرينًا لهذا المحور</button></div></div>';
+    }
+    out += '<div class="sticky-actions"><button class="btn btn-primary" data-act="axis-save">💾 حفظ المحور</button><button class="btn btn-ghost" data-act="form-cancel">إلغاء</button></div></div>';
+    return out;
+  },
+  after(root) {
+    RTE.mount(root); ImgPick.mount(root);
+    const sel = $('#axIcon', root); if (sel) sel.addEventListener('change', () => { $('#axIconPrev', root).innerHTML = iconSvg(sel.value, 24, '#fff'); });
+    $$('[data-sf="type"]', root).forEach(s => s.addEventListener('change', () => { FormState.slides = collectSlides(root); Views.axisEdit.reslides(root); }));
+  },
+  reslides(root) {
+    const box = $('#slidesEd', root); box.innerHTML = FormState.slides.map((s, i) => slideEditorHtml(s, i, FormState.slides.length)).join('');
+    RTE.mount(box); ImgPick.mount(box);
+    $$('[data-sf="type"]', box).forEach(s => s.addEventListener('change', () => { FormState.slides = collectSlides(root); Views.axisEdit.reslides(root); }));
+  },
+  async save(root) {
+    const id = Router.cur.id; const isNew = id === 'new';
+    const slides = collectSlides(root).map(s => { const o = Object.assign({}, s); delete o.chart; return o; });
+    const data = { title: $('#axTitle', root).value.trim(), classic: $('#axClassic', root).value.trim(), desc: RTE.val(root, 'axDesc'), duration: $('#axDur', root).value.trim(), icon: $('#axIcon', root).value, highlights: $('#axHl', root).value.split('\n').map(x => x.trim()).filter(Boolean), image: ImgPick.val('axImg'), unit: +(($('#axUnit', root) || {}).value || 0), outcome: (($('#axOutcome', root) || {}).value || '').trim(), slides };
+    if (!data.title) { UI.alert('اكتب عنوان المحور أولًا.'); return; }
+    if (isNew) {
+      const nid = 'x' + genId(); data.ts = DB.now(); data.color = Content.axisIds().length % AXIS_COLORS.length; data.scene = 'idea';
+      await DB.set('added/axes/' + nid, data); UI.toast('✅ تم إنشاء المحور، أضف تمارينه الآن');
+      FormState.axisId = null; Router.go('axisEdit', { id: nid }, { replace: true });
+    } else if (DEF_AXIS[id]) { await DB.set('content/axes/' + id, data); UI.toast('✅ حُفظ التعديل ونُشر حيًا'); FormState.axisId = null; Router.go('admin'); }
+    else { const cur = Store.addedAxes[id] || {}; await DB.set('added/axes/' + id, Object.assign({}, cur, data)); UI.toast('✅ حُفظ التعديل ونُشر حيًا'); FormState.axisId = null; Router.go('admin'); }
+  }
+};
+
+// ============ نموذج التمرين / النشاط ============
+function itemsEditorHtml(fmt, items) {
+  if (fmt === 'text') return '';
+  const row = (i, inner) => '<div class="item-editor" data-it="' + i + '"><div class="row" style="margin-bottom:6px"><span class="pill num">' + (i + 1) + '</span><span class="grow"></span><button type="button" class="btn btn-danger btn-xs" data-act="it-del" data-i="' + i + '">🗑 حذف</button></div>' + inner + '</div>';
+  let out = '<h4 style="margin:14px 0 8px">عناصر النموذج التفاعلي</h4>';
+  out += items.map((it, i) => {
+    if (fmt === 'mcq') return row(i, '<div class="field"><label>السؤال</label><input data-if="q" value="' + h(it.q || '') + '"></div><div class="field"><label>الخيارات (سطر لكل خيار)</label><textarea data-if="options" rows="4">' + h(arr(it.options).join('\n')) + '</textarea></div><div class="field"><label>رقم الخيار الصحيح (1 أو 2 أو 3)</label><input type="number" min="1" data-if="answer" value="' + ((+it.answer || 0) + 1) + '"></div>');
+    if (fmt === 'truefalse') return row(i, '<div class="field"><label>العبارة</label><input data-if="q" value="' + h(it.q || '') + '"></div><div class="field"><label>الإجابة الصحيحة</label><select data-if="answer"><option value="true" ' + (it.answer ? 'selected' : '') + '>صح</option><option value="false" ' + (!it.answer ? 'selected' : '') + '>خطأ</option></select></div>');
+    if (fmt === 'fillblank') return row(i, '<div class="field"><label>الجملة (ضع ___ مكان الفراغ)</label><input data-if="text" value="' + h(it.text || '') + '"></div><div class="field"><label>الكلمة الصحيحة (تُضاف إلى بنك الكلمات)</label><input data-if="answer" value="' + h(it.answer || '') + '"></div>');
+    if (fmt === 'comparePairs') return row(i, '<div class="grid2"><div class="field"><label>العبارة (أ)</label><textarea data-if="a" rows="2">' + h(it.a || '') + '</textarea></div><div class="field"><label>العبارة (ب)</label><textarea data-if="b" rows="2">' + h(it.b || '') + '</textarea></div></div><div class="field"><label>الأدق</label><select data-if="answer"><option value="a" ' + (it.answer === 'a' ? 'selected' : '') + '>(أ)</option><option value="b" ' + (it.answer !== 'a' ? 'selected' : '') + '>(ب)</option></select></div>');
+    return '';
+  }).join('');
+  return out + '<button type="button" class="btn btn-soft btn-sm" data-act="it-add">➕ أضف عنصرًا جديدًا</button>';
+}
+function collectItems(root, fmt) {
+  return $$('[data-it]', root).map(box => {
+    const g = n => { const el = $('[data-if="' + n + '"]', box); return el ? el.value : ''; };
+    if (fmt === 'mcq') { const opts = g('options').split('\n').map(x => x.trim()).filter(Boolean); return { q: g('q').trim(), options: opts, answer: Math.max(0, Math.min(opts.length - 1, (parseInt(g('answer'), 10) || 1) - 1)) }; }
+    if (fmt === 'truefalse') return { q: g('q').trim(), answer: g('answer') === 'true' };
+    if (fmt === 'fillblank') { let t = g('text').trim(); if (t.indexOf('___') === -1) t += ' ___'; return { text: t, answer: g('answer').trim() }; }
+    if (fmt === 'comparePairs') return { a: g('a').trim(), b: g('b').trim(), answer: g('answer') === 'a' ? 'a' : 'b' };
+    return {};
+  });
+}
+function exFormHtml(kind) {
+  const id = Router.cur.id; const isNew = id === 'new';
+  const e = isNew ? { title: '', icon: kind === 'activity' ? '⚡' : '✍️', mode: 'individual', format: 'text', scenario: '', principle: '', steps: [], task: '', hint: '', why: '', model: '', items: [] } : Content.ex(id);
+  if (!e) return adminHeader('تعديل') + '<div class="empty">غير موجود.</div>';
+  const isSurvey = e.kind === 'survey'; const isAct = kind === 'activity' || e.kind === 'activity';
+  if (FormState.exId !== id) { FormState.exId = id; FormState.format = e.format || 'text'; FormState.items = arr(e.items).map(x => Object.assign({}, x)); }
+  const fmt = FormState.format; const locked = FORMAT_MODE[fmt];
+  const axId = isNew ? Router.cur.axis : Content.axisOfEx(id);
+  let out = adminHeader(isNew ? (isAct ? '➕ نشاط جديد' : '➕ تمرين جديد') : (isSurvey ? '✏️ تعديل الاستطلاع الختامي' : isAct ? '✏️ تعديل النشاط' : '✏️ تعديل التمرين')) + Layout.crumbs(axId ? '<span class="crumb-tag">' + h(Content.axis(axId) ? Content.axis(axId).title : '') + '</span>' : '') + '<div class="form-page"><div class="card pad">' +
+    '<div class="grid2"><div class="field"><label>العنوان</label><input id="exTitle" data-keep="ex-title" value="' + h(e.title) + '"></div><div class="field"><label>الأيقونة (إيموجي)</label><input id="exIcon" data-keep="ex-icon" value="' + h(e.icon || '') + '"></div></div>';
+  if (!isSurvey) {
+    out += '<div class="grid2"><div class="field"><label>نموذج الإجابة</label><select id="exFormat">' + Object.keys(FORMATS).map(x => '<option value="' + x + '" ' + (x === fmt ? 'selected' : '') + '>' + FORMATS[x] + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label>نوع العمل</label><select id="exMode" ' + (locked ? 'disabled' : '') + '><option value="individual" ' + ((locked || e._rawMode || e.mode) === 'individual' ? 'selected' : '') + '>فردي</option><option value="group" ' + ((locked || e._rawMode || e.mode) === 'group' ? 'selected' : '') + '>جماعي</option></select>' + (locked ? '<span class="help">🔒 مقفل تلقائيًا على «' + (locked === 'group' ? 'جماعي' : 'فردي') + '» ليتوافق مع آلية هذا النموذج.</span>' : '') + '</div></div>';
+    out += '<div class="field" id="simField" ' + (fmt === 'sim' ? '' : 'style="display:none"') + '><label>نوع المحاكاة</label><select id="exSim">' + Object.keys(SIM_TYPES).map(k => '<option value="' + k + '" ' + (k === (e.sim || 'wall') ? 'selected' : '') + '>' + SIM_TYPES[k] + '</option>').join('') + '</select><span class="help">المحاكاة تعمل بنموذج مبني في الكود؛ يمكنك تعديل النصوص حولها ونوع العمل.</span></div>';
+    out += '<div class="field" id="cfgField" ' + (fmt === 'sim' ? '' : 'style="display:none"') + '><label>⚙️ إعدادات المحاكاة (JSON، الأسئلة والخيارات والبطاقات)</label><textarea id="exCfg" data-keep="ex-cfg" rows="9" dir="ltr" style="font-family:monospace;font-size:12.5px">' + h(JSON.stringify(e.cfg || {}, null, 1)) + '</textarea><span class="help muted" style="font-family:var(--f-ui);font-size:12.5px">يتغير الشكل المطلوب بحسب نوع المحاكاة (مثال التصويت: {"q":"السؤال","options":["أ","ب"]}). اتركه كما هو إن لم تكن تريد التعديل.</span></div>';
+    out += '<div class="field"><label>السيناريو / الموقف' + (isAct ? ' (اختياري)' : '') + '</label>' + RTE.html('exScenario', e.scenario) + '</div>';
+    if (!isAct) out += '<div class="field"><label>المبدأ العلمي باختصار</label><textarea id="exPrinciple" data-keep="ex-pr" rows="2">' + h(stripHtml(e.principle || '')) + '</textarea></div><div class="field"><label>خطوات «كيف تنجز التمرين؟» (سطر لكل خطوة)</label><textarea id="exSteps" data-keep="ex-steps" rows="4">' + h(arr(e.steps).join('\n')) + '</textarea></div>';
+  }
+  out += '<div class="field"><label>📝 ' + (isSurvey ? 'سؤال الرأي المفتوح' : 'المطلوب منك') + '</label>' + RTE.html('exTask', e.task) + '</div>';
+  if (isSurvey) out += '<div class="field"><label>⭐ بنود التقييم بالنجوم (سطر لكل بند)</label><textarea id="svRates" data-keep="sv-rates" rows="6">' + h(arr(e.rates).join('\n')) + '</textarea></div><div class="field"><label>سؤال التوصية NPS (0-10)، اتركه فارغًا لإخفائه</label><input id="svNps" data-keep="sv-nps" value="' + h(e.nps || '') + '"></div>';
+  if (!isSurvey) {
+    out += '<div class="field" id="hintField" ' + (fmt === 'text' ? 'style="display:none"' : '') + '><label>💡 تلميح عام (يحل محل «المطلوب» في النماذج التفاعلية)</label>' + RTE.html('exHint', e.hint) + '</div>';
+    out += '<div class="field" id="modelField" ' + (fmt !== 'text' ? 'style="display:none"' : '') + '><label>🧩 النموذج المساعد' + (isAct ? ' (اختياري)' : '') + '</label>' + RTE.html('exModel', e.model) + '<span class="help">مثال موجز يقرّب الفكرة دون أن يعطي الإجابة. لا يظهر في النماذج التفاعلية.</span></div>';
+    out += '<div class="field"><label>صورة (اختيارية، تظهر أعلى صفحته)</label>' + ImgPick.html('exImg', e.image) + '</div>';
+    out += '<div id="itemsEd">' + itemsEditorHtml(fmt, FormState.items) + '</div>';
+  }
+  out += '</div><div class="sticky-actions"><button class="btn btn-primary" data-act="ex-save" data-kind="' + (isSurvey ? 'survey' : isAct ? 'activity' : 'ex') + '">💾 حفظ</button><button class="btn btn-ghost" data-act="form-cancel">إلغاء</button></div></div>';
+  return out;
+}
+function exFormAfter(root) {
+  RTE.mount(root); ImgPick.mount(root);
+  const f = $('#exFormat', root);
+  if (f) f.addEventListener('change', () => {
+    FormState.items = FormState.format === f.value ? collectItems(root, FormState.format) : [];
+    FormState.format = f.value;
+    const m = $('#exMode', root); const lk = FORMAT_MODE[f.value];
+    if (lk) { m.value = lk; m.disabled = true; } else m.disabled = false;
+    const hf = $('#hintField', root); if (hf) hf.style.display = f.value === 'text' ? 'none' : '';
+    const sf = $('#simField', root); if (sf) sf.style.display = f.value === 'sim' ? '' : 'none'; const cf = $('#cfgField', root); if (cf) cf.style.display = f.value === 'sim' ? '' : 'none';
+    const mf = $('#modelField', root); if (mf) mf.style.display = f.value === 'text' ? '' : 'none';
+    if (!FormState.items.length && f.value !== 'text' && f.value !== 'sim') FormState.items = [{}];
+    $('#itemsEd', root).innerHTML = itemsEditorHtml(f.value, FormState.items);
+    const help = m.parentNode.querySelector('.help'); if (help) help.remove();
+    if (lk) m.insertAdjacentHTML('afterend', '<span class="help">🔒 مقفل تلقائيًا على «' + (lk === 'group' ? 'جماعي' : 'فردي') + '» ليتوافق مع آلية هذا النموذج.</span>');
+  });
+}
+async function exFormSave(root, kind) {
+  const id = Router.cur.id; const isNew = id === 'new';
+  const fmt = kind === 'survey' ? 'text' : ($('#exFormat', root) ? $('#exFormat', root).value : 'text');
+  const data = { title: $('#exTitle', root).value.trim(), icon: $('#exIcon', root).value.trim(), task: RTE.val(root, 'exTask') };
+  if (!data.title) { UI.alert('اكتب عنوانًا أولًا.'); return; }
+  if (kind === 'survey') { data.rates = ($('#svRates', root).value || '').split('\n').map(x => x.trim()).filter(Boolean); data.nps = $('#svNps', root).value.trim(); }
+  if (kind !== 'survey') {
+    data.format = fmt; data.mode = FORMAT_MODE[fmt] || $('#exMode', root).value;
+    data.scenario = RTE.val(root, 'exScenario'); data.hint = RTE.val(root, 'exHint'); data.model = fmt === 'text' ? RTE.val(root, 'exModel') : ''; data.image = ImgPick.val('exImg');
+    if ($('#exPrinciple', root)) { data.principle = $('#exPrinciple', root).value.trim(); data.steps = $('#exSteps', root).value.split('\n').map(x => x.trim()).filter(Boolean); }
+    data.items = fmt === 'text' || fmt === 'sim' ? [] : collectItems(root, fmt).filter(it => it.q || it.text || it.a);
+    if (fmt === 'sim') { data.sim = $('#exSim', root).value; try { const cj = ($('#exCfg', root).value || '').trim(); data.cfg = cj ? JSON.parse(cj) : {}; } catch (er) { UI.alert('صيغة JSON في إعدادات المحاكاة غير صحيحة: ' + er.message); return; } }
+    if (fmt !== 'text' && fmt !== 'sim' && !data.items.length) { UI.alert('أضف عنصرًا واحدًا على الأقل للنموذج التفاعلي.'); return; }
+    if (fmt === 'fillblank') { const ans = data.items.map(i => i.answer); if (ans.some(x => !x)) { UI.alert('اكتب الكلمة الصحيحة لكل فراغ.'); return; } }
+  }
+  if (isNew) {
+    const nid = 'n' + genId(); data.ts = DB.now();
+    if (kind === 'activity') data.kind = 'activity'; else data.axis = Router.cur.axis;
+    await DB.set('added/ex/' + nid, data);
+  } else if (DEF_EX[id]) await DB.set('content/ex/' + id, data);
+  else await DB.set('added/ex/' + id, Object.assign({}, Store.addedEx[id] || {}, data));
+  UI.toast('✅ تم الحفظ ونُشر حيًا'); FormState.exId = null;
+  const back = Router.backOf(Router.cur); Router.go(back.view, back.id ? { id: back.id } : {});
+}
+Views.exEdit = { html() { return exFormHtml('ex'); }, after: exFormAfter };
+Views.actEdit = { html() { const e = Router.cur.id !== 'new' ? Content.ex(Router.cur.id) : null; return exFormHtml(e && e.kind === 'survey' ? 'survey' : 'activity'); }, after: exFormAfter };
+
+// ============ نافذة توزيع المجموعات (تعيين يدوي إرشادي) ============
+const Assign = {
+  modal: null, open: new Set(),
+  show() { Assign.modal = UI.modal('<div data-assign></div>', { wide: true, onClose: () => { Assign.modal = null; } }); Assign.render(); },
+  render() {
+    if (!Assign.modal) return; const box = $('[data-assign]', Assign.modal.el);
+    const users = Store.users || {}; const assigned = Store.assign || {};
+    const free = Object.keys(users).filter(u => !assigned[u]).sort((a, b) => (users[a].name || '').localeCompare(users[b].name || '', 'ar'));
+    const html = '<h3>🧭 توزيع المجموعات</h3><p class="muted" style="font-family:var(--f-ui);font-size:13.5px">التعيين إرشادي: يرى المتدرب تنبيهًا باسم مجموعته، دون منعه من اختيار غيرها.</p>' +
+      Groups.list().map(n => { const mem = Groups.membersOf(n); const op = Assign.open.has(n);
+        return '<div class="assign-group ' + (op ? 'open' : '') + '"><div class="ag-head" data-act="ag-toggle" data-g="' + n + '"><span>👥</span><b class="grow">' + h(Groups.label(n)) + '</b><span class="pill num">' + mem.length + ' عضو</span><span>' + (op ? '▼' : '◀') + '</span></div><div class="ag-body">' + (op ? '<div class="field"><label>اسم مخصّص لهذه المجموعة (اختياري)</label><input data-gname="' + n + '" data-keep="gname-' + n + '" value="' + h((Store.groupNames || {})[n] || '') + '" placeholder="اتركه فارغًا لعرض الرقم وحده"></div>' +
+          '<div class="field"><input data-keep="gsearch-' + n + '" data-filter-list="' + n + '" placeholder="🔍 بحث بالاسم"></div><div class="chk-list" data-list="' + n + '">' + (free.length ? free.map(u => '<label data-name="' + h((users[u].name || '').toLowerCase()) + '"><input type="checkbox" data-assign-u="' + h(u) + '" data-g="' + n + '"> ' + h(users[u].name) + ' <span class="muted">' + h(users[u].role || '') + '</span></label>').join('') : '<div class="muted" style="padding:6px">كل المسجّلين معيَّنون.</div>') + '</div>' +
+          '<div class="member-box"><b style="font-family:var(--f-ui);font-size:13px">أعضاء المجموعة:</b> ' + (mem.length ? mem.map(u => '<span class="m">' + h(users[u] ? users[u].name : '(محذوف)') + '<button class="btn btn-danger btn-xs" data-act="unassign" data-uid="' + h(u) + '">✕</button></span>').join('') : '<span class="muted">لا أعضاء بعد.</span>') + '</div>' : '') + '</div></div>'; }).join('') +
+      '<div class="actions"><button class="btn btn-danger btn-sm" data-act="unassign-all">إلغاء كل التعيينات</button><button class="btn btn-ghost btn-sm" data-act="assign-close">إغلاق</button></div>';
+    preserveRender(box, html);
+    $$('[data-filter-list]', box).forEach(inp => { const apply = () => { const q = inp.value.trim().toLowerCase(); $$('[data-list="' + inp.getAttribute('data-filter-list') + '"] label', box).forEach(l => { l.style.display = !q || (l.getAttribute('data-name') || '').indexOf(q) > -1 ? '' : 'none'; }); }; inp.addEventListener('input', apply); apply(); });
+    $$('[data-gname]', box).forEach(inp => inp.addEventListener('change', () => { const v = inp.value.trim(); DB.set('settings/groupNames/' + inp.getAttribute('data-gname'), v || null); }));
+    $$('[data-assign-u]', box).forEach(cb => cb.addEventListener('change', () => { if (cb.checked) DB.set('assign/' + cb.getAttribute('data-assign-u'), +cb.getAttribute('data-g')); }));
+  }
+};
+
+// ============ نموذج قسم الصفحة الرئيسية ============
+Views.secEdit = {
+  html() {
+    const key = Router.cur.id; const sec = Content.homeSections({ all: true }).find(x => x.key === key);
+    if (!sec) return adminHeader('تعديل قسم') + '<div class="empty">القسم غير موجود.</div>';
+    let out = adminHeader('✏️ تعديل قسم في الصفحة الرئيسية') + Layout.crumbs() + '<div class="form-page"><div class="card pad">' +
+      '<div class="grid2"><div class="field"><label>السطر الصغير فوق العنوان (اختياري)</label><input id="secKicker" data-keep="sec-kicker" value="' + h(sec.kicker || '') + '"></div><div class="field"><label>عنوان القسم</label><input id="secTitle" data-keep="sec-title" value="' + h(sec.title || '') + '" placeholder="' + (key === 'lab' ? 'يُقرأ من عنوان المختبر إن تُرك فارغًا' : '') + '"></div></div>';
+    if (sec.builtin) {
+      const hints = { assess: 'يعرض بطاقتي التقييم القبلي والبعدي. افتحهما وأغلقهما من بطاقة «التقييم القبلي والبعدي» في اللوحة، وعدّل الأسئلة من زر «✏️ الأسئلة».', activities: 'يعرض أنشطة الطاقة وكسر الجمود الظاهرة (ألعاب خفيفة لا ترتبط بمحتوى الدورة). عدّلها أو أضف جديدة من قسم «أنشطة الطاقة والاستطلاع الختامي».', axes: 'يعرض شبكة المحاور الظاهرة مجمّعة حسب الوحدات. عدّل المحاور وترتيبها ووحداتها من قسم «المحاور والتمارين».', lab: 'يعرض بطاقة المختبر الختامي. عدّل المختبر ومراحله من «✏️ تعديل المختبر».', survey: 'يعرض الاستطلاع الختامي. عدّل نصه من قسم «أنشطة الطاقة والاستطلاع الختامي».' };
+      out += '<div class="notice" style="margin-top:0">ℹ️ هذا قسم أساسي: ' + h(hints[key] || '') + '</div>' + (key === 'lab' ? '<button class="btn btn-soft btn-sm" data-go="labEdit">✏️ تعديل المختبر ومراحله</button>' : key === 'assess' ? '<button class="btn btn-soft btn-sm" data-go="assessEdit">✏️ تعديل أسئلة التقييم</button>' : '');
+    } else {
+      out += '<div class="field"><label>نوع القسم</label><select id="secType">' + Object.keys(SECTION_TYPES).map(k => '<option value="' + k + '" ' + (k === (sec.type || 'text') ? 'selected' : '') + '>' + SECTION_TYPES[k] + '</option>').join('') + '</select></div>' +
+        '<div class="field"><label>النص (اختياري)</label>' + RTE.html('secBody', sec.body) + '</div>' +
+        '<div class="field"><label>رابط فيديو يوتيوب أو Google Drive (لقسم الفيديو)</label><input id="secVideo" data-keep="sec-video" value="' + h(sec.videoUrl || '') + '" placeholder="الصق رابط المشاركة كما هو"></div>' +
+        '<div class="field"><label>صورة (اختيارية)</label>' + ImgPick.html('secImg', sec.image) + '</div>' +
+        '<div class="grid2"><div class="field"><label>نص الزر (اختياري)</label><input id="secBtnL" data-keep="sec-btnl" value="' + h(sec.btnLabel || '') + '" placeholder="مثال: سجّل في برامج الدعم"></div><div class="field"><label>رابط الزر</label><input id="secBtnU" data-keep="sec-btnu" value="' + h(sec.btnUrl || '') + '" placeholder="https://"></div></div>';
+    }
+    out += '</div><div class="sticky-actions"><button class="btn btn-primary" data-act="sec-save">💾 حفظ القسم</button>' + (sec.builtin ? '<button class="btn btn-ghost" data-act="sec-label-reset">🔄 العنوان الافتراضي</button>' : '') + '<button class="btn btn-ghost" data-act="form-cancel">إلغاء</button></div></div>';
+    return out;
+  },
+  after(root) { RTE.mount(root); ImgPick.mount(root); },
+  async save(root) {
+    const key = Router.cur.id; const b = HOME_BUILTINS.find(x => x.key === key);
+    const kicker = $('#secKicker', root).value.trim(), title = $('#secTitle', root).value.trim();
+    if (b) await DB.set('site/labels/' + key, { kicker, title });
+    else {
+      const cur = ((Store.site || {}).sections || {})[key] || {};
+      await DB.set('site/sections/' + key, Object.assign({}, cur, { kicker, title, type: $('#secType', root).value, body: RTE.val(root, 'secBody'), videoUrl: $('#secVideo', root).value.trim(), image: ImgPick.val('secImg'), btnLabel: $('#secBtnL', root).value.trim(), btnUrl: $('#secBtnU', root).value.trim() }));
+    }
+    UI.toast('✅ حُفظ القسم ونُشر حيًا'); UIState.openAcc.add('home-secs'); Router.go('admin');
+  }
+};
+
+// ============ نموذج المختبر الختامي ============
+Views.labEdit = {
+  html() {
+    const L = Content.lab();
+    if (FormState.exId !== '__lab') { FormState.exId = '__lab'; FormState.items = L.stages.map(x => Object.assign({}, x)); }
+    return adminHeader('✏️ تعديل المختبر الختامي') + Layout.crumbs() + '<div class="form-page"><div class="card pad">' +
+      '<div class="grid2"><div class="field"><label>عنوان المختبر</label><input id="labTitle" data-keep="lab-title" value="' + h(L.title) + '"></div><div class="field"><label>دقائق كل مرحلة</label><input type="number" min="1" max="120" id="labMin" data-keep="lab-min" value="' + L.minutes + '"></div></div>' +
+      '<div class="field"><label>الحالة / السيناريو</label>' + RTE.html('labIntro', L.intro) + '</div>' +
+      (L.chart ? '<div class="notice" style="margin-top:0">📊 رسم القمع أسفل الحالة مبني في الكود ويبقى كما هو.</div>' : '') + '</div>' +
+      '<h3 style="margin:22px 0 10px">🧩 المراحل <span class="pill num">' + FormState.items.length + '</span></h3><div id="stagesEd">' + Views.labEdit.stagesHtml() + '</div>' +
+      '<div class="sticky-actions"><button class="btn btn-primary" data-act="labform-save">💾 حفظ المختبر</button><button class="btn btn-ghost" data-act="form-cancel">إلغاء</button></div></div>';
+  },
+  stagesHtml() {
+    const n = FormState.items.length;
+    return FormState.items.map((st, i) => '<div class="item-editor" data-stage="' + i + '"><div class="row" style="margin-bottom:6px"><span class="pill num">' + (i + 1) + '</span><span class="grow"></span><button type="button" class="btn btn-ghost btn-xs" data-act="st-move" data-d="-1" data-i="' + i + '" ' + (i === 0 ? 'disabled' : '') + '>▲</button><button type="button" class="btn btn-ghost btn-xs" data-act="st-move" data-d="1" data-i="' + i + '" ' + (i === n - 1 ? 'disabled' : '') + '>▼</button><button type="button" class="btn btn-danger btn-xs" data-act="st-del" data-i="' + i + '">🗑 حذف</button></div>' +
+      '<div class="grid2"><div class="field"><label>الأيقونة (إيموجي)</label><input data-sf="icon" value="' + h(st.icon || '') + '"></div><div class="field"><label>عنوان المرحلة</label><input data-sf="title" value="' + h(st.title || '') + '"></div></div><div class="field"><label>المطلوب في هذه المرحلة</label><textarea data-sf="task" rows="3">' + h(st.task || '') + '</textarea></div></div>').join('') +
+      '<button type="button" class="btn btn-soft btn-sm" data-act="st-add">➕ إضافة مرحلة</button>';
+  },
+  collect(root) { return $$('[data-stage]', root).map(b => ({ icon: $('[data-sf="icon"]', b).value.trim() || '📌', title: $('[data-sf="title"]', b).value.trim(), task: $('[data-sf="task"]', b).value.trim() })); },
+  after(root) { RTE.mount(root); },
+  async save(root) {
+    const stages = Views.labEdit.collect(root).filter(x => x.title || x.task);
+    if (!stages.length) { UI.alert('أضف مرحلة واحدة على الأقل.'); return; }
+    await DB.set('content/lab', { title: $('#labTitle', root).value.trim() || COURSE.lab.title, minutes: Math.max(1, parseInt($('#labMin', root).value, 10) || 10), intro: RTE.val(root, 'labIntro'), stages });
+    FormState.exId = null; UI.toast('✅ حُفظ المختبر ونُشر حيًا'); Router.go('admin');
+  }
+};
+
+// ============ نموذج أسئلة التقييم القبلي والبعدي ============
+Views.assessEdit = {
+  html() {
+    const A = Content.assess();
+    if (FormState.exId !== '__assess') { FormState.exId = '__assess'; FormState.format = 'mcq'; FormState.items = A.items.map(x => Object.assign({}, x, { options: arr(x.options) })); }
+    return adminHeader('✏️ أسئلة التقييم القبلي والبعدي') + Layout.crumbs() + '<div class="form-page"><div class="card pad">' +
+      '<div class="field"><label>العنوان</label><input id="asTitle" data-keep="as-title" value="' + h(A.title || '') + '"></div><div class="field"><label>التعليمات</label>' + RTE.html('asIntro', A.intro) + '</div>' +
+      '<div class="notice" style="margin-top:0">⚠️ الأسئلة نفسها تُستخدم في التقييمين القبلي والبعدي لقياس التحسن. تعديل الأسئلة أو ترتيب الخيارات بعد بدء المتدربين في الإجابة يغيّر احتساب نتائجهم؛ عدّلها قبل فتح التقييم القبلي.</div>' +
+      '<div id="itemsEd">' + itemsEditorHtml('mcq', FormState.items) + '</div></div>' +
+      '<div class="sticky-actions"><button class="btn btn-primary" data-act="assessform-save">💾 حفظ الأسئلة</button>' + (A._modified ? '<button class="btn btn-ghost" data-act="assess-reset-content">🔄 استرجاع الافتراضي</button>' : '') + '<button class="btn btn-ghost" data-act="form-cancel">إلغاء</button></div></div>';
+  },
+  after(root) { RTE.mount(root); },
+  async save(root) {
+    const items = collectItems(root, 'mcq').filter(it => it.q && it.options.length >= 2);
+    if (!items.length) { UI.alert('أضف سؤالًا واحدًا على الأقل بخيارين أو أكثر.'); return; }
+    await DB.set('content/assess', { title: $('#asTitle', root).value.trim(), intro: RTE.val(root, 'asIntro'), items });
+    FormState.exId = null; UI.toast('✅ حُفظت الأسئلة'); Router.go('admin');
+  }
+};
+
+
+// ============ نموذج قصة النجاح ============
+Views.storyEdit = {
+  html() {
+    const id = Router.cur.id; const isNew = id === 'new';
+    const st = isNew ? { title: '', country: 'السعودية', flag: '🇸🇦', sector: '', year: '', axis: '', scene: 'idea', color: 0, summary: '', story: '', numbers: [], lessons: [], sources: [] } : Content.story(id);
+    if (!st) return adminHeader('تعديل قصة') + '<div class="empty">القصة غير موجودة.</div>';
+    const f = (k, l, ph = '') => '<div class="field"><label>' + l + '</label><input data-stf="' + k + '" data-keep="stf-' + k + '" value="' + h(st[k] || '') + '" placeholder="' + h(ph) + '"></div>';
+    const scenes = Scenes.keys.filter(k => k !== 'hero');
+    return adminHeader(isNew ? '➕ قصة نجاح جديدة' : '✏️ تعديل قصة نجاح') + Layout.crumbs() + '<div class="form-page"><div class="card pad">' +
+      f('title', 'العنوان') + '<div class="grid2">' + f('country', 'الدولة') + f('flag', 'العلم (إيموجي)', '🇸🇦') + f('sector', 'القطاع') + f('year', 'سنة التأسيس') + '</div>' +
+      '<div class="grid2"><div class="field"><label>المحور المرتبط</label><select data-stf="axis"><option value="">- بدون -</option>' + Content.axes({ all: true }).map(a => '<option value="' + h(a.id) + '" ' + (a.id === st.axis ? 'selected' : '') + '>' + h(a.title) + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label>الرسم التعبيري</label><select data-stf="scene" id="stScene">' + scenes.map(k => '<option value="' + k + '" ' + (k === st.scene ? 'selected' : '') + '>' + k + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label>اللون</label><select data-stf="color" id="stColor">' + AXIS_COLORS.map((c, i) => '<option value="' + i + '" ' + (i === +st.color ? 'selected' : '') + ' style="background:' + c + ';color:#fff">لون ' + (i + 1) + '</option>').join('') + '</select></div></div>' +
+      '<div id="stPreview" class="story-preview">' + Scenes.render(st.scene || 'idea', AXIS_COLORS[(+st.color || 0) % AXIS_COLORS.length]) + '</div>' +
+      '<div class="field"><label>صورة بدل الرسم (اختيارية)</label>' + ImgPick.html('stImg', st.image) + '</div>' +
+      '<div class="field"><label>الملخص (يظهر على البطاقة)</label><textarea data-stf="summary" rows="3">' + h(stripHtml(st.summary || '')) + '</textarea></div>' +
+      '<div class="field"><label>نص القصة</label>' + RTE.html('stStory', st.story) + '</div>' +
+      '<div class="field"><label>أرقام بارزة (سطر لكل رقم بصيغة: الرقم :: الوصف)</label><textarea data-stf="numbers" rows="3">' + h(st.numbers.map(n => n.v + ' :: ' + n.l).join('\n')) + '</textarea></div>' +
+      '<div class="field"><label>دروس لمشروعك (سطر لكل درس)</label><textarea data-stf="lessons" rows="4">' + h(st.lessons.join('\n')) + '</textarea></div>' +
+      '<div class="field"><label>المصادر (سطر لكل مصدر بصيغة: اسم المصدر :: الرابط)</label><textarea data-stf="sources" rows="4" dir="auto">' + h(st.sources.map(x => x.label + ' :: ' + x.url).join('\n')) + '</textarea></div>' +
+      '</div><div class="sticky-actions"><button class="btn btn-primary" data-act="storyform-save">💾 حفظ القصة</button><button class="btn btn-ghost" data-act="form-cancel">إلغاء</button></div></div>';
+  },
+  after(root) {
+    RTE.mount(root); ImgPick.mount(root);
+    const upd = () => { $('#stPreview', root).innerHTML = Scenes.render($('#stScene', root).value, AXIS_COLORS[+$('#stColor', root).value % AXIS_COLORS.length]); };
+    $('#stScene', root).addEventListener('change', upd); $('#stColor', root).addEventListener('change', upd);
+  },
+  async save(root) {
+    const id = Router.cur.id; const isNew = id === 'new'; const g = k => ($('[data-stf="' + k + '"]', root) || {}).value || '';
+    const lines = k => g(k).split('\n').map(x => x.trim()).filter(Boolean);
+    const data = { title: g('title').trim(), country: g('country').trim(), flag: g('flag').trim(), sector: g('sector').trim(), year: g('year').trim(), axis: g('axis'), scene: g('scene'), color: +g('color') || 0, image: ImgPick.val('stImg'), summary: g('summary').trim(), story: RTE.val(root, 'stStory'),
+      numbers: lines('numbers').map(x => { const i = x.indexOf('::'); return i > -1 ? { v: x.slice(0, i).trim(), l: x.slice(i + 2).trim() } : { v: x, l: '' }; }),
+      lessons: lines('lessons'),
+      sources: lines('sources').map(x => { const i = x.lastIndexOf('::'); return i > -1 ? { label: x.slice(0, i).trim(), url: x.slice(i + 2).trim() } : { label: x, url: x }; }).filter(x => /^https?:\/\//.test(x.url)) };
+    if (!data.title) { UI.alert('اكتب عنوان القصة.'); return; }
+    if (isNew) { data.ts = DB.now(); await DB.set('added/stories/s' + genId(), data); }
+    else if (COURSE.stories.some(x => x.id === id)) await DB.set('content/stories/' + id, data);
+    else await DB.set('added/stories/' + id, Object.assign({}, Store.addedStories[id] || {}, data));
+    UI.toast('✅ حُفظت القصة ونُشرت حيًا'); UIState.openAcc.add('storiesAcc'); Router.go('admin');
+  }
+};
+/* ===== 07b-adminnav.js ===== */
+// ---------------------------------------------------------------------
+// لوحة الإدارة بقائمة جانبية: عناوين تضم أدوات اللوحة، قابلة لإعادة التسمية والترتيب
+// ونقل أي أداة من عنوان إلى آخر بالسحب (أو بقائمة «نقل إلى» على الجوال)، تُحفظ في site/adminNav
+// ---------------------------------------------------------------------
+const ADMIN_BLOCKS = {
+  users: { icon: '👥', title: 'المسجّلون' }, groups: { icon: '🧩', title: 'إدارة المجموعات' }, preview: { icon: '👀', title: 'معاينة كمتدرب' },
+  congrats: { icon: '🏆', title: 'تهنئة الإنجاز' }, regform: { icon: '📝', title: 'نموذج التسجيل والخصوصية' }, attend: { icon: '📍', title: 'الحضور وشهادة المشاركة' },
+  assess: { icon: '📋', title: 'التقييم القبلي والبعدي' }, broadcast: { icon: '📣', title: 'بث رسالة مباشرة' },
+  monitor: { icon: '👁', title: 'رابط متابعة للمشرف' }, leads: { icon: '🤝', title: 'المهتمون ببرامج الدعم' }, followup: { icon: '📈', title: 'المتابعة بعد البرنامج' },
+  gamify: { icon: '🏆', title: 'النقاط ولوحة الصدارة' }, tplTool: { icon: '📚', title: 'صندوق الأدوات والقوالب' }, cohorts: { icon: '📦', title: 'الدفعات والأرشيف' },
+  pdf: { icon: '📄', title: 'ملف المحتوى PDF' }, guide: { icon: '📘', title: 'دليل المدرب' }, report: { icon: '📑', title: 'تقرير ختام البرنامج' },
+  csv: { icon: '📊', title: 'تصدير المشاركات' }, person: { icon: '🗂️', title: 'مشاركات فردية' }, backup: { icon: '💾', title: 'النسخة الاحتياطية للمحتوى' },
+  autobk: { icon: '🛟', title: 'نسخ يومي تلقائي للمدخلات' }, reset: { icon: '⚠️', title: 'إعادة ضبط شاملة' },
+  homeUi: { icon: '🏠', title: 'الشريط العلوي والقسم البارز والتذييل', wide: true }, landing: { icon: '🛬', title: 'الصفحة التعريفية (قبل الدخول)', wide: true },
+  homeSecs: { icon: '🧱', title: 'أقسام الصفحة الرئيسية', wide: true }, stories: { icon: '🌟', title: 'قصص النجاح', wide: true },
+  units: { icon: '🗂', title: 'أسماء الوحدات', wide: true }, axes: { icon: '🗺️', title: 'المحاور وتمارينها', wide: true },
+  acts: { icon: '⚡', title: 'قسم «أنشطة الطاقة»', wide: true }, survey: { icon: '🎓', title: 'ختام البرنامج (الاستطلاع)', wide: true }, lab: { icon: '🧪', title: 'المختبر الختامي', wide: true }
+};
+const ADMIN_GROUPS_DEF = [
+  { id: 'g_users', icon: '👥', title: 'إدارة المسجلين', blocks: ['users', 'groups', 'congrats', 'regform', 'attend', 'assess', 'broadcast'] },
+  { id: 'g_sponsor', icon: '🤝', title: 'الجهة الراعية والدفعات', blocks: ['monitor', 'leads', 'followup', 'gamify', 'tplTool', 'cohorts'] },
+  { id: 'g_export', icon: '📤', title: 'التصدير والنسخ', blocks: ['pdf', 'guide', 'report', 'csv', 'person', 'backup', 'autobk', 'reset'] },
+  { id: 'g_home', icon: '🏠', title: 'واجهة الصفحة الرئيسية', blocks: ['homeUi', 'landing', 'homeSecs'] },
+  { id: 'g_stories', icon: '🌟', title: 'قصص النجاح', blocks: ['stories'] },
+  { id: 'g_axes', icon: '🗺️', title: 'المحاور والتمارين', blocks: ['units', 'axes'] },
+  { id: 'g_acts', icon: '⚡', title: 'أنشطة الطاقة والاستطلاع الختامي', blocks: ['acts', 'survey', 'lab'] }
+];
+const AdminNav = {
+  groups() {
+    const cfg = (Store.site && Store.site.adminNav) || null;
+    let gs = cfg && arr(cfg.groups).length
+      ? arr(cfg.groups).filter(g => g && g.id).map(g => ({ id: g.id, icon: g.icon || '📁', title: g.title || 'عنوان', blocks: arr((cfg.place || {})[g.id]) }))
+      : ADMIN_GROUPS_DEF.map(g => ({ id: g.id, icon: g.icon, title: g.title, blocks: g.blocks.slice() }));
+    const seen = new Set();
+    gs.forEach(g => { g.blocks = g.blocks.filter(b => ADMIN_BLOCKS[b] && !seen.has(b) && seen.add(b)); });
+    // أي أداة جديدة أو غير موزعة تعود إلى عنوانها الافتراضي (أو أول عنوان)
+    Object.keys(ADMIN_BLOCKS).forEach(b => { if (seen.has(b)) return; const d = ADMIN_GROUPS_DEF.find(x => x.blocks.indexOf(b) > -1); const g = (d && gs.find(x => x.id === d.id)) || gs[0]; if (g) g.blocks.push(b); });
+    return gs;
+  },
+  active(gs) { const k = UIState.adminGrp || SafeLS.get('ec_admin_grp'); return gs.find(g => g.id === k) || gs[0]; },
+  save(gs) { const place = {}; gs.forEach(g => { place[g.id] = g.blocks; }); return DB.set('site/adminNav', { groups: gs.map(g => ({ id: g.id, icon: g.icon, title: g.title })), place }); },
+  move(blk, toG, before) {
+    const gs = AdminNav.groups(); gs.forEach(g => { g.blocks = g.blocks.filter(b => b !== blk); });
+    const g = gs.find(x => x.id === toG); if (!g) return; const i = before ? g.blocks.indexOf(before) : -1;
+    if (i > -1) g.blocks.splice(i, 0, blk); else g.blocks.push(blk);
+    return AdminNav.save(gs);
+  },
+  blockTitle(b) { return ADMIN_BLOCKS[b].title; }
+};
+Views.admin.shell = function (blocks) {
+  const gs = AdminNav.groups(); const cur = AdminNav.active(gs); const edit = !!UIState.adminEdit;
+  const nav = '<aside class="adm-nav"><div class="adm-nav-top"><span>أقسام اللوحة</span><button class="btn btn-xs ' + (edit ? 'btn-primary' : 'btn-ghost') + '" data-act="adm-edit">' + (edit ? '✓ إنهاء التخصيص' : '✏️ تخصيص') + '</button></div><nav>' +
+    gs.map((g, i) => edit
+      ? '<div class="adm-nav-item edit ' + (g.id === cur.id ? 'active' : '') + '" data-adm-drop="' + h(g.id) + '"><input class="adm-ico-in" data-adm-icon="' + h(g.id) + '" data-keep="adm-i-' + h(g.id) + '" value="' + h(g.icon) + '" maxlength="4" aria-label="أيقونة"><input class="adm-title-in" data-adm-title="' + h(g.id) + '" data-keep="adm-t-' + h(g.id) + '" value="' + h(g.title) + '" aria-label="اسم العنوان"><span class="adm-count num">' + g.blocks.length + '</span>' +
+        '<div class="adm-nav-tools"><button class="btn btn-ghost btn-xs" data-act="adm-grp" data-g="' + h(g.id) + '" title="عرض أدواته">👁</button><button class="btn btn-ghost btn-xs" data-act="adm-gmove" data-g="' + h(g.id) + '" data-d="-1" ' + (i === 0 ? 'disabled' : '') + '>▲</button><button class="btn btn-ghost btn-xs" data-act="adm-gmove" data-g="' + h(g.id) + '" data-d="1" ' + (i === gs.length - 1 ? 'disabled' : '') + '>▼</button>' + (gs.length > 1 ? '<button class="btn btn-ghost btn-xs" data-act="adm-gdel" data-g="' + h(g.id) + '" title="حذف العنوان (تنتقل أدواته إلى عنوان آخر)">🗑</button>' : '') + '</div></div>'
+      : '<button class="adm-nav-item ' + (g.id === cur.id ? 'active' : '') + '" data-act="adm-grp" data-g="' + h(g.id) + '"><span class="adm-ico">' + h(g.icon) + '</span><span class="adm-t">' + h(g.title) + '</span><span class="adm-count num">' + g.blocks.length + '</span></button>').join('') +
+    '</nav>' + (edit ? '<div class="adm-nav-foot"><button class="btn btn-soft btn-xs" data-act="adm-gadd">➕ عنوان جديد</button><button class="btn btn-ghost btn-xs" data-act="adm-reset">🔄 الترتيب الافتراضي</button></div>' : '') + '</aside>';
+  let pane = '<div class="adm-pane"><div class="adm-pane-head"><span class="adm-ico big">' + h(cur.icon) + '</span><div><h2>' + h(cur.title) + '</h2><span class="muted"><span class="num">' + cur.blocks.length + '</span> أداة</span></div></div>';
+  if (edit) {
+    pane += '<p class="help muted adm-help">اسحب أي أداة وأفلتها على عنوان في القائمة الجانبية لنقلها إليه، أو فوق أداة أخرى لترتيبها. على الجوال استخدم قائمة «نقل إلى». عدّل اسم العنوان وأيقونته مباشرة من القائمة الجانبية.</p><div class="adm-cards">' +
+      (cur.blocks.length ? cur.blocks.map(b => '<div class="adm-card" draggable="true" data-adm-blk="' + b + '"><span class="drag-handle">⠿</span><span class="adm-ico">' + ADMIN_BLOCKS[b].icon + '</span><b class="grow">' + h(AdminNav.blockTitle(b)) + '</b><select data-adm-to="' + b + '" aria-label="نقل إلى"><option value="">نقل إلى</option>' + gs.filter(g => g.id !== cur.id).map(g => '<option value="' + h(g.id) + '">' + h(g.icon + ' ' + g.title) + '</option>').join('') + '</select></div>').join('') : '<div class="empty">لا توجد أدوات تحت هذا العنوان، اسحب إليه أدوات من عناوين أخرى.</div>') + '</div>';
+  } else {
+    let grid = []; const flush = () => { if (grid.length) { pane += '<div class="tools-grid">' + grid.join('') + '</div>'; grid = []; } };
+    cur.blocks.filter(b => HAS_LANDING || b !== 'landing').forEach(b => { const html = blocks[b] || ''; if (ADMIN_BLOCKS[b].wide) { flush(); pane += '<div class="adm-wide" data-blk="' + b + '">' + html + '</div>'; } else grid.push(html); });
+    flush();
+    if (!cur.blocks.length) pane += '<div class="empty">لا توجد أدوات تحت هذا العنوان. اضغط «✏️ تخصيص» لنقل أدوات إليه.</div>';
+  }
+  pane += '</div>';
+  return adminHeader('لوحة الإدارة') + '<div class="adm-shell' + (edit ? ' editing' : '') + '">' + nav + pane + '</div>';
+};
+Views.admin.afterNav = function (root) {
+  if (!UIState.adminEdit) return;
+  let dragBlk = null;
+  $$('[data-adm-blk]', root).forEach(el => {
+    el.addEventListener('dragstart', e => { dragBlk = el.getAttribute('data-adm-blk'); el.classList.add('dragging'); try { e.dataTransfer.setData('text/plain', dragBlk); e.dataTransfer.effectAllowed = 'move'; } catch (x) {} });
+    el.addEventListener('dragend', () => { el.classList.remove('dragging'); $$('.drop-target', root).forEach(x => x.classList.remove('drop-target')); });
+    el.addEventListener('dragover', e => { if (!dragBlk || dragBlk === el.getAttribute('data-adm-blk')) return; e.preventDefault(); el.classList.add('drop-target'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+    el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('drop-target'); const target = el.getAttribute('data-adm-blk'); if (!dragBlk || dragBlk === target) return; const g = AdminNav.active(AdminNav.groups()); AdminNav.move(dragBlk, g.id, target); dragBlk = null; });
+  });
+  $$('[data-adm-drop]', root).forEach(el => {
+    el.addEventListener('dragover', e => { if (!dragBlk) return; e.preventDefault(); el.classList.add('drop-target'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+    el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('drop-target'); if (!dragBlk) return; const to = el.getAttribute('data-adm-drop'); const nm = AdminNav.blockTitle(dragBlk); const gt = (AdminNav.groups().find(g => g.id === to) || {}).title; AdminNav.move(dragBlk, to); UI.toast('نُقلت «' + nm + '» إلى «' + gt + '»'); dragBlk = null; });
+  });
+  $$('[data-adm-to]', root).forEach(sel => sel.addEventListener('change', () => { if (!sel.value) return; const b = sel.getAttribute('data-adm-to'); const gt = (AdminNav.groups().find(g => g.id === sel.value) || {}).title; AdminNav.move(b, sel.value); UI.toast('نُقلت «' + AdminNav.blockTitle(b) + '» إلى «' + gt + '»'); }));
+  const saveField = (attr, key) => $$('[' + attr + ']', root).forEach(inp => inp.addEventListener('change', () => { const gs = AdminNav.groups(); const g = gs.find(x => x.id === inp.getAttribute(attr)); if (!g) return; g[key] = inp.value.trim() || (key === 'icon' ? '📁' : 'عنوان'); AdminNav.save(gs); UI.toast('✅ حُفظ'); }));
+  saveField('data-adm-title', 'title'); saveField('data-adm-icon', 'icon');
+};
+/* ===== 08-pdf.js ===== */
+// ---------------------------------------------------------------------
+// محرّك PDF موحّد (html2canvas + jsPDF)، يُحمَّل عند الحاجة فقط
+// يُعاد استخدامه لكل المستندات: المحتوى A5، تهنئة الإنجاز A4 أفقي، مشاركات المتدرب A5
+// ---------------------------------------------------------------------
+const CDN = {
+  h2c: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+  jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  jszip: 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
+};
+const PDF_CSS = `
+.pp{position:relative;overflow:hidden;background:#fff;font-size:14px;font-family:'Noto Sans Arabic','IBM Plex Sans Arabic',sans-serif;color:#201C40;direction:rtl;box-sizing:border-box}
+.pp *{box-sizing:border-box}
+.pp h1,.pp h2,.pp h3{font-family:'Cairo',sans-serif;margin:0;line-height:1.35}
+.pp .j{text-align:justify;text-justify:inter-word}
+.pp .fit{position:absolute;overflow:hidden}
+.pp .num{direction:ltr;unicode-bidi:isolate}
+.pp .nl{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+.pp .nl .it{display:flex;gap:9px;align-items:flex-start}
+.pp .nl .b{width:24px;height:24px;border-radius:8px;color:#fff;font-family:Arial,sans-serif;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;flex:none;margin-top:3px}
+.pp .pair{border-radius:12px;overflow:hidden;margin-top:8px;border:1px solid #E2E0ED}
+.pp .pair .h{padding:6px 12px;font-weight:700;font-family:'IBM Plex Sans Arabic',sans-serif}
+.pp .pair .b{padding:7px 12px;background:#fff}
+.pp .rule{margin-top:12px;padding:10px 12px;border-radius:12px;font-weight:600}
+.pp .foot{position:absolute;bottom:14px;left:28px;right:28px;display:flex;justify-content:space-between;font-family:'IBM Plex Sans Arabic',sans-serif;font-size:10.5px;color:#807D9C}
+.pp p{margin:0 0 6px}
+.pp ul,.pp ol{margin:4px 0;padding-right:18px}
+`;
+const PDFE = {
+  async libs(zip) {
+    await loadScript(CDN.h2c); await loadScript(CDN.jspdf); if (zip) await loadScript(CDN.jszip);
+    if (!window.html2canvas || !window.jspdf) throw new Error('تعذر تحميل مكتبات PDF');
+  },
+  host() { let h0 = document.getElementById('pdfHost'); if (!h0) { h0 = document.createElement('div'); h0.id = 'pdfHost'; h0.style.cssText = 'position:fixed;left:-20000px;top:0;z-index:-1;pointer-events:none'; h0.innerHTML = '<style>' + PDF_CSS + '</style>'; document.body.appendChild(h0); } return h0; },
+  fit(page) { // تصغير تدريجي لحجم خط الحاوية حتى يتسع المحتوى داخل صفحة واحدة
+    $$('.fit', page).forEach(box => { let pct = 100; box.style.fontSize = pct + '%'; while (box.scrollHeight > box.clientHeight + 1 && pct > 58) { pct -= 4; box.style.fontSize = pct + '%'; } });
+  },
+  // pages: مصفوفة HTML لكل صفحة، size: {w,h (px), mmW, mmH, orientation, format}
+  async build(pages, size, progress) {
+    await PDFE.libs(); const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: size.format, orientation: size.orientation, compress: true });
+    const host = PDFE.host();
+    for (let i = 0; i < pages.length; i++) {
+      const el = document.createElement('div'); el.className = 'pp'; el.style.width = size.w + 'px'; el.style.height = size.h + 'px';
+      el.innerHTML = pages[i]; host.appendChild(el); PDFE.fit(el);
+      await document.fonts.ready; // ضروري قبل كل استدعاء لـ html2canvas لتفادي تشوّه الحروف العربية
+      const canvas = await window.html2canvas(el, { scale: 1.6, backgroundColor: '#ffffff', useCORS: true, logging: false, ignoreElements: n => n.id === 'app' || (n.classList && n.classList.contains('modal-back')) });
+      const img = canvas.toDataURL('image/jpeg', 0.84);
+      if (i > 0) doc.addPage(size.format, size.orientation);
+      doc.addImage(img, 'JPEG', 0, 0, size.mmW, size.mmH);
+      el.remove(); if (progress) progress(i + 1, pages.length);
+    }
+    return doc;
+  }
+};
+const A5 = { w: 559, h: 794, mmW: 148, mmH: 210, format: 'a5', orientation: 'portrait' };
+const A4L = { w: 1123, h: 794, mmW: 297, mmH: 210, format: 'a4', orientation: 'landscape' };
+function progressModal(title) {
+  const m = UI.modal('<h3>' + h(title) + '</h3><p class="muted" data-pm-txt>جارٍ التحضير</p><div class="progress" style="margin-top:10px"><i data-pm-bar style="width:2%"></i></div>', { sticky: true });
+  return { set(i, n, txt) { const b = $('[data-pm-bar]', m.el); if (b) b.style.width = Math.round(i / n * 100) + '%'; const t = $('[data-pm-txt]', m.el); if (t) t.textContent = txt || ('صفحة ' + i + ' من ' + n); }, close: m.close };
+}
+
+// ---------- قطع تصميم مشتركة لصفحات PDF ----------
+const PP = {
+  multiBg() { return '<div style="position:absolute;inset:0;background:#F9F8FC"></div><div style="position:absolute;inset:0;background:radial-gradient(circle at 12% 10%,rgba(76,58,167,.20),transparent 38%),radial-gradient(circle at 90% 18%,rgba(0,166,83,.20),transparent 36%),radial-gradient(circle at 85% 88%,rgba(250,87,11,.18),transparent 40%),radial-gradient(circle at 10% 90%,rgba(245,130,32,.18),transparent 40%),radial-gradient(circle at 50% 55%,rgba(65,59,119,.10),transparent 45%)"></div>'; },
+  scatter(axes, variant) {
+    const spots = variant ? [[30, 60], [470, 40], [20, 330], [490, 300], [60, 680], [440, 700], [250, 30], [240, 730]] : [[40, 40], [480, 70], [30, 400], [480, 420], [90, 700], [420, 690], [260, 740], [250, 20]];
+    return spots.map((p, i) => { const a = axes[i % Math.max(1, axes.length)]; if (!a) return ''; const col = Content.color(a); const sz = 34 + (i % 3) * 8; return '<div style="position:absolute;left:' + p[0] + 'px;top:' + p[1] + 'px;width:' + (sz + 16) + 'px;height:' + (sz + 16) + 'px;border-radius:' + (i % 2 ? '50%' : '16px') + ';background:' + tint(col, .14) + ';display:flex;align-items:center;justify-content:center;transform:rotate(' + ((i * 17) % 30 - 15) + 'deg)">' + iconSvg(a.icon || 'star', sz, col, 2) + '</div>'; }).join('');
+  },
+  decor(seed, op = .14) { return '<div style="position:absolute;inset:0">' + decorShapes(seed, op) + '</div>'; },
+  numbered(list, col) { return '<div class="nl">' + list.map((t, i) => '<div class="it"><span class="b" style="background:' + col + '">' + (i + 1) + '</span><div class="j" style="flex:1">' + t + '</div></div>').join('') + '</div>'; },
+  foot(left, n) { return '<div class="foot"><span>' + h(left) + '</span><span class="num">' + n + '</span></div>'; }
+};
+function frontCover(title, sub, axes, extraLine) {
+  return PP.multiBg() + PP.scatter(axes, 0) +
+    '<div style="position:absolute;left:52px;right:52px;top:210px;background:#fff;border-radius:28px;box-shadow:0 20px 50px rgba(25,20,70,.16);padding:38px 30px;text-align:center">' +
+    '<div style="width:74px;height:74px;margin:0 auto 14px;border-radius:22px;background:linear-gradient(120deg,#4C3AA7,#00A653 45%,#F34D00 75%,#F34D00);display:flex;align-items:center;justify-content:center">' + iconSvg('sparkles', 38, '#fff', 2) + '</div>' +
+    '<h1 style="font-size:30px;font-weight:800">' + h(title) + '</h1>' + (extraLine ? '<div style="margin-top:10px;font-family:Cairo;font-weight:800;font-size:22px;color:#4C3AA7">' + h(extraLine) + '</div>' : '') +
+    '<p style="margin-top:12px;color:#4E4A70;font-size:15px">' + h(sub) + '</p><div style="margin-top:16px;font-family:IBM Plex Sans Arabic;font-size:12px;color:#807D9C" class="num">' + fmtDate(Date.now()) + '</div></div>';
+}
+function backCover(axes) {
+  const p = Content.pdf();
+  return PP.multiBg() + PP.scatter(axes.slice().reverse(), 1) +
+    '<div style="position:absolute;left:60px;right:60px;top:250px;background:#fff;border-radius:28px;box-shadow:0 20px 50px rgba(25,20,70,.16);padding:34px 28px;text-align:center">' +
+    '<div style="font-family:IBM Plex Sans Arabic;font-size:12px;font-weight:700;color:#F34D00;letter-spacing:.5px">المدرّب</div>' +
+    '<h1 style="font-size:28px;font-weight:800;margin-top:6px">' + h(p.trainerName) + '</h1><div style="margin-top:6px;color:#4C3AA7;font-weight:700;font-family:IBM Plex Sans Arabic">' + h(p.trainerRole) + '</div>' +
+    '<p class="j" style="margin-top:14px;color:#4E4A70;font-size:14px">' + h(p.trainerBio) + '</p>' + (p.trainerContact ? '<div style="margin-top:12px;font-family:IBM Plex Sans Arabic;font-weight:700;color:#201C40;direction:ltr">' + h(p.trainerContact) + '</div>' : '') + '</div>';
+}
+function tocPages(axes, title) { // توزيع المحاور على صفحات الفهرس بحسب طول وصف كل محور (يظهر كاملًا دون قص)، دون قطع أي بطاقة
+  const hOf = a => 24 + 22 + (a.classic ? 16 : 0) + 3 + Math.ceil(String(stripHtml(a.desc) || '').length / 62) * 21; // تقدير ارتفاع البطاقة بالبكسل (الصفحة A5 بارتفاع 794)
+  const groups = []; let cur = [], hs = 0; const LIM = 650;
+  axes.forEach(a => { const x = hOf(a); if (cur.length && hs + x + 12 > LIM) { groups.push(cur); cur = []; hs = 0; } cur.push(a); hs += x + 12; });
+  if (cur.length) groups.push(cur); if (!groups.length) groups.push([]);
+  const pagesN = groups.length; const out = [];
+  for (let p = 0; p < pagesN; p++) {
+    const list = groups[p];
+    out.push('<div style="position:absolute;inset:0;background:#F9F8FC"></div><div style="position:absolute;top:34px;right:34px;left:34px"><div style="font-family:IBM Plex Sans Arabic;font-size:12px;font-weight:700;color:#4C3AA7">' + h(title) + '</div><h2 style="font-size:24px;font-weight:800">فهرس المحتوى' + (pagesN > 1 ? ' <span class="num" style="font-size:14px;color:#807D9C">(' + (p + 1) + '/' + pagesN + ')</span>' : '') + '</h2></div>' +
+      '<div style="position:absolute;top:104px;right:34px;left:34px;display:flex;flex-direction:column;gap:12px">' + list.map(a => { const col = Content.color(a); return '<div style="display:flex;gap:12px;align-items:flex-start;background:' + tint(col, .08) + ';border-radius:18px;padding:12px 14px;border-right:6px solid ' + col + '"><div style="width:48px;height:48px;border-radius:14px;background:' + col + ';display:flex;align-items:center;justify-content:center;flex:none">' + iconSvg(a.icon || 'star', 26, '#fff') + '</div><div style="flex:1"><div style="font-family:Cairo;font-weight:800;font-size:15.5px">' + h(a.title) + '</div>' + (a.classic ? '<div style="font-family:IBM Plex Sans Arabic;font-size:11.5px;color:#807D9C">' + h(a.classic) + '</div>' : '') + '<div class="j" style="font-size:11.5px;color:#4E4A70;margin-top:3px">' + h(stripHtml(a.desc)) + '</div></div></div>'; }).join('') + '</div>');
+  }
+  return out;
+}
+function axisCover(a, sub) {
+  const col = Content.color(a);
+  return '<div style="position:absolute;inset:0;background:linear-gradient(150deg,' + shade(col, .1) + ',' + shade(col, -.45) + ')"></div>' + PP.decor(a.id + 'pdf', .16) +
+    '<div style="position:absolute;top:210px;left:40px;right:40px;text-align:center;color:#fff">' +
+    '<div style="width:110px;height:110px;margin:0 auto 20px;border-radius:32px;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center">' + iconSvg(a.icon || 'star', 60, '#fff', 1.7) + '</div>' +
+    '<div style="font-family:IBM Plex Sans Arabic;font-weight:700;font-size:13px;opacity:.9">' + h(sub || Content.unitName(a.unit) || '') + '</div>' +
+    '<h1 style="color:#fff;font-size:30px;font-weight:800;margin-top:6px">' + h(a.title) + '</h1>' + (a.classic ? '<div style="margin-top:8px;font-family:IBM Plex Sans Arabic;font-size:14px;opacity:.92">' + h(a.classic) + '</div>' : '') +
+    '<p class="j" style="margin-top:18px;font-size:13.5px;line-height:1.9;opacity:.95">' + h(stripHtml(a.desc)) + '</p></div>';
+}
+function pageHeader(a, label) {
+  const col = Content.color(a);
+  return '<div style="position:absolute;top:0;left:0;right:0;height:92px;background:linear-gradient(120deg,' + col + ',' + shade(col, -.4) + ');overflow:hidden">' + PP.decor(a.id + 'hd', .14) +
+    '<div style="position:absolute;top:22px;right:26px;left:26px;display:flex;gap:12px;align-items:center;color:#fff"><div style="width:46px;height:46px;border-radius:14px;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;flex:none">' + iconSvg(a.icon || 'star', 26, '#fff') + '</div><div style="flex:1;min-width:0"><div style="font-family:Cairo;font-weight:800;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + h(a.title) + '</div><div style="font-family:IBM Plex Sans Arabic;font-size:11px;opacity:.9">' + label + '</div></div></div></div>';
+}
+function pdfSkBody(s, t, col) {
+  const P = it => String(it || '').split('::').map(x => x.trim()); const its = arr(s.items).map(P); const intro = s.intro ? '<div class="j">' + richHtml(s.intro) + '</div>' : '';
+  const card = (inner, extra) => '<div style="border:1px solid ' + tint(col, .35) + ';border-radius:12px;padding:8px 11px;background:#fff;' + (extra || '') + '">' + inner + '</div>';
+  const grid = (cols, cells) => '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:7px;margin:8px 0">' + cells.join('') + '</div>';
+  if (t === 'hook') return '<div style="display:flex;gap:14px;align-items:center"><div style="flex:none;width:34%;text-align:center;padding:12px;border-radius:16px;background:' + tint(col, .1) + '"><div class="num" style="font-family:Cairo;font-weight:900;font-size:2.6em;color:' + col + ';line-height:1.1">' + h(s.big || '') + '</div><div style="font-weight:700;font-size:.9em">' + h(s.label || '') + '</div>' + (s.src ? '<div style="font-size:.7em;color:#807D9C;margin-top:4px">' + h(s.src) + '</div>' : '') + '</div><div class="j" style="flex:1">' + withLede(richHtml(s.text)) + '</div></div>';
+  if (t === 'myth') return intro + its.map(p => '<div style="display:flex;gap:6px;margin:6px 0"><div style="flex:1;border:1.5px dashed #E5484D;border-radius:12px;padding:7px 10px;background:#FFF7F7"><b style="color:#C62F35;font-size:.8em">خرافة</b><div>«' + h(p[0]) + '»</div></div><div style="flex:1.2;border-radius:12px;padding:7px 10px;background:' + tint(col, .12) + '"><b style="color:' + col + ';font-size:.8em">الحقيقة</b><div>' + h(p[1] || '') + '</div></div></div>').join('');
+  if (t === 'scenario') return '<div class="j" style="background:#F8F7FB;border-radius:12px;padding:8px 11px;margin-bottom:6px"><b>📍 الموقف: </b>' + stripHtml(richHtml(s.text)) + '</div>' + arr(s.items).map((it, k) => { let x = String(it).trim(); const best = x.startsWith('*'); if (best) x = x.slice(1); const p = P(x); return card('<b>' + LETTERS[k] + ') ' + h(p[0]) + (best ? ' ✅' : '') + '</b>' + (p[1] ? '<div style="font-size:.85em;color:#4E4A70">' + h(p[1]) + '</div>' : ''), 'margin:5px 0;' + (best ? 'border-color:#1F9D63;background:#EEFAF3' : '')); }).join('');
+  if (t === 'numbers') return intro + grid(Math.min(3, its.length), its.map(p => card('<div class="num" style="font-family:Cairo;font-weight:900;font-size:1.7em;color:' + col + ';line-height:1.2">' + h(p[0]) + '</div><div style="font-size:.88em">' + h(p[1] || '') + '</div>' + (p[2] ? '<div style="font-size:.68em;color:#807D9C">' + h(p[2]) + '</div>' : '')))) + (s.src ? '<div style="font-size:.7em;color:#807D9C">المصادر: ' + h(s.src) + '</div>' : '');
+  if (t === 'framework') return (s.big ? '<div style="font-family:Cairo;font-weight:900;font-size:1.6em;letter-spacing:4px;direction:ltr;color:' + col + '">' + h(s.big) + '</div>' : '') + intro + its.map(p => '<div style="display:flex;gap:8px;align-items:flex-start;margin:5px 0"><span style="flex:none;width:30px;height:30px;border-radius:9px;background:' + col + ';color:#fff;font-family:Cairo;font-weight:900;display:flex;align-items:center;justify-content:center">' + h(p[0]) + '</span><div><b>' + h(p[1] || '') + '</b>، <span style="color:#4E4A70">' + h(p[2] || '') + '</span></div></div>').join('');
+  if (t === 'checklist') return intro + its.map(p => '<div style="display:flex;gap:8px;margin:4px 0"><span style="flex:none;width:16px;height:16px;border:2px solid ' + col + ';border-radius:4px;margin-top:5px"></span><div><b>' + h(p[0]) + '</b>' + (p[1] ? ' <span style="color:#4E4A70;font-size:.88em">- ' + h(p[1]) + '</span>' : '') + '</div></div>').join('');
+  if (t === 'versus') return intro + '<table style="width:100%;border-collapse:collapse;font-size:.9em;margin-top:6px"><tr><th style="text-align:right;padding:5px;background:' + tint(col, .15) + '"></th><th style="text-align:right;padding:5px;background:#F0F0F5">قبل</th><th style="text-align:right;padding:5px;background:' + tint(col, .2) + '">بعد التحسين</th></tr>' + its.map(p => '<tr><td style="padding:5px;font-weight:700;color:' + col + ';border-bottom:1px solid #E2E0ED">' + h(p[0]) + '</td><td style="padding:5px;color:#807D9C;border-bottom:1px solid #E2E0ED">' + h(p[1] || '') + '</td><td style="padding:5px;font-weight:600;border-bottom:1px solid #E2E0ED">' + h(p[2] || '') + '</td></tr>').join('') + '</table>';
+  if (t === 'journey') return intro + its.map((p, k) => '<div style="display:flex;gap:8px;align-items:flex-start;margin:5px 0"><span style="flex:none;width:30px;height:30px;border-radius:50%;border:2px solid ' + col + ';display:flex;align-items:center;justify-content:center">' + h(p[0]) + '</span><div><b><span class="num" style="color:' + col + '">' + (k + 1) + '.</span> ' + h(p[1] || '') + '</b>، <span style="color:#4E4A70">' + h(p[2] || '') + '</span></div></div>').join('');
+  return intro;
+}
+function slidePage(a, s, i, n, pageNo) {
+  const col = Content.color(a); const t = SLIDE_TYPES[s.type] ? s.type : 'principle';
+  let body = '<div style="display:inline-block;padding:3px 12px;border-radius:999px;background:' + tint(col, .14) + ';color:' + shade(col, -.3) + ';font-family:IBM Plex Sans Arabic;font-weight:700;font-size:11.5px">' + h(SLIDE_TYPES[t]) + '</div>' +
+    (s.image ? '<img src=\"' + imgSrc(s.image) + '\" style="width:100%;max-height:190px;object-fit:cover;border-radius:14px;margin-top:10px;display:block">' : '') +
+    '<h2 style="font-size:1.45em;font-weight:800;margin:10px 0 8px">' + h(s.title) + '</h2>';
+  const rule = s.rule ? '<div class="rule j" style="background:' + tint(col, .1) + ';border-right:4px solid ' + col + '">' + sanitize(richHtml(s.rule)) + '</div>' : '';
+  if (t === 'design') body += DesignKit.pdf(s, col) + (s.layout === 'quote' || s.layout === 'statement' ? '' : rule);
+  else if (t === 'opening' || t === 'summary') body += '<div class="j">' + withLede(richHtml(s.text)) + '</div>' + rule;
+  else if (t === 'principle') body += '<div class="j">' + richHtml(s.intro) + '</div>' + (s.points && s.points.length ? PP.numbered(s.points.map(p => boldTerm(p)), col) : '') + rule;
+  else if (SK_TYPES.indexOf(t) > -1) body += pdfSkBody(s, t, col) + rule;
+  else body += (s.items || []).map(it => { const k = String(it).indexOf('::'); const hd = k > -1 ? it.slice(0, k) : it, bd = k > -1 ? it.slice(k + 2) : ''; return '<div class="pair"><div class="h" style="background:' + (t === 'mistakes' ? '#FDECEC;color:#A12A2E' : tint(col, .12)) + '">' + h(hd.trim()) + '</div>' + (bd ? '<div class="b j" style="' + (t === 'mistakes' ? 'background:#EEFAF3;color:#146B40' : '') + '">' + (t === 'mistakes' ? '<b>✓ التصحيح: </b>' : '') + h(bd.trim()) + '</div>' : '') + '</div>'; }).join('') + rule;
+  return pageHeader(a, 'الشريحة <span class="num">' + (i + 1) + ' / ' + n + '</span>') + '<div class="fit" style="top:110px;bottom:44px;right:30px;left:30px;line-height:1.85">' + body + '</div>' + PP.foot(Content.courseTitle(), pageNo);
+}
+
+// ---------- ملف المحتوى ----------
+async function buildContentPdf() {
+  const pm = progressModal('📄 استخراج المحتوى');
+  try {
+    await MediaCache.loadAll();
+    const p = Content.pdf(); const axes = Content.eligibleAxes(); const title = p.coverTitle || Content.courseTitle();
+    const pages = [frontCover(title, p.coverSub, axes)];
+    tocPages(axes, title).forEach(x => pages.push(x));
+    axes.forEach(a => { pages.push(axisCover(a)); a.slides.forEach((s, i) => pages.push(slidePage(a, s, i, a.slides.length, pages.length + 1))); });
+    pages.push(backCover(axes));
+    const doc = await PDFE.build(pages, A5, (i, n) => pm.set(i, n));
+    doc.save((title || 'content').replace(/[\\/:*?"<>|]/g, '') + '.pdf'); pm.close(); UI.toast('✅ تم إنشاء ملف المحتوى');
+  } catch (e) { pm.close(); UI.alert('تعذر إنشاء الملف: ' + h(e.message || e)); }
+}
+
+// ---------- تهنئة الإنجاز: صفحة A4 أفقية مستقلة تمامًا ----------
+async function buildCongratsPdf(name, kind = 'congrats') {
+  const pm = progressModal(kind === 'cert' ? '🎓 شهادة المشاركة' : '🏆 تهنئة الإنجاز');
+  try {
+    const c = Content.doc(kind); const rep = s => String(s || '').replace(/\{\{name\}\}/g, name).replace(/\{\{courseTitle\}\}/g, Content.courseTitle()).replace(/\{\{date\}\}/g, fmtDate(Date.now()));
+    const axes = Content.eligibleAxes();
+    const page = PP.multiBg() + '<div style="position:absolute;inset:26px;border-radius:30px;border:3px solid rgba(76,58,167,.25)"></div>' +
+      axes.slice(0, 8).map((a, i) => { const pos = [[60, 60], [1010, 60], [60, 660], [1010, 660], [300, 40], [770, 690], [40, 360], [1030, 360]][i]; const col = Content.color(a); return '<div style="position:absolute;left:' + pos[0] + 'px;top:' + pos[1] + 'px;width:56px;height:56px;border-radius:18px;background:' + tint(col, .15) + ';display:flex;align-items:center;justify-content:center">' + iconSvg(a.icon, 30, col) + '</div>'; }).join('') +
+      '<div style="position:absolute;left:150px;right:150px;top:100px;bottom:100px;background:#fff;border-radius:30px;box-shadow:0 24px 60px rgba(25,20,70,.16);padding:40px 60px;text-align:center">' +
+      '<div style="font-size:60px;line-height:1.1">' + h(c.emoji) + '</div><h1 style="font-size:34px;font-weight:800;margin-top:6px">' + h(rep(c.title)) + '</h1>' +
+      '<div style="font-family:Cairo;font-size:42px;font-weight:800;color:#4C3AA7;margin:14px 0 6px">' + h(name) + '</div>' +
+      c.paragraphs.map(p => '<p style="font-size:18px;color:#4E4A70;margin-top:8px;line-height:1.8">' + h(rep(p)) + '</p>').join('') +
+      '<div style="position:absolute;bottom:28px;left:60px;right:60px;display:flex;justify-content:space-between;font-family:IBM Plex Sans Arabic;font-size:15px;color:#4E4A70"><span>' + h(rep(c.footerRight)) + '</span><span>' + h(rep(c.footerLeft)) + '</span></div></div>';
+    const doc = await PDFE.build([page], A4L, (i, n) => pm.set(i, n));
+    doc.save((kind === 'cert' ? 'شهادة مشاركة - ' : 'تهنئة إنجاز - ') + name + '.pdf'); pm.close();
+  } catch (e) { pm.close(); UI.alert('تعذر إنشاء الملف: ' + h(e.message || e)); }
+}
+
+// ---------- مشاركات متدرب محدد ----------
+function exCorrectness(e, answers) { const a = ansList(answers, e.items.length); let sc = 0; e.items.forEach((it, i) => { const v = a[i]; if (v == null || v === '') return; if (e.format === 'mcq' ? +v === +it.answer : e.format === 'truefalse' ? ((v === true || v === 'true') === !!it.answer) : v === it.answer) sc++; }); return sc; }
+function participationOf(uid) {
+  const g = Groups.assignedOf(uid); const sections = [];
+  const pick = e => { const ps = Store.posts[e.id] || {}; if (e.mode === 'group') { if (!g) return null; const p = ps['g' + g]; return p ? { p, group: g } : null; } const p = ps[uid]; return p ? { p } : null; };
+  Content.eligibleAxes().forEach(a => { const list = Content.exercisesOf(a.id).map(e => ({ e, r: pick(e) })).filter(x => x.r); if (list.length) sections.push({ a, list }); });
+  const acts = Content.activities().map(e => ({ e, r: pick(e) })).filter(x => x.r); if (acts.length) sections.push({ a: { id: 'acts', title: 'أنشطة الطاقة وكسر الجمود', classic: '', desc: '', icon: 'bolt', color: 2 }, list: acts, sub: 'أنشطة الطاقة' });
+  const sv = Content.survey(); if (sv) { const r = pick(sv); if (r) sections.push({ a: { id: 'sv', title: 'ختام البرنامج', classic: '', desc: '', icon: 'trophy', color: 3 }, list: [{ e: sv, r }], sub: 'الاستطلاع الختامي' }); }
+  return sections;
+}
+function answerPdfHtml(e, p) {
+  if (e.format === 'sim') return '<div class="j" style="background:#F8F7FB;border:1px solid #E2E0ED;border-radius:12px;padding:10px 12px">🎮 ' + h(p.summary || '') + '</div>';
+  if (e.format === 'text') return '<div class="j" style="white-space:pre-wrap;background:#F8F7FB;border:1px solid #E2E0ED;border-radius:12px;padding:10px 12px">' + h(p.text || '') + '</div>';
+  const a = ansList(p.answers, e.items.length);
+  return '<div class="nl">' + e.items.map((it, i) => {
+    const v = a[i]; let q = '', ans = '', ok = false, corr = '';
+    if (e.format === 'mcq') { q = it.q; ans = v != null ? LETTERS[v] + ') ' + (it.options[v] || '') : '-'; ok = v != null && +v === +it.answer; corr = LETTERS[it.answer] + ') ' + it.options[it.answer]; }
+    else if (e.format === 'truefalse') { q = it.q; ans = v == null ? '-' : ((v === true || v === 'true') ? 'صح' : 'خطأ'); ok = v != null && ((v === true || v === 'true') === !!it.answer); corr = it.answer ? 'صح' : 'خطأ'; }
+    else if (e.format === 'fillblank') { q = it.text.replace('___', '____'); ans = v || '-'; ok = v === it.answer; corr = it.answer; }
+    else { q = '(أ) ' + it.a + '، (ب) ' + it.b; ans = v ? '(' + (v === 'a' ? 'أ' : 'ب') + ') ' + it[v] : '-'; ok = v === it.answer; corr = '(' + (it.answer === 'a' ? 'أ' : 'ب') + ') ' + it[it.answer]; }
+    return '<div class="it"><span class="b" style="background:' + (ok ? '#00A653' : '#E5484D') + '">' + (i + 1) + '</span><div style="flex:1"><div style="font-size:.92em;color:#4E4A70">' + h(q) + '</div><div style="font-weight:700;color:' + (ok ? '#10573A' : '#A12A2E') + '">' + (ok ? '✓ ' : '✗ ') + h(ans) + (ok ? '' : ' <span style="font-weight:500;color:#10573A">- الصحيح: ' + h(corr) + '</span>') + '</div></div></div>';
+  }).join('') + '</div><div style="margin-top:8px;font-family:IBM Plex Sans Arabic;font-weight:700">النتيجة: ' + exCorrectness(e, a) + ' من ' + e.items.length + '</div>';
+}
+function personPages(uid) {
+  const u = Store.users[uid] || {}; const axes = Content.eligibleAxes(); const secs = participationOf(uid);
+  const pages = [frontCover(Content.courseTitle(), 'سجل مشاركات المتدرب في تمارين وأنشطة البرنامج', axes, (u.name || '') + ' · سجل مشاركات')];
+  if (!secs.length) { pages.push(PP.multiBg() + '<div style="position:absolute;left:50px;right:50px;top:280px;background:#fff;border-radius:24px;padding:30px;text-align:center;box-shadow:0 16px 40px rgba(25,20,70,.12)"><div style="font-size:40px">🗒️</div><h2 style="margin-top:8px">لا توجد مشاركات مسجلة</h2><p style="margin-top:8px;color:#4E4A70">لم يشارك ' + h(u.name || 'هذا المتدرب') + ' في أي تمرين أو نشاط حتى تاريخ إنشاء هذا الملف (' + fmtDate(Date.now()) + ').</p></div>'); return pages; }
+  secs.forEach(sec => {
+    pages.push(axisCover(sec.a, sec.sub));
+    sec.list.forEach(({ e, r }) => {
+      const col = Content.color(sec.a);
+      const body = '<div style="display:flex;gap:10px;align-items:center"><span style="font-size:26px">' + h(e.icon || '✍️') + '</span><h2 style="font-size:1.35em;font-weight:800">' + h(e.title) + '</h2></div>' +
+        '<div style="margin-top:6px;font-family:IBM Plex Sans Arabic;font-size:11.5px;color:#807D9C">' + (e.mode === 'group' ? '👥 جماعي' : '👤 فردي') + ' · ' + h(FORMATS[e.format] || '') + ' · ' + fmtDate(r.p.ts) + '</div>' +
+        (e.scenario ? '<div class="j" style="margin-top:10px;padding:10px 12px;border-radius:12px;background:#FFF7F4;border:1px solid #F2E4D3;font-size:.95em"><b>الموقف: </b>' + stripHtml(e.scenario) + '</div>' : '') +
+        (e.task && e.format === 'text' ? '<div class="j" style="margin-top:8px;font-size:.95em"><b>المطلوب: </b>' + h(stripHtml(e.task)) + '</div>' : '') +
+        (r.group ? '<div style="margin-top:10px;display:inline-block;padding:2px 10px;border-radius:999px;background:' + tint(col, .14) + ';font-family:IBM Plex Sans Arabic;font-size:11.5px;font-weight:700">(ضمن ' + h(Groups.label(r.group)) + ')</div>' : '') +
+        '<div style="margin-top:10px;font-family:Cairo;font-weight:700;color:' + col + '">إجابة المتدرب</div>' + answerPdfHtml(e, r.p);
+      pages.push(pageHeader(sec.a, h(u.name || '') + ' · سجل مشاركات') + '<div class="fit" style="top:110px;bottom:44px;right:30px;left:30px;line-height:1.8">' + body + '</div>' + PP.foot(Content.courseTitle(), pages.length + 1));
+    });
+  });
+  pages.push(backCover(axes));
+  return pages;
+}
+async function personPdfDoc(uid, pm) { return PDFE.build(personPages(uid), A5, pm ? (i, n) => pm.set(i, n) : null); }
+function safeName(s) { return String(s || 'متدرب').replace(/[\\/:*?"<>|]/g, '').trim() || 'متدرب'; }
+
+// ---------- CSV ----------
+function csvEsc(v) { const s = String(v == null ? '' : v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function csvBlob(rows) { return new Blob(['﻿' + rows.map(r => r.map(csvEsc).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }); }
+function answerText(e, p) {
+  if (e.format === 'text') return p.text || '';
+  if (e.format === 'sim') return p.summary || '';
+  const a = ansList(p.answers, e.items.length);
+  return e.items.map((it, i) => { const v = a[i]; let t = '-'; if (v != null && v !== '') { if (e.format === 'mcq') t = LETTERS[v] + ') ' + (it.options[v] || ''); else if (e.format === 'truefalse') t = (v === true || v === 'true') ? 'صح' : 'خطأ'; else if (e.format === 'fillblank') t = v; else t = '(' + (v === 'a' ? 'أ' : 'ب') + ') ' + it[v]; } return (i + 1) + ': ' + t; }).join(' | ');
+}
+function exportAllCsv() {
+  const rows = [['القسم', 'التمرين', 'النموذج', 'النوع', 'المشارك / المجموعة', 'المسمى', 'الإجابة', 'النتيجة', 'الإعجابات', 'التاريخ']];
+  Content.allExercises().forEach(({ e, section }) => {
+    const ps = Store.posts[e.id] || {};
+    Object.keys(ps).forEach(k => { const p = ps[k]; if (!p) return; const isG = k.charAt(0) === 'g' && e.mode === 'group';
+      rows.push([section, e.title, FORMATS[e.format] || '', e.mode === 'group' ? 'جماعي' : 'فردي', isG ? Groups.label(+k.slice(1)) + ' (' + (p.name || '') + ')' : (p.name || ''), isG ? '' : (p.role || ''), answerText(e, p), e.format === 'text' ? '' : e.format === 'sim' ? (p.metric != null ? p.metric : '') : exCorrectness(e, p.answers) + ' من ' + e.items.length, Object.keys(p.likes || {}).length, p.ts ? fmtTime(p.ts) : '']); });
+  });
+  Object.keys(Store.labAnswers || {}).forEach(g => { const ga = Store.labAnswers[g] || {}; Content.lab().stages.forEach((s, i) => { const a = ga['s' + i]; if (a) rows.push(['المختبر الختامي', (i + 1) + '. ' + s.title, 'نصية حرة', 'جماعي', Groups.label(+g.slice(1)) + ' (' + (a.name || '') + ')', '', a.text || '', '', Object.keys(a.likes || {}).length, a.ts ? fmtTime(a.ts) : '']); }); });
+  const A = Content.assess(); ['pre', 'post'].forEach(ph => Assess.list(ph).forEach(x => rows.push([ph === 'pre' ? 'التقييم القبلي' : 'التقييم البعدي', A.title || '', 'اختيار من متعدد', 'فردي', x.name || '', x.role || '', answerText(A, x), x.score + ' من ' + A.items.length, '', x.ts ? fmtTime(x.ts) : ''])));
+  downloadBlob(csvBlob(rows), 'مشاركات البرنامج.csv'); UI.toast('✅ تم تصدير ' + (rows.length - 1) + ' مشاركة');
+}
+function personCsvBlob(uid) {
+  const u = Store.users[uid] || {}; const rows = [['المتدرب', 'القسم', 'التمرين', 'النموذج', 'السياق', 'الإجابة', 'النتيجة', 'التاريخ']];
+  participationOf(uid).forEach(sec => sec.list.forEach(({ e, r }) => rows.push([u.name || '', sec.a.title, e.title, FORMATS[e.format] || '', r.group ? 'ضمن ' + Groups.label(r.group) : 'فردي', answerText(e, r.p), e.format === 'text' || e.format === 'sim' ? '' : exCorrectness(e, r.p.answers) + ' من ' + e.items.length, r.p.ts ? fmtTime(r.p.ts) : ''])));
+  if (rows.length === 1) rows.push([u.name || '', '-', '-', '-', '-', 'لا توجد مشاركات مسجلة لهذا المتدرب حتى الآن', '', fmtDate(Date.now())]);
+  return csvBlob(rows);
+}
+async function exportAllPersons(kind) {
+  const uids = Object.keys(Store.users || {}); if (!uids.length) { UI.alert('لا يوجد مسجّلون.'); return; }
+  const pm = progressModal(kind === 'pdf' ? '📦 تصدير كل الملفات PDF' : '📦 تصدير كل الملفات CSV');
+  try {
+    await PDFE.libs(true); const zip = new window.JSZip(); const used = {};
+    for (let i = 0; i < uids.length; i++) {
+      const u = Store.users[uids[i]]; let nm = safeName(u.name); if (used[nm]) nm += ' (' + (++used[nm]) + ')'; else used[nm] = 1;
+      pm.set(i, uids.length, 'المتدرب ' + (i + 1) + ' من ' + uids.length + ': ' + (u.name || ''));
+      if (kind === 'pdf') { const doc = await personPdfDoc(uids[i]); zip.file(nm + '.pdf', doc.output('blob')); }
+      else zip.file(nm + '.csv', personCsvBlob(uids[i]));
+    }
+    pm.set(1, 1, 'جارٍ ضغط الملفات');
+    const blob = await zip.generateAsync({ type: 'blob' }); downloadBlob(blob, kind === 'pdf' ? 'مشاركات المتدربين PDF.zip' : 'مشاركات المتدربين CSV.zip'); pm.close();
+  } catch (e) { pm.close(); UI.alert('تعذر التصدير: ' + h(e.message || e)); }
+}
+
+// ---------- بطاقة رقم العضوية PNG ----------
+async function saveMemberCard(me) {
+  try {
+    await document.fonts.ready;
+    const W = 1000, H = 600; const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const c = cv.getContext('2d');
+    const g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#4C3AA7'); g.addColorStop(.5, '#00A653'); g.addColorStop(.78, '#F34D00'); g.addColorStop(1, '#F34D00');
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(255,255,255,.12)'; [[880, 90, 150], [120, 540, 190], [540, 20, 80]].forEach(([x, y, r]) => { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); });
+    c.fillStyle = '#fff'; const rr = (x, y, w, hh, r) => { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + hh, r); c.arcTo(x + w, y + hh, x, y + hh, r); c.arcTo(x, y + hh, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+    rr(60, 70, W - 120, H - 140, 36); c.fill();
+    c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#4C3AA7'; c.font = '700 26px "IBM Plex Sans Arabic", sans-serif'; c.fillText(Content.courseTitle(), W - 110, 140);
+    c.fillStyle = '#201C40'; c.font = '800 54px Cairo, sans-serif'; c.fillText(me.name, W - 110, 250);
+    c.fillStyle = '#4E4A70'; c.font = '500 28px "IBM Plex Sans Arabic", sans-serif'; c.fillText(me.role || '', W - 110, 305);
+    c.fillStyle = '#807D9C'; c.font = '700 22px "IBM Plex Sans Arabic", sans-serif'; c.fillText('رقم العضوية', W - 110, 400);
+    c.direction = 'ltr'; c.textAlign = 'right'; c.fillStyle = '#201C40'; c.font = '800 76px Cairo, sans-serif'; c.fillText(pad4(me.member || 0), W - 110, 480);
+    const code = me.code || (Me.data && Me.data.uid === me.uid && Me.data.code) || Store.mySecret || '';
+    if (code) { c.textAlign = 'left'; c.direction = 'rtl'; c.fillStyle = '#807D9C'; c.font = '700 22px "IBM Plex Sans Arabic", sans-serif'; c.fillText('رمز الدخول الشخصي', 110 + 260, 400); c.direction = 'ltr'; c.fillStyle = '#4C3AA7'; c.font = '800 56px Cairo, sans-serif'; c.fillText(code, 110, 478); }
+    c.textAlign = 'left'; c.direction = 'rtl'; c.fillStyle = '#807D9C'; c.font = '500 19px "IBM Plex Sans Arabic", sans-serif'; c.fillText('للدخول من جهاز آخر: «مسجّل مسبقًا؟» ثم الرقم والرمز معًا', 110, 540);
+    await new Promise(res => cv.toBlob(b => { downloadBlob(b, 'رقم العضوية ' + pad4(me.member || 0) + '.png'); res(); }, 'image/png'));
+    UI.toast('✅ تم حفظ بطاقة رقم العضوية على جهازك');
+  } catch (e) { UI.alert('تعذر حفظ البطاقة: ' + h(e.message || e)); }
+}
+
+
+// ---------- سجل الحضور CSV ----------
+function exportAttendanceCsv() {
+  const users = Store.users || {}; const c = Attend.cfg();
+  const rows = [['المتدرب', 'المسمى', 'المشروع', 'رقم العضوية'].concat(Attend.days().map(d => 'اليوم ' + d + ' (ساعات)')).concat(['نسبة الحضور', 'مستحق للشهادة'])];
+  Object.keys(users).sort((a, b) => (users[a].name || '').localeCompare(users[b].name || '', 'ar')).forEach(u => rows.push([users[u].name || '', users[u].role || '', users[u].org || '', pad4(users[u].member || 0)].concat(Attend.days().map(d => Attend.hoursOf(u, d))).concat([Attend.pct(u) + '%', Attend.eligible(u) ? 'نعم' : 'لا'])));
+  downloadBlob(csvBlob(rows), 'سجل الحضور.csv'); UI.toast('✅ تم التصدير (الحد المطلوب ' + c.threshold + '%)');
+}
+
+// ---------- دليل المدرب (A4 عمودي) ----------
+async function buildGuidePdf() {
+  const pm = progressModal('📘 دليل المدرب');
+  try {
+    const g = Content.guide(); const C = '#4C3AA7'; const T = Content.courseTitle(); const axes = Content.eligibleAxes(); const pages = [];
+    const head = (t, sub) => '<div style="position:absolute;top:0;left:0;right:0;height:98px;background:linear-gradient(120deg,#484371,#4C3AA7)"><div style="position:absolute;top:14px;right:34px;left:34px;color:#fff"><div style="font-family:IBM Plex Sans Arabic;font-size:12px;opacity:.85">' + h(T) + ' · دليل المدرب</div><div style="font-family:Cairo;font-weight:800;font-size:21px">' + h(t) + '</div>' + (sub ? '<div style="font-family:IBM Plex Sans Arabic;font-size:11.5px;opacity:.9">' + h(sub) + '</div>' : '') + '</div></div>';
+    const page = (t, body, sub) => pages.push('<div style="position:absolute;inset:0;background:#F9F8FC"></div>' + head(t, sub) + '<div class="fit" style="top:116px;bottom:46px;right:34px;left:34px;line-height:1.8">' + body + '</div>' + PP.foot(T + '، دليل المدرب', pages.length + 1));
+    const tbl = (heads, rows, w) => '<table style="width:100%;border-collapse:collapse;font-size:12.5px"><tr>' + heads.map((x, i) => '<th style="background:' + C + ';color:#fff;padding:7px;text-align:right;' + (w && w[i] ? 'width:' + w[i] : '') + '">' + x + '</th>').join('') + '</tr>' + rows.map((r, i) => '<tr>' + r.map(c => '<td style="padding:6px 7px;border-bottom:1px solid #DFDCEB;vertical-align:top;background:' + (i % 2 ? '#fff' : '#EFEDF9') + '">' + c + '</td>').join('') + '</tr>').join('') + '</table>';
+    const box = (t, inner) => '<div style="background:#fff;border:1px solid #DFDCEB;border-radius:14px;padding:12px 14px;margin-bottom:12px"><div style="font-family:Cairo;font-weight:800;color:' + C + ';margin-bottom:4px">' + t + '</div>' + inner + '</div>';
+    // الغلاف
+    pages.push(PP.multiBg() + PP.scatter(axes, 0).replace(/left:(\d+)px/g, (m, x) => 'left:' + Math.round(x * 1.35) + 'px').replace(/top:(\d+)px/g, (m, y) => 'top:' + Math.round(y * 1.4) + 'px') +
+      '<div style="position:absolute;left:80px;right:80px;top:330px;background:#fff;border-radius:30px;box-shadow:0 20px 50px rgba(25,20,70,.16);padding:44px 36px;text-align:center"><div style="width:84px;height:84px;margin:0 auto 16px;border-radius:24px;background:linear-gradient(120deg,#484371,#4C3AA7);display:flex;align-items:center;justify-content:center">' + iconSvg('file', 44, '#fff', 2) + '</div>' +
+      '<div style="font-family:IBM Plex Sans Arabic;font-weight:700;color:' + C + ';font-size:16px">دليل المدرب</div><h1 style="font-size:32px;font-weight:800;margin-top:6px">' + h(T) + '</h1><p style="margin-top:14px;color:#4E4A70;font-size:16px">' + (g.days.filter(d => d.length).length ? '<span class="num">' + g.days.filter(d => d.length).length + '</span> ' + (g.days.filter(d => d.length).length === 2 ? 'يوم تدريبي' : 'أيام') + ' · ' : '') + '<span class="num">' + axes.length + '</span> محورًا</p><p style="color:#4E4A70;font-size:14px">الأهداف · المنهجية · الجدول الزمني · ملاحظات كل شريحة · مفتاح التقييم</p><div class="num" style="margin-top:14px;font-size:12px;color:#807D9C">' + fmtDate(Date.now()) + '</div></div>');
+    // الأهداف والمنهجية والفئة المستهدفة
+    page('نظرة عامة على البرنامج', (g.objectives.length ? box('أهداف التعلم', PP.numbered(g.objectives.map(h), C)) : '') + (g.methodology.length ? box('المنهجية', PP.numbered(g.methodology.map(h), '#484371')) : '') +
+      (!(g.audience || []).length ? '' : box('الفئة المستهدفة', '<ul style="margin:0">' + g.audience.map(x => '<li>' + x + '</li>').join('') + '</ul>')) +
+      box('التقييم والشهادة', '<ul style="margin:0"><li>تقييم قبلي وبعدي من <span class="num">' + Content.assess().items.length + '</span> أسئلة اختيار من متعدد تطبيقية، بترتيب مختلف لكل متدرب.</li>' + (Attend.certOn() ? '<li>شهادة مشاركة لمن يحضر <span class="num">' + Attend.cfg().threshold + '%</span> على الأقل من مدة البرنامج (تسجيل حضور برمز يومي).</li>' : '') + '<li>تقييم البرنامج بعد التدريب بالنجوم ومؤشر صافي التوصية، وتقرير ختام آلي من لوحة الإدارة.</li></ul>'));
+    // جدولا اليومين
+    g.days.forEach((d, i) => { if (!d.length) return; page('جدول الجلسة ' + (i + 1), tbl(['الوقت', 'الدقائق', 'الفقرة', 'ملاحظات التنفيذ'], d.map(x => ['<span class="num">' + h(x.t) + '</span>', '<span class="num">' + x.min + '</span>', h(x.act), h(x.note)]), ['60px', '56px', '', '34%']) + '<div style="margin-top:8px;font-family:IBM Plex Sans Arabic;font-size:12px;color:#807D9C">المجموع: <span class="num">' + d.reduce((a, b) => a + (+b.min || 0), 0) + '</span> دقيقة</div>'); });
+    // المحاور
+    axes.forEach(a => {
+      const exs = Content.exercisesOf(a.id);
+      page(a.title, (a.outcome ? '<div style="background:#EEF7F2;border-right:4px solid #00A653;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px"><b>🎯 مخرج التعلم: </b>' + h(a.outcome) + '</div>' : '') +
+        tbl(['#', 'الشريحة', 'ملاحظات المدرب'], a.slides.map((sl, k) => ['<span class="num">' + (k + 1) + '</span>', '<b>' + h(sl.title) + '</b><div style="font-size:11px;color:#807D9C">' + h(SLIDE_TYPES[sl.type] || '') + '</div>', h(sl.note || '-')]), ['26px', '36%', '']) +
+        (exs.length ? '<div style="margin-top:10px;font-family:Cairo;font-weight:800;color:' + C + '">التمارين</div>' + tbl(['التمرين', 'النموذج', 'النوع'], exs.map(e => [h((e.icon || '') + ' ' + e.title), h(FORMATS[e.format] || '') + (e.format === 'sim' ? ' · ' + h(SIM_TYPES[e.sim] || '') : ''), e.mode === 'group' ? 'جماعي' : 'فردي'])) : ''),
+        (Content.unitKicker(a.unit) ? Content.unitKicker(a.unit) + ' · ' + Content.unitName(a.unit) : '') + (a.duration ? ' · ' + a.duration : ''));
+    });
+    // الملاحق: مفتاح التقييم، المختبر، التقييم
+    const A = Content.assess();
+    page('ملحق: مفتاح إجابات التقييم القبلي والبعدي', '<div style="font-size:12px;color:#A12A2E;margin-bottom:8px">سري، للمدرب فقط. ترتيب الأسئلة والخيارات يختلف على أجهزة المتدربين.</div>' + tbl(['#', 'السؤال', 'الإجابة الصحيحة'], A.items.map((it, i) => ['<span class="num">' + (i + 1) + '</span>', h(it.q), '<b style="color:#00A653">' + h(it.options[it.answer] || '') + '</b>']), ['26px', '', '34%']));
+    const L = Content.lab(); const sv = Content.survey({ all: true });
+    page('ملحق: المختبر الختامي وتقييم البرنامج', box(h(L.title) + ' · <span class="num">' + L.stages.length + '</span> مراحل × <span class="num">' + L.minutes + '</span> دقائق', '<div class="j" style="font-size:12.5px">' + h(stripHtml(L.intro)) + '</div>' + PP.numbered(L.stages.map(x => '<b>' + h(x.icon + ' ' + x.title) + ':</b> ' + h(x.task)), C)) +
+      (sv ? box('بنود تقييم البرنامج', '<ul style="margin:0">' + sv.rates.map(r => '<li>' + h(r) + ' (1-5 نجوم)</li>').join('') + (sv.nps ? '<li>' + h(sv.nps) + ' (0-10)</li>' : '') + '<li>' + h(stripHtml(sv.task)) + '</li></ul>') : ''));
+    const doc = await PDFE.build(pages, A4P, (i, n) => pm.set(i, n));
+    doc.save('دليل المدرب - ' + safeName(T) + '.pdf'); pm.close();
+  } catch (e) { pm.close(); UI.alert('تعذر إنشاء الدليل: ' + h(e.message || e)); }
+}
+
+// ---------- المسجّلون CSV (كل حقول التسجيل + الموافقات + الحضور) ----------
+function exportUsersCsv() {
+  const users = Store.users || {}; const fs = RegFields.all();
+  const rows = [['رقم العضوية'].concat(fs.map(f => f.label)).concat(['تاريخ التسجيل', 'موافقة الخصوصية', 'موافقة المتابعة'].concat(Attend.on() ? ['نسبة الحضور'] : [], ['التقييم القبلي', 'التقييم البعدي', 'نسبة الإنجاز']))];
+  const n = Content.assess().items.length;
+  Object.keys(users).sort((a, b) => (users[a].member || 0) - (users[b].member || 0)).forEach(u => { const x = users[u]; const pre = Assess.rec('pre', u), post = Assess.rec('post', u);
+    rows.push([pad4(x.member || 0)].concat(fs.map(f => RegFields.val(x, f.key))).concat([x.ts ? fmtTime(x.ts) : '', x.consent && x.consent.privacy ? 'نعم' : '-', x.consent && x.consent.followup ? 'نعم' : 'لا'].concat(Attend.on() ? [Attend.pct(u) + '%'] : [], [pre && pre.done ? Assess.score(pre.answers) + '/' + n : '', post && post.done ? Assess.score(post.answers) + '/' + n : '', Math.round(Progress.forUser(u).pct * 100) + '%']))); });
+  downloadBlob(csvBlob(rows), 'المسجلون.csv');
+}
+/* ===== 08b-report.js ===== */
+// ---------------------------------------------------------------------
+// تقرير ختام البرنامج بمستوى مؤسسي (عربي / إنجليزي) + بيانات لوحة المشرف ومقارنة الدفعات
+// كل الأرقام تُحسب مرة واحدة في reportData() من البيانات الحالية أو من لقطة دفعة مؤرشفة.
+// ---------------------------------------------------------------------
+const A4P = { w: 794, h: 1123, mmW: 210, mmH: 297, format: 'a4', orientation: 'portrait' };
+const SNAP_KEYS = { users: 'users', posts: 'posts', assess: 'assess', attendance: 'attendance', checkins: 'checkins', labAnswers: 'lab', leads: 'leads', followups: 'followups' };
+// حساب المؤشرات على لقطة بيانات (دفعة مؤرشفة) بتبديل مؤقت لحالة Store ثم استعادتها
+function mergeSnapUsers(pub, pr) { const out = {}; Object.keys(pub || {}).forEach(u => { const p = (pr || {})[u]; out[u] = Object.assign({}, pub[u], p ? { f: Object.assign({}, (pub[u] || {}).f || {}, p.f || {}), consent: p.consent } : {}); }); return out; }
+function withSnapshot(snap, fn) {
+  if (!snap) return fn();
+  const saved = {}; Object.keys(SNAP_KEYS).forEach(k => { saved[k] = Store[k]; });
+  try { Store.users = mergeSnapUsers(snap.users, snap.private); Store.checkins = snap.checkins || {}; Store.posts = snap.posts || {}; Store.assess = snap.assess || {}; Store.attendance = snap.attendance || {}; Store.labAnswers = (snap.lab && snap.lab.answers) || {}; Store.leads = snap.leads || {}; Store.followups = snap.followups || {}; return fn(); }
+  finally { Object.keys(saved).forEach(k => { Store[k] = saved[k]; }); }
+}
+function distOf(uids, key) { const c = {}; uids.forEach(u => { const v = RegFields.val(Store.users[u], key); if (v) c[v] = (c[v] || 0) + 1; }); return c; }
+function reportData(snap) {
+  return withSnapshot(snap, () => {
+    const users = Store.users || {}; const uids = Object.keys(users); const A = Content.assess(); const n = A.items.length || 1;
+    const pre = Assess.list('pre'), post = Assess.list('post'); const preM = {}; pre.forEach(x => { preM[x.uid] = x; });
+    const paired = post.filter(x => preM[x.uid]); const gain = paired.length ? paired.reduce((s, x) => s + (x.score - preM[x.uid].score), 0) / paired.length / n * 100 : null;
+    const axes = Content.eligibleAxes().map(a => { const exs = Content.exercisesOf(a.id); let posts = 0; const people = new Set(); exs.forEach(e => { const ps = Store.posts[e.id] || {}; Object.keys(ps).forEach(k => { const p = ps[k]; if (!p || k === 'admin') return; posts++; if (e.mode === 'group') Object.keys(p.members || {}).forEach(m => people.add(m)); else people.add(k); }); }); return { a, exs: exs.length, posts, people: people.size, rate: uids.length ? people.size / uids.length : 0 }; });
+    const sv = Content.survey({ all: true }); const survey = SurveyStats.of(sv ? Store.posts[sv.id] : {}, sv);
+    const cfg = Attend.cfg(); const attAvg = uids.length ? Math.round(uids.reduce((s, u) => s + Attend.pct(u), 0) / uids.length) : 0;
+    const perDay = Attend.days().map(d => uids.filter(u => Attend.hoursOf(u, d) > 0).length);
+    const leads = Leads.list(); const byProg = Leads.byProgram(leads);
+    const budget = (() => { const e = null; if (!e) return []; const ps = Store.posts[e.id] || {}; return Object.keys(ps).filter(k => ps[k] && ps[k].state && /^g\d+$/.test(k)).map(k => ({ g: +k.slice(1), r: BudgetSim.calc(ps[k].state) })).sort((a, b) => b.r.score - a.r.score); })();
+    const fu = {}; ['30', '60', '90'].forEach(k => { fu[k] = Object.keys((Store.followups || {})['d' + k] || {}).length; });
+    const d = { cohort: Cohort.cur(), uids, n: A.items.length, A, pre, post, paired, gain, preAvg: Assess.avg('pre'), postAvg: Assess.avg('post'), pq: Assess.perQuestion('pre'), qq: Assess.perQuestion('post'), axes, survey, attAvg, perDay, cfg,
+      certs: Attend.holders().length, attOn: Attend.on(), certOn: Attend.certOn(), leadsOn: Leads.on(), achievers: Progress.achievers().length, labGroups: Object.keys(Store.labAnswers || {}).length, leads, byProg, budget, fu,
+      sector: distOf(uids, 'sector'), stage: distOf(uids, 'stage'), hasStore: distOf(uids, 'hasStore'), onlineSales: distOf(uids, 'onlineSales') };
+    d.recs = recommendations(d); return d;
+  });
+}
+// توصيات آلية مبنية على القواعد (عربي + إنجليزي)
+function recommendations(d) {
+  const R = []; const add = (ar, en) => R.push({ ar, en });
+  if (d.qq.some(x => x != null)) {
+    const weak = d.qq.map((v, i) => ({ v, i })).filter(x => x.v != null).sort((a, b) => a.v - b.v).slice(0, 2).filter(x => x.v < 70);
+    weak.forEach(x => { const ax = Content.axis(ASSESS_AXIS[x.i]); add('تعزيز محور «' + (ax ? ax.title : '') + '»: نسبة الإجابة الصحيحة على السؤال ' + (x.i + 1) + ' في التقييم البعدي ' + x.v + '% فقط؛ يُقترح زيادة وقت التطبيق العملي عليه في الدفعات القادمة.', 'Strengthen "' + (EN.axes[ASSESS_AXIS[x.i]] || '') + '": only ' + x.v + '% answered post-test Q' + (x.i + 1) + ' correctly; add more hands-on practice in future cohorts.'); });
+  }
+  if (d.survey.avgs.some(x => x != null)) { const lo = d.survey.avgs.map((v, i) => ({ v, i })).filter(x => x.v != null).sort((a, b) => a.v - b.v)[0]; if (lo && lo.v < 4.3) add('أقل بنود الرضا تقييمًا: «' + d.survey.rates[lo.i] + '» (' + lo.v.toFixed(1) + ' من 5)؛ يُوصى بمراجعته.', 'Lowest-rated satisfaction item: "' + (EN.rates[lo.i] || d.survey.rates[lo.i]) + '" (' + lo.v.toFixed(1) + '/5); review for the next cohort.'); }
+  const lowAx = d.axes.filter(x => x.exs).sort((a, b) => a.rate - b.rate)[0]; if (lowAx && d.uids.length && lowAx.rate < 0.5) add('أقل المحاور مشاركة: «' + lowAx.a.title + '» (' + Math.round(lowAx.rate * 100) + '% من المسجلين)؛ يُقترح تخصيص وقت داخل الجلسة لتمارينه.', 'Lowest engagement: "' + (EN.axes[lowAx.a.id] || lowAx.a.title) + '" (' + Math.round(lowAx.rate * 100) + '% of participants); allocate in-session time to its exercises.');
+  const below = d.certOn ? d.uids.filter(u => !Attend.eligible(u)).length : 0; if (d.uids.length && below) add(below + ' مشاركًا لم يبلغوا نسبة الحضور المطلوبة للشهادة (' + d.cfg.threshold + '%)؛ يُقترح تذكير مسبق بالمواعيد وتسجيل الحضور في بداية كل جلسة.', below + ' participant(s) did not reach the ' + d.cfg.threshold + '% attendance required for certification; send reminders and take attendance at the start of each session.');
+  if (d.survey.nps != null) add(d.survey.nps >= 50 ? 'مؤشر صافي التوصية ممتاز (' + d.survey.nps + ')؛ يمكن الاستفادة من المشاركين كسفراء للدفعات القادمة.' : 'مؤشر صافي التوصية ' + d.survey.nps + '؛ يُوصى بمراجعة آراء المشاركين النصية لتحديد أولويات التحسين.', d.survey.nps >= 50 ? 'Excellent Net Promoter Score (' + d.survey.nps + '); participants can act as ambassadors for future cohorts.' : 'NPS of ' + d.survey.nps + '; review qualitative feedback to prioritise improvements.');
+  if (d.leads.length) { const top = Object.keys(d.byProg).sort((a, b) => d.byProg[b] - d.byProg[a])[0]; add(d.leads.length + ' مشروعًا أبدى اهتمامًا ببرامج الدعم، وأكثرها طلبًا: «' + top + '»؛ يُوصى بتواصل الفريق المختص خلال أسبوعين من انتهاء البرنامج.', d.leads.length + ' businesses expressed interest in support programmes (most requested: "' + (EN.programs[DEFAULT_LEADS.programs.indexOf(top)] || top) + '"); recommend follow-up by the sponsor team within two weeks.'); }
+  const topSector = Object.keys(d.sector).sort((a, b) => d.sector[b] - d.sector[a])[0]; if (topSector) add('القطاع الأكثر تمثيلًا: «' + topSector + '»؛ يُقترح إضافة أمثلة ودراسات حالة من هذا القطاع في الدفعات القادمة.', 'Most represented sector: "' + enOpt(topSector) + '"; add sector-specific cases in future cohorts.');
+  if (d.gain != null && d.gain > 0) add('تحسّن متوسط المعرفة بمقدار ' + Math.round(d.gain) + ' نقطة مئوية بين التقييمين القبلي والبعدي؛ يُوصى بقياس التطبيق الفعلي عبر متابعات 30 و60 و90 يومًا.', 'Average knowledge improved by ' + Math.round(d.gain) + ' percentage points (pre vs post); measure real-world application through the 30/60/90-day follow-ups.');
+  return R;
+}
+// ---------- مخطط أعمدة HTML لصفحات PDF ----------
+function pdfBars(items, o = {}) {
+  const max = o.max || Math.max(1, ...items.map(x => +x.v || 0)); const C = o.color || '#4C3AA7';
+  return '<div style="display:flex;flex-direction:column;gap:7px">' + items.map(x => '<div style="display:grid;grid-template-columns:' + (o.lw || '38%') + ' 1fr 56px;gap:8px;align-items:center;font-size:12px"><span>' + h(x.l) + '</span><div style="height:13px;background:#E8E5F3;border-radius:7px;overflow:hidden"><div style="height:100%;width:' + Math.max(0, Math.min(100, (+x.v || 0) / max * 100)) + '%;background:' + (x.c || C) + ';border-radius:7px"></div></div><b class="num" style="font-size:12px">' + (x.t != null ? h(x.t) : (x.v == null ? '-' : x.v)) + '</b></div>').join('') + '</div>';
+}
+function logoHtml(size) {
+  const lg = (Store.site || {}).brandLogo;
+  if (lg) return '<img src="' + lg + '" style="max-height:' + size + 'px;max-width:' + (size * 4) + 'px;object-fit:contain">';
+  // بلا شعار مرفوع: اسم البرنامج نصيًا
+  return '<div style="display:inline-flex;flex-direction:column;align-items:center;line-height:1.25"><span style="font-family:Cairo;font-weight:800;font-size:' + Math.round(size * .34) + 'px;color:#4C3AA7">' + h(Content.courseTitle()) + '</span><span style="font-family:IBM Plex Sans Arabic,Arial,sans-serif;font-weight:600;font-size:' + Math.round(size * .22) + 'px;color:#484371">' + h(Content.site().headerSub || '') + '</span></div>';
+}
+async function buildReportPdf(lang = 'ar', snap, cohortName) {
+  const pm = progressModal(lang === 'en' ? '📑 Closing report' : '📑 تقرير ختام البرنامج');
+  try {
+    const d = reportData(snap); const E = lang === 'en'; const C = '#4C3AA7'; const dir = E ? 'ltr' : 'rtl'; const al = E ? 'left' : 'right';
+    const T = E ? EN.course : Content.courseTitle(); const coh = cohortName || d.cohort.name; const pct = v => v == null ? '-' : Math.round(v) + '%';
+    const L = (ar, en) => E ? en : ar; const pages = [];
+    const head = t => '<div style="position:absolute;top:0;left:0;right:0;height:92px;background:linear-gradient(120deg,#4C3AA7,#484371)"></div><div style="position:absolute;top:20px;left:34px;right:34px;display:flex;justify-content:space-between;align-items:center;color:#fff;direction:' + dir + '"><div><div style="font-family:IBM Plex Sans Arabic,Arial;font-size:12px;opacity:.85">' + h(T) + ' · ' + h(coh) + '</div><div style="font-family:Cairo,Arial;font-weight:800;font-size:21px">' + h(t) + '</div></div><div style="background:#fff;border-radius:12px;padding:6px 10px">' + logoHtml(40) + '</div></div>';
+    const page = (t, body) => pages.push('<div style="position:absolute;inset:0;background:#F8F7FB"></div>' + head(t) + '<div class="fit" style="top:112px;bottom:50px;right:34px;left:34px;direction:' + dir + ';text-align:' + al + ';line-height:1.75">' + body + '</div>' + '<div class="foot" style="direction:' + dir + '"><span>' + h(T) + ' · ' + L('تقرير ختام البرنامج', 'Programme closing report') + '</span><span class="num">' + (pages.length + 1) + '</span></div>');
+    const card = (lbl, v, sub) => '<div style="flex:1 1 30%;min-width:190px;background:#fff;border:1px solid #DFDCEB;border-radius:16px;padding:12px 14px"><div style="font-size:12px;color:#807D9C">' + lbl + '</div><div class="num" style="font-family:Cairo,Arial;font-weight:800;font-size:28px;color:' + C + '">' + v + '</div>' + (sub ? '<div style="font-size:11px;color:#807D9C">' + sub + '</div>' : '') + '</div>';
+    const box = (t, inner) => '<div style="background:#fff;border:1px solid #DFDCEB;border-radius:14px;padding:12px 14px;margin-bottom:12px"><div style="font-family:Cairo,Arial;font-weight:800;color:' + C + ';margin-bottom:6px">' + t + '</div>' + inner + '</div>';
+    const distBars = (obj, key) => { const ks = Object.keys(obj).sort((a, b) => obj[b] - obj[a]); return ks.length ? pdfBars(ks.map(k => ({ l: E ? enOpt(k) : k, v: obj[k] })), { color: '#484371' }) : '<div style="color:#807D9C;font-size:12px">' + L('لا توجد بيانات', 'No data') + '</div>'; };
+    // 1) الغلاف
+    pages.push(PP.multiBg() + '<div style="position:absolute;left:70px;right:70px;top:200px;background:#fff;border-radius:30px;box-shadow:0 20px 50px rgba(25,20,70,.16);padding:44px 36px;text-align:center;direction:' + dir + '"><div style="margin-bottom:22px">' + logoHtml(70) + '</div>' +
+      '<div style="font-family:IBM Plex Sans Arabic,Arial;font-weight:700;color:' + C + ';font-size:15px">' + L('تقرير ختام البرنامج', 'Programme Closing Report') + '</div><h1 style="font-size:30px;font-weight:800;margin-top:8px;font-family:Cairo,Arial">' + h(T) + '</h1>' +
+      '<p style="margin-top:12px;color:#4E4A70;font-size:15px">' + h(coh) + (d.cohort.start ? ' · <span class="num">' + h(d.cohort.start) + (d.cohort.end ? ' · ' + h(d.cohort.end) : '') + '</span>' : '') + '</p>' +
+      '<p style="color:#4E4A70;font-size:13.5px">' + L(h(Content.site().headerSub || 'برنامج تدريبي تفاعلي'), 'Interactive training programme') + '</p><div class="num" style="margin-top:16px;font-size:12px;color:#807D9C">' + L('تاريخ الإصدار', 'Issued') + ': ' + fmtDate(Date.now()) + '</div></div>');
+    // 2) الملخص التنفيذي
+    const summ = E ? [d.uids.length + ' participants registered' + (d.attOn ? '; average attendance ' + d.attAvg + '%' + (d.certOn ? ' and ' + d.certs + ' qualified for the participation certificate (≥ ' + d.cfg.threshold + '% attendance)' : '') : '') + '.',
+      d.preAvg != null || d.postAvg != null ? 'Knowledge assessment: pre-test average ' + pct(d.preAvg) + ' vs post-test ' + pct(d.postAvg) + (d.gain != null ? '، an average gain of ' + Math.round(d.gain) + ' points for participants who completed both.' : '.') : 'Knowledge assessment results are not yet available.',
+      d.survey.n ? 'Satisfaction: ' + (d.survey.overall ? d.survey.overall.toFixed(1) : '-') + '/5 across ' + d.survey.n + ' evaluations; Net Promoter Score ' + (d.survey.nps == null ? '-' : d.survey.nps) + '.' : 'Post-training evaluation responses are pending.',
+      (d.leadsOn ? d.leads.length + ' businesses requested follow-up on support programmes; ' : '') + d.labGroups + ' groups completed the capstone lab.']
+      : [d.uids.length + ' مشاركًا مسجّلًا' + (d.attOn ? '، بمتوسط حضور ' + d.attAvg + '%' + (d.certOn ? '، واستحق ' + d.certs + ' منهم شهادة المشاركة (حضور ≥ ' + d.cfg.threshold + '%)' : '') : '') + '.',
+      d.preAvg != null || d.postAvg != null ? 'التقييم المعرفي: متوسط القبلي ' + pct(d.preAvg) + ' مقابل البعدي ' + pct(d.postAvg) + (d.gain != null ? '، بتحسن متوسط ' + Math.round(d.gain) + ' نقطة مئوية لمن أجاب التقييمين.' : '.') : 'نتائج التقييم المعرفي غير متاحة بعد.',
+      d.survey.n ? 'الرضا العام ' + (d.survey.overall ? d.survey.overall.toFixed(1) : '-') + ' من 5 من ' + d.survey.n + ' تقييمًا، ومؤشر صافي التوصية ' + (d.survey.nps == null ? '-' : d.survey.nps) + '.' : 'تقييمات ما بعد التدريب لم تكتمل بعد.',
+      (d.leadsOn ? d.leads.length + ' مشروعًا طلب التواصل بخصوص برامج الدعم، و' : '') + 'أنجزت ' + d.labGroups + ' مجموعات المختبر الختامي.'];
+    page(L('الملخص التنفيذي', 'Executive summary'), '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">' + card(L('المسجّلون', 'Participants'), d.uids.length) + (d.attOn ? card(L('متوسط الحضور', 'Avg. attendance'), d.attAvg + '%') : '') + (d.certOn ? card(L('مستحقو الشهادة', 'Certified'), d.certs, '≥ ' + d.cfg.threshold + '%') : '') + card(L('التقييم القبلي', 'Pre-test avg.'), pct(d.preAvg), d.pre.length + ' ' + L('مشارك', 'resp.')) + card(L('التقييم البعدي', 'Post-test avg.'), pct(d.postAvg), d.post.length + ' ' + L('مشارك', 'resp.')) + card(L('متوسط التحسن', 'Avg. gain (pts)'), d.gain == null ? '-' : (d.gain >= 0 ? '+' : '') + Math.round(d.gain)) + card(L('الرضا العام', 'Satisfaction'), d.survey.overall ? d.survey.overall.toFixed(1) + '/5' : '-') + card('NPS', d.survey.nps == null ? '-' : d.survey.nps) + (d.leadsOn ? card(L('مهتمون ببرامج الدعم', 'Support leads'), d.leads.length) : '') + '</div>' +
+      box(L('أبرز النتائج', 'Key findings'), PP.numbered(summ.map(h), C)) + box(L('التوصيات', 'Recommendations'), d.recs.length ? PP.numbered(d.recs.map(r => h(E ? r.en : r.ar)), '#00A653') : L('لا توجد بيانات كافية بعد لتوليد توصيات.', 'Not enough data yet to generate recommendations.')));
+    // 3) ملف المشاركين والحضور
+    page(L('ملف المشاركين', 'Participant profile'), box(E ? EN.fields.sector : 'قطاع المشروع', distBars(d.sector)) + box(E ? EN.fields.stage : 'مرحلة المشروع', distBars(d.stage)));
+    page(d.attOn ? L('الجاهزية الرقمية والحضور', 'Digital readiness & attendance') : L('الجاهزية الرقمية', 'Digital readiness'), box(E ? EN.fields.hasStore : 'قناة البيع الإلكترونية', distBars(d.hasStore)) + box(E ? EN.fields.onlineSales : 'نسبة المبيعات الإلكترونية', distBars(d.onlineSales)) +
+      (d.attOn ? box(L('الحضور حسب اليوم', 'Attendance by day'), pdfBars(d.perDay.map((v, i) => ({ l: L('اليوم ', 'Day ') + (i + 1), v, t: v + ' / ' + d.uids.length })), { max: Math.max(1, d.uids.length), color: '#3A2A8A' })) : ''));
+    // 4) نتائج التقييم
+    const qRows = d.A.items.map((it, i) => ({ i, l: (i + 1) + '. ' + (E ? (EN.assess[i] || 'Q' + (i + 1)) : clip(it.q, 70)) }));
+    page(L('نتائج التعلم: التقييم القبلي والبعدي', 'Learning outcomes: pre vs post assessment'), box(L('المتوسط العام', 'Overall average'), pdfBars([{ l: L('قبلي', 'Pre-test'), v: d.preAvg == null ? 0 : Math.round(d.preAvg), t: pct(d.preAvg), c: '#8E82C8' }, { l: L('بعدي', 'Post-test'), v: d.postAvg == null ? 0 : Math.round(d.postAvg), t: pct(d.postAvg) }], { max: 100, lw: '22%' })) +
+      box(L('نسبة الإجابة الصحيحة لكل سؤال (قبلي ثم بعدي)', 'Correct answers per question (pre, then post)'), qRows.slice(0, 5).map(r => '<div style="margin-bottom:8px"><div style="font-size:12px;font-weight:700;margin-bottom:3px">' + h(r.l) + '</div>' + pdfBars([{ l: L('قبلي', 'Pre'), v: d.pq[r.i] || 0, t: pct(d.pq[r.i]), c: '#8E82C8' }, { l: L('بعدي', 'Post'), v: d.qq[r.i] || 0, t: pct(d.qq[r.i]) }], { max: 100, lw: '14%' }) + '</div>').join('')));
+    if (qRows.length > 5) page(L('نتائج التعلم (تابع)', 'Learning outcomes (continued)'), box(L('نسبة الإجابة الصحيحة لكل سؤال (قبلي ثم بعدي)', 'Correct answers per question (pre, then post)'), qRows.slice(5).map(r => '<div style="margin-bottom:8px"><div style="font-size:12px;font-weight:700;margin-bottom:3px">' + h(r.l) + '</div>' + pdfBars([{ l: L('قبلي', 'Pre'), v: d.pq[r.i] || 0, t: pct(d.pq[r.i]), c: '#8E82C8' }, { l: L('بعدي', 'Post'), v: d.qq[r.i] || 0, t: pct(d.qq[r.i]) }], { max: 100, lw: '14%' }) + '</div>').join('')));
+    // 5) المشاركة في المحاور والمحاكاة
+    page(L('التفاعل والمشاركة', 'Engagement'), box(L('نسبة المشاركين في تمارين كل محور', 'Share of participants engaging with each module'), pdfBars(d.axes.map(x => ({ l: E ? (EN.axes[x.a.id] || x.a.title) : x.a.title, v: Math.round(x.rate * 100), t: Math.round(x.rate * 100) + '%' })), { max: 100, color: '#484371', lw: '46%' })) +
+      box(L('مؤشرات إضافية', 'Other indicators'), '<div style="display:flex;flex-wrap:wrap;gap:8px">' + card(L('إجمالي المشاركات', 'Total submissions'), d.axes.reduce((s, x) => s + x.posts, 0)) + card(L('أنجزوا 80% من التمارين', 'Completed ≥ 80%'), d.achievers) + card(L('مجموعات المختبر', 'Lab groups'), d.labGroups) + '</div>') +
+      (d.budget.length ? box(L('لعبة ميزانية التسويق: ترتيب المجموعات', 'Marketing budget simulation: group ranking'), pdfBars(d.budget.map(x => ({ l: Groups.label(x.g), v: Math.max(0, Math.round(x.r.score)), t: QAR(x.r.score) + ' · ROAS ' + x.r.roas.toFixed(1) })), { color: '#D07A32' })) : ''));
+    // 6) الرضا
+    const sv = d.survey;
+    page(L('تقييم المشاركين للبرنامج', 'Participant satisfaction'), box(L('متوسط كل بند (من 5)', 'Average rating per item (out of 5)'), sv.rates.length ? pdfBars(sv.rates.map((r, i) => ({ l: E ? (EN.rates[i] || r) : r, v: sv.avgs[i] || 0, t: sv.avgs[i] ? sv.avgs[i].toFixed(2) : '-' })), { max: 5, color: '#E06126', lw: '46%' }) : '-') +
+      box(L('مؤشر صافي التوصية', 'Net Promoter Score'), '<div style="display:flex;gap:10px;flex-wrap:wrap">' + card('NPS', sv.nps == null ? '-' : sv.nps) + card(L('مروّجون (9-10)', 'Promoters (9-10)'), sv.prom) + card(L('محايدون (7-8)', 'Passives (7-8)'), sv.pass) + card(L('منتقدون (0-6)', 'Detractors (0-6)'), sv.det) + '</div>') +
+      box(L('من آراء المشاركين', 'Selected participant comments') + (E ? ' <span style="font-weight:400;font-size:11px;color:#807D9C">(quoted in original language)</span>' : ''), sv.texts.length ? sv.texts.slice(0, 8).map(p => '<div style="border-' + (E ? 'left' : 'right') + ':3px solid ' + C + ';padding:4px 10px;margin-bottom:6px;font-size:12.5px;direction:rtl;text-align:right">«' + h(clip(p.text, 220)) + '»، ' + h(p.name || '') + '</div>').join('') : L('لا توجد آراء بعد.', 'No comments yet.')));
+    // 7) الاهتمام ببرامج الدعم والمتابعة
+    page(d.leadsOn ? L('الربط ببرامج الدعم وقياس الأثر', 'Support programmes & impact follow-up') : L('قياس الأثر بعد البرنامج', 'Post-programme impact follow-up'), (!d.leadsOn ? '' : box(L('الاهتمام حسب البرنامج', 'Interest by programme'), Object.keys(d.byProg).length ? pdfBars(Object.keys(d.byProg).sort((a, b) => d.byProg[b] - d.byProg[a]).map(p => ({ l: E ? (EN.programs[DEFAULT_LEADS.programs.indexOf(p)] || p) : p, v: d.byProg[p] })), { color: '#00A653', lw: '50%' }) : L('لا توجد طلبات اهتمام بعد.', 'No interest requests yet.')) +
+      (d.leads.length ? box(L('المشاريع المهتمة', 'Interested businesses'), '<table style="width:100%;border-collapse:collapse;font-size:11.5px"><tr style="background:' + C + ';color:#fff"><th style="padding:6px;text-align:' + al + '">' + L('الاسم', 'Name') + '</th><th style="text-align:' + al + '">' + L('المشروع', 'Business') + '</th><th style="text-align:' + al + '">' + L('البرامج', 'Programmes') + '</th></tr>' + d.leads.slice(0, 18).map((l, i) => { const u = Store.users[l.uid] || {}; return '<tr style="background:' + (i % 2 ? '#fff' : '#EFEDF9') + '"><td style="padding:5px 6px">' + h(l.name || u.name || '') + '</td><td>' + h(l.org || RegFields.val(u, 'org') || '') + '</td><td>' + h(l.programs.map(p => E ? (EN.programs[DEFAULT_LEADS.programs.indexOf(p)] || p) : p).join(' · ')) + '</td></tr>'; }).join('') + '</table>' + (d.leads.length > 18 ? '<div style="font-size:11px;color:#807D9C">+' + (d.leads.length - 18) + ' ' + L('آخرون (القائمة كاملة في ملف CSV)', 'more (full list in CSV)') + '</div>' : '')) : '')) +
+      box(L('متابعة الأثر بعد البرنامج', 'Post-programme impact follow-up'), pdfBars(['30', '60', '90'].map(k => ({ l: L('بعد ' + k + ' يومًا', 'Day ' + k), v: d.fu[k], t: d.fu[k] + ' / ' + d.uids.length })), { max: Math.max(1, d.uids.length), color: '#5B3A8A', lw: '24%' })));
+    const doc = await PDFE.build(pages, A4P, (i, n) => pm.set(i, n));
+    doc.save((E ? 'Closing report - ' : 'تقرير ختام البرنامج - ') + safeName(coh) + ' - ' + fmtDate(Date.now()).replace(/\//g, '-') + '.pdf'); pm.close();
+  } catch (e) { pm.close(); UI.alert('تعذر إنشاء التقرير: ' + h(e.message || e)); }
+}
+function exportReportCsv(snap, cohortName) {
+  const d = reportData(snap); const r = v => v == null ? '-' : Math.round(v) + '%';
+  const rows = [['البند', 'القيمة'], ['البرنامج', Content.courseTitle()], ['الدفعة', cohortName || d.cohort.name], ['تاريخ التقرير', fmtDate(Date.now())], ['عدد المسجّلين', d.uids.length]].concat(d.attOn ? [['متوسط نسبة الحضور', d.attAvg + '%']] : [], d.certOn ? [['المستحقون لشهادة المشاركة', d.certs]] : [], [['المنجزون لـ 80% من التمارين', d.achievers],
+    ['متوسط التقييم القبلي', r(d.preAvg)], ['متوسط التقييم البعدي', r(d.postAvg)], ['متوسط التحسن (نقطة مئوية)', d.gain == null ? '-' : Math.round(d.gain)], ['الرضا العام من 5', d.survey.overall ? d.survey.overall.toFixed(2) : '-'], ['مؤشر صافي التوصية', d.survey.nps == null ? '-' : d.survey.nps], ].concat(d.leadsOn ? [['المهتمون ببرامج الدعم', d.leads.length]] : [], [['مجموعات المختبر', d.labGroups], [],
+    ['السؤال', 'صحيح قبلي', 'صحيح بعدي']]));
+  d.A.items.forEach((it, i) => rows.push([(i + 1) + '. ' + it.q, r(d.pq[i]), r(d.qq[i])]));
+  rows.push([], ['بند الرضا', 'المتوسط من 5']); d.survey.rates.forEach((x, i) => rows.push([x, d.survey.avgs[i] ? d.survey.avgs[i].toFixed(2) : '-']));
+  rows.push([], ['المحور', 'التمارين', 'المشاركات', 'المشاركون', 'نسبة المشاركين']); d.axes.forEach(x => rows.push([x.a.title, x.exs, x.posts, x.people, Math.round(x.rate * 100) + '%']));
+  rows.push([], ['التوصيات']); d.recs.forEach(x => rows.push([x.ar]));
+  rows.push([], ['آراء المشاركين', '']); d.survey.texts.forEach(p => rows.push([p.name || '', p.text || '']));
+  downloadBlob(csvBlob(rows), 'تقرير ختام البرنامج - ' + safeName(cohortName || d.cohort.name) + '.csv');
+}
+function exportLeadsCsv() {
+  const rows = [['الاسم', 'المسمى', 'المشروع', 'القطاع', 'المرحلة', 'البرامج', 'الاحتياج', 'وسيلة التواصل', 'بيانات التواصل', 'التاريخ']];
+  Leads.list().forEach(l => { const u = Store.users[l.uid] || {}; rows.push([l.name || u.name || '', u.role || '', RegFields.val(u, 'org'), RegFields.val(u, 'sector'), RegFields.val(u, 'stage'), l.programs.join(' | '), l.need || '', l.method || '', l.contact || '', l.ts ? fmtTime(l.ts) : '']); });
+  downloadBlob(csvBlob(rows), 'المهتمون ببرامج الدعم.csv');
+}
+
+// ---------- خطتي للتحسين: ملف شخصي من إجابات المتدرب ومخرجات مجموعته ----------
+async function buildPlanPdf(uid) {
+  const pm = progressModal('📘 خطتي للتحسين');
+  try {
+    const u = Store.users[uid] || {}; const C = '#4C3AA7'; const T = Content.courseTitle(); const pages = [];
+    const ans = id => { const e = Content.ex(id); if (!e) return ''; const r = myPostOf(e, uid); return r && r.p ? (r.p.text || r.p.summary || '') : ''; };
+    const head = t => '<div style="position:absolute;top:0;left:0;right:0;height:84px;background:linear-gradient(120deg,#4C3AA7,#484371)"><div style="position:absolute;top:18px;right:34px;left:34px;color:#fff"><div style="font-family:IBM Plex Sans Arabic;font-size:12px;opacity:.85">' + h(T) + ' · ' + h(u.name || '') + '</div><div style="font-family:Cairo;font-weight:800;font-size:21px">' + h(t) + '</div></div></div>';
+    const page = (t, body) => pages.push('<div style="position:absolute;inset:0;background:#F9F8FC"></div>' + head(t) + '<div class="fit" style="top:104px;bottom:46px;right:34px;left:34px;line-height:1.8">' + body + '</div>' + PP.foot(T + '، خطتي للتحسين', pages.length + 1));
+    const box = (t, inner, col) => '<div style="background:#fff;border:1px solid #DFDCEB;border-right:5px solid ' + (col || C) + ';border-radius:14px;padding:10px 14px;margin-bottom:10px"><div style="font-family:Cairo;font-weight:800;color:' + (col || C) + ';margin-bottom:4px">' + t + '</div>' + inner + '</div>';
+    const txt = v => v ? '<div class="j" style="white-space:pre-wrap;font-size:13px">' + h(v) + '</div>' : '<div style="color:#9D9AB8;font-size:12.5px">- لم تُكتب بعد. أكمل التمرين في المنصة ثم أعد إنشاء الملف. -</div>';
+    const pre = Assess.rec('pre', uid), post = Assess.rec('post', uid); const n = Content.assess().items.length; const pr = Progress.forUser(uid); const lead = (Store.leads || {})[uid];
+    pages.push(PP.multiBg() + '<div style="position:absolute;left:80px;right:80px;top:300px;background:#fff;border-radius:30px;box-shadow:0 20px 50px rgba(25,20,70,.16);padding:44px 36px;text-align:center"><div style="font-size:54px">🚀</div><div style="font-family:IBM Plex Sans Arabic;font-weight:700;color:' + C + '">خطتي للتحسين</div><h1 style="font-size:32px;font-weight:800;margin-top:6px">' + h(u.name || '') + '</h1><p style="color:#4E4A70;font-size:16px">' + h(RegFields.val(u, 'org') || u.role || '') + '</p><p style="color:#4E4A70;font-size:14px;margin-top:10px">' + h(T) + '</p><div style="display:flex;justify-content:center;gap:12px;margin-top:16px;font-family:IBM Plex Sans Arabic;font-size:13px"><span>الإنجاز <b class="num">' + Math.round(pr.pct * 100) + '%</b></span><span>الحضور <b class="num">' + Attend.pct(uid) + '%</b></span>' + (pre && pre.done && post && post.done ? '<span>المعرفة <b class="num">' + Assess.score(pre.answers) + ' إلى ' + Assess.score(post.answers) + '/' + n + '</b></span>' : '') + '</div><div class="num" style="margin-top:14px;font-size:12px;color:#807D9C">' + fmtDate(Date.now()) + '</div></div>');
+    // صفحات الخطة مبنية على التمارين الفردية في محتوى هذا البرنامج
+    page('من الفهم إلى القيمة', box('🗺️ خريطتي: حساب أعرفه', txt(ans('a2r1'))) + box('💎 جملتي الذهبية', txt(ans('a4r1')), '#484371') + box('📝 خاتمة عرضي', txt(ans('a5r1')), '#3A2A8A'));
+    page('من التفاوض إلى التحسين المستمر', box('⚖️ تنازلي القادم', txt(ans('a11r1')), '#F34D00') + box('🛡️ اعتراضي الأصعب', txt(ans('a12r1')), '#484371') + box('🔧 قرار تحسين محدد', txt(ans('a14r1')), '#3A2A8A') + box('🌱 عادتي الأولى', txt(ans('a15r1')), '#6B6F7B'));
+    const g = Groups.assignedOf(uid) || +(u.group || 0); const ga = g ? (Store.labAnswers['g' + g] || {}) : {}; const L = Content.lab();
+    if (Object.keys(ga).length) page('مخرجات مجموعتي في المختبر الختامي', '<div style="font-size:12px;color:#807D9C;margin-bottom:8px">' + h(L.title) + ' · ' + h(Groups.label(g)) + '</div>' + L.stages.map((s, i) => ga['s' + i] ? box(h(s.icon + ' ' + s.title), txt(ga['s' + i].text), AXIS_COLORS[(i * 2) % AXIS_COLORS.length]) : '').join(''));
+    const rows = n2 => [1, 2, 3, 4].map(() => '<tr><td style="height:30px"></td><td></td><td></td><td>☐</td></tr>').join('');
+    page('خطة العمل: 30 / 60 / 90 يومًا', ['30', '60', '90'].map((d, i) => box('خلال ' + d + ' يومًا', '<table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="background:#E6E3F4"><th style="padding:5px;text-align:right">الإجراء</th><th style="text-align:right">المسؤول</th><th style="text-align:right">المؤشر</th><th style="width:40px">تم</th></tr>' + rows() + '</table>', ['#4C3AA7', '#484371', '#3A2A8A'][i])).join('') + '<div style="font-size:12px;color:#4E4A70">سيصلك في هذه المواعيد نموذج متابعة قصير على المنصة لقياس ما طبقته.</div>');
+    const doc = await PDFE.build(pages, A4P, (i, k) => pm.set(i, k)); doc.save('خطتي للتحسين - ' + safeName(u.name) + '.pdf'); pm.close();
+  } catch (e) { pm.close(); UI.alert('تعذر إنشاء الملف: ' + h(e.message || e)); }
+}
+function exportFollowupCsv() {
+  const rows = [['المرحلة', 'المتدرب', 'المشروع', 'ما طبقه', 'تغير المبيعات', 'الفائدة (1-5)', 'أهم نتيجة', 'العقبات', 'التاريخ']];
+  FU_DAYS.forEach(n => Followup.list(n).forEach(r => { const u = Store.users[r.uid] || {}; rows.push([n + ' يومًا', u.name || r.name || '', RegFields.val(u, 'org'), arr(r.actions).join(' | '), r.sales || '', r.useful || '', r.win || '', r.need || '', r.ts ? fmtTime(r.ts) : '']); }));
+  downloadBlob(csvBlob(rows), 'متابعة الأثر بعد البرنامج.csv');
+}
+/* ===== 09-main.js ===== */
+// ---------------------------------------------------------------------
+// التطبيق: الرسم، المراقبات الحية، والتفاعلات
+// ---------------------------------------------------------------------
+const FORM_VIEWS = ['axisEdit', 'exEdit', 'actEdit', 'secEdit', 'labEdit', 'assessEdit', 'storyEdit'];
+const ADMIN_VIEWS = ['admin', 'present'].concat(FORM_VIEWS);
+const App = {
+  inIframe: (() => { try { return window.self !== window.top; } catch (e) { return true; } })(),
+  render() {
+    const root = document.getElementById('app'); if (!root) return;
+    Me.sync();
+    // أثناء عرض الشريحة بملء الشاشة لا نعيد رسم الصفحة (إعادة الرسم تُخرج العنصر من ملء الشاشة)؛ نؤجلها حتى الخروج
+    if (document.fullscreenElement && document.fullscreenElement.matches && document.fullscreenElement.matches('.deck')) { App._pendingRender = true; return; }
+    let v = Router.cur.view;
+    if (ADMIN_VIEWS.indexOf(v) > -1 && !Admin.ok()) { Router.cur = { view: 'home' }; v = 'home'; }
+    if (!App.dataReady || !AUTH.resolved) { root.innerHTML = connectScreen(); return; }
+    // اكتمال الدائرة لحظة جاهزية البيانات قبل عرض الصفحة
+    const ring = root.querySelector('.cs-ring:not(.stop)'); if (ring && !ring.classList.contains('done')) { ring.classList.add('done'); setTimeout(() => App.render(), 320); return; }
+    if (Course.stage === 'boot') Course.decide();
+    // المحتوى لا يُعرض قبل فتحه: تعريفية فقط، أو الانضمام، أو التحميل، أو خطأ
+    const closed = Course.stage === 'full' && !Admin.ok() && Course.effective() !== 'active';
+    const needGate = (Course.stage !== 'full' && Course.stage !== 'gate') || closed;
+    const needLogin = Course.stage === 'gate' || (!needGate && !Me.isReg() && !Me.guest && !Admin.ok() && ADMIN_VIEWS.indexOf(v) === -1 && v !== 'monitor' && v !== 'show');
+    if (v === 'landing' && !HAS_LANDING) { Router.cur = { view: 'home' }; v = 'home'; }
+    const view = needLogin ? Views.login : needGate ? Views.gate : (Views[v] || Views.home);
+    App.onLanding = view === Views.landing;
+    if (App.onLanding && !App._wasLanding) { Views.landing._played = false; Views.landing._seen = new Set(); Views.landing._counted = false; } App._wasLanding = App.onLanding;
+    let body = '';
+    try { body = view.html(); } catch (e) { console.error(e); body = '<div class="empty" style="margin-top:24px">حدث خطأ في عرض هذه الصفحة. <button class="btn btn-soft btn-sm" data-go="home">' + HOME_LABEL + '</button></div>'; }
+    const html = (v === 'present' && view === Views.present) || (v === 'show' && view === Views.show) ? body : Layout.banners() + Layout.topbar() + '<main class="wrap">' + body + '</main>' + Layout.footer();
+    // صفحة الهبوط: لا نعيد رسمها إن لم يتغير شيء حتى لا تتكرر الحركات مع كل تحديث للبيانات
+    if (App.onLanding && html === App._lastLanding && root.firstChild) return;
+    App._lastLanding = App.onLanding ? html : null;
+    preserveRender(root, html);
+    Guard.apply(); Guard.mark(root);
+    if (view.after) try { view.after(root); } catch (e) { console.error(e); }
+    $$('[data-filter]', root).forEach(applyFilter);
+    $$('textarea:not([maxlength])', root).forEach(t => { t.maxLength = 4000; }); $$('input[type=text]:not([maxlength]),input:not([type]):not([maxlength])', root).forEach(t => { t.maxLength = 250; });
+    document.title = (Content.site().headerTitle || 'الدورة');
+    Presence.update(); Invite.check(); Presence.refreshModal();
+  },
+  onData: debounce(() => {
+    if (FORM_VIEWS.indexOf(Router.cur.view) > -1) return; // لا نعيد رسم نماذج التحرير أثناء الكتابة
+    App.render(); if (Assign.modal) Assign.render();
+  }, 60)
+};
+function applyFilter(inp) { const q = inp.value.trim().toLowerCase(); const scope = inp.closest('.tool-drop') || document; $$(inp.getAttribute('data-filter'), scope).forEach(x => { x.style.display = !q || (x.getAttribute('data-name') || '').indexOf(q) > -1 ? '' : 'none'; }); }
+
+// ---------- المراقبات الحية ----------
+// كل زائر يراقب العقد العامة فقط، وسجلاته الخاصة (عقد المتدرب نفسه)، والمدرب وحده يراقب العقد الخاصة كاملة.
+// الجاهزية: لا تُعرض الواجهة ولا تُقبل الكتابة قبل أول قراءة مؤكدة لكل العقد العامة.
+const Watch = { active: {}, publicPaths: [], seen: new Set(), denied: {} };
+function mergeUsers() { // الملف العام (users) + البيانات الخاصة (private) = سجل كامل للواجهة
+  const pub = Store.usersPub || {}; const pr = Store.priv || {}; const out = {};
+  Object.keys(pub).forEach(u => { out[u] = Object.assign({}, pub[u], pr[u] ? { f: Object.assign({}, pub[u].f || {}, pr[u].f || {}), consent: pr[u].consent || pub[u].consent } : {}); });
+  Store.users = out;
+}
+// عقد الصفحة الرئيسية (حالة الدورة والقفل الشامل) تُراقَب في كل المراحل
+function hubDefs() {
+  return {
+    ['hub/courses/' + Course.cid]: v => { Course.onHub(v); Course.afterHub(); },
+    'hub/global': v => { Course.lock = !!(v && v.lock); Course.afterHub(); }
+  };
+}
+// قبل الانضمام للدورة لا يُقرأ منها إلا ما يلزم للتسجيل (حقول التسجيل وإشعار الخصوصية)
+function gateDefs() {
+  const d = Object.assign(hubDefs(), {
+    'site/regFields': v => { Store.site = Object.assign({}, Store.site); if (v) Store.site.regFields = v; else delete Store.site.regFields; },
+    'site/privacy': v => { Store.site = Object.assign({}, Store.site); if (v) Store.site.privacy = v; else delete Store.site.privacy; }
+  });
+  return { defs: d, pub: Object.keys(d) };
+}
+function watchDefs() {
+  const d = Object.assign(hubDefs(), {
+    'content': v => { v = v || {}; Store.contentAxes = v.axes || {}; Store.contentEx = v.ex || {}; Store.contentLab = v.lab || null; Store.contentAssess = v.assess || null; Store.contentStories = v.stories || {}; },
+    'added': v => { v = v || {}; Store.addedAxes = v.axes || {}; Store.addedEx = v.ex || {}; Store.addedStories = v.stories || {}; },
+    'storyLikes': v => { Store.storyLikes = v || {}; },
+    'visibility': v => { Store.visibility = v || {}; },
+    'enabled': v => { Store.enabled = v || {}; },
+    'order': v => { v = v || {}; Store.order = arr(v.axes); Store.exOrder = v.ex || {}; Store.storyOrder = arr(v.stories); },
+    'assess': v => { Store.assess = v || {}; },
+    'attendance': v => { Store.attendance = v || {}; },
+    'checkins': v => { Store.checkins = v || {}; },
+    'site': v => { Store.site = v || {}; },
+    'settings': v => { v = v || {}; Store.groupCount = v.groups && v.groups.count ? v.groups.count : DEFAULT_GROUPS; Store.groupsOn = !(v.groups && v.groups.enabled === false); Store.groupNames = v.groupNames || {}; Store.assessCfg = v.assess || {}; Store.attCfg = v.attendance || {}; Store.cohortCfg = v.cohort || {}; Store.presentCfg = v.present || {}; },
+    'assign': v => { Store.assign = v || {}; },
+    'users': v => { Store.usersPub = v || {}; mergeUsers();
+      const me = Me.data; if (me && !me.admin && me.uid) { if (Store.usersPub[me.uid]) Me._seenInUsers = me.uid; else if (Me._seenInUsers === me.uid) accountGoneCheck(me.uid); } },
+    'posts': v => { Store.posts = v || {}; },
+    'reveal': v => { Store.reveal = v || {}; },
+    'lab': v => { v = v || {}; Store.labTimers = v.timers || {}; Store.labAnswers = v.answers || {}; },
+    'broadcast': v => { Store.broadcast = v; },
+    'stats/registered': v => { Store.registered = Number(v) || 0; },
+    'meta/resetStamp': v => {
+      Store.resetStamp = Number(v) || 0;
+      if (Me.data && !Me.isAdmin() && Store.resetStamp && (Me.data.ts || 0) < Store.resetStamp) { Me.clear(); UIState.draft = {}; UIState.editing = {}; setTimeout(() => UI.toast('تمت إعادة ضبط البرنامج، سجّل اسمك من جديد'), 300); syncWatchers(); }
+    }
+  });
+  const pub = Object.keys(d);
+  // عقد عامة إضافية لا تنتظرها الواجهة (حتى لا تتعطل المنصة قبل نشر قواعد الأمان المحدّثة)
+  d['removed'] = v => { v = v || {}; Store.removed = { axes: v.axes || {}, ex: v.ex || {} }; };
+  d['invite'] = v => { Store.invite = v || null; setTimeout(Invite.check, 0); };
+  d['react'] = v => { if (typeof Reactions !== 'undefined') Reactions.on(v); };
+  const me = Me.uid();
+  if (Admin.ok()) {
+    Object.assign(d, {
+      'private': v => { Store.priv = v || {}; mergeUsers(); },
+      'leads': v => { Store.leads = v || {}; },
+      'followups': v => { Store.followups = v || {}; },
+      'backupIndex': v => { Store.backupIndex = v || {}; },
+      'cohortIndex': v => { Store.cohortIndex = v || {}; },
+      'secure': v => { Store.secure = v || {}; },
+      'secrets': v => { Store.secrets = v || {}; },
+      'presence': v => { Store.presence = v || {}; }
+    });
+  } else if (me) {
+    d['private/' + me] = v => { Store.priv = v ? { [me]: v } : {}; mergeUsers(); };
+    d['leads/' + me] = v => { Store.leads = v ? { [me]: v } : {}; };
+    ['30', '60', '90'].forEach(n => { d['followups/d' + n + '/' + me] = v => { Store.followups = Object.assign({}, Store.followups); Store.followups['d' + n] = v ? { [me]: v } : {}; }; });
+    d['secrets/' + me] = v => { Store.mySecret = v || ''; };
+  }
+  return { defs: d, pub };
+}
+function syncWatchers() {
+  Me.sync();
+  const { defs, pub } = Course.stage === 'full' ? watchDefs() : gateDefs(); Watch.publicPaths = pub;
+  Object.keys(Watch.active).forEach(p => { if (!defs[p]) { try { Watch.active[p](); } catch (e) {} delete Watch.active[p]; } });
+  if (!Admin.ok()) { Store.backupIndex = {}; Store.cohortIndex = {}; Store.secure = {}; Store.secrets = {}; if (!Me.uid()) { Store.priv = {}; Store.leads = {}; Store.followups = {}; Store.mySecret = ''; mergeUsers(); } }
+  Object.keys(defs).forEach(path => {
+    if (Watch.active[path]) return;
+    Watch.active[path] = DB.watch(path, v => {
+      defs[path](v);
+      if (!Watch.seen.has(path)) { Watch.seen.add(path); if (!App.dataReady && Watch.publicPaths.every(x => Watch.seen.has(x))) { App.dataReady = true; DB.markReady(); App.render(); } }
+      Watch.denied[path] = false; if (Watch.publicPaths.indexOf(path) > -1) App.watchError = null;
+      if (LiveSlides.light(path, v)) return; // تغيّرت أسئلة الشرائح الحية فقط: نحدّث صناديقها دون إعادة رسم الصفحة
+      App.onData();
+    }, e => {
+      // المراقبة المرفوضة تُلغى نهائيًا في Firebase: نزيلها لتُعاد عند المزامنة التالية (بعد اكتمال الدخول مثلًا)
+      console.warn('watch denied', path, e); Watch.denied[path] = true; const un = Watch.active[path]; delete Watch.active[path]; try { un && un(); } catch (er) {}
+      if (Watch.publicPaths.indexOf(path) > -1 && (!AUTH.enabled || (AUTH.resolved && authUid()))) { App.watchError = e; App.render(); }
+      else if (Watch.publicPaths.indexOf(path) > -1 && AUTH.enabled && AUTH.resolved && !authUid() && AUTH.anonError) { App.watchError = new Error('تعذر إنشاء جلسة دخول آمنة للزائر. إن كنت المسؤول: فعّل Anonymous في Firebase Authentication ثم Sign-in method.'); App.render(); }
+    });
+  });
+}
+function watchAll() { syncWatchers(); }
+function getByPath(path) { const seg = path.split('/'); let n = seg[0] === 'posts' ? Store.posts : seg[0] === 'lab' ? Store.labAnswers : seg[0] === 'storyLikes' ? Store.storyLikes : null; const rest = seg[0] === 'lab' ? seg.slice(2) : seg.slice(1); for (const s of rest) { if (!n) return null; n = n[s]; } return n; }
+
+// ---------- التسجيل والدخول ----------
+async function doRegister() {
+  const { data, err } = RegFields.collect(document, 'reg_');
+  if (err) { UI.alert(err); return; }
+  const pv = Content.privacy();
+  if (pv.showConsent && !($('#regConsent') || {}).checked) { UI.alert('يلزم الموافقة على إشعار الخصوصية لإتمام التسجيل.'); return; }
+  const follow = !!($('#regFollow') || {}).checked;
+  const btn = $('[data-act="register"]'); if (btn) { btn.disabled = true; btn.textContent = 'جارٍ التسجيل'; }
+  try {
+    const uid = genId('u'); const code = genCode();
+    // 0) الانضمام إلى الدورة: بدونه لا يقرأ المتدرب بيانات الدورة ولا مفتاح محتواها
+    try { await Course.join(); } catch (e) { throw new Error('الدورة غير مفتوحة للتسجيل حاليًا.'); }
+    // 1) ربط هذا الجهاز بالسجل الجديد (قبل أي كتابة، حتى تسمح القواعد لصاحبه فقط)
+    if (!(await linkDevice(uid, code))) throw new Error('تعذر تجهيز الجلسة الآمنة. أعد تحميل الصفحة ثم حاول مرة أخرى.');
+    // 2) رقم عضوية تسلسلي عبر عملية ذرّية
+    const member = await DB.transaction('meta/memberCounter', cur => Math.max(Number(cur) || 0, MEMBER_NO_FLOOR) + 1);
+    const ts = DB.now(); const name = data.name, role = data.role || '';
+    // 3) الملف العام (الاسم فقط) + البيانات الخاصة (الحقول والموافقة) + رمز الدخول الشخصي
+    await DB.set('users/' + uid, { name, role, member, ts });
+    await DB.set('mno/' + member, uid); // فهرس رقم العضوية للدخول من جهاز آخر
+    await DB.set('private/' + uid, { f: data.f || {}, consent: { privacy: pv.showConsent ? ts : 0, followup: follow } });
+    await DB.set('secrets/' + uid, code);
+    DB.transaction('stats/registered', c => (Number(c) || 0) + 1);
+    const me = { uid, name, role, member, ts, code }; Me.save(me); Course.stage = 'gate'; Course.enter();
+    LoginModal.close(); App.render(); window.scrollTo(0, 0); welcomeModal(me);
+  } catch (e) { UI.alert('تعذر التسجيل: ' + h(e.message || e)); if (btn) { btn.disabled = false; btn.textContent = 'ابدأ 🚀'; } }
+}
+function privacyModal() { const pv = Content.privacy(); const m = UI.modal('<h3>🔒 إشعار الخصوصية</h3><div style="line-height:1.9">' + richHtml(pv.text) + '</div><div class="actions"><button class="btn btn-primary" data-x>حسنًا</button></div>', { wide: true }); $('[data-x]', m.el).onclick = () => m.close(); }
+// حذف المدرب حساب هذا المتدرب: نتأكد من الخادم بعد لحظات (تجاهلًا لأي تغيير محلي عابر) ثم نسجّل الخروج من الجهاز
+function accountGoneCheck(uid) {
+  if (accountGoneCheck.busy) return; accountGoneCheck.busy = true;
+  setTimeout(async () => {
+    accountGoneCheck.busy = false; if (!Me.data || Me.data.uid !== uid || (Store.usersPub || {})[uid]) return;
+    let u = null; try { u = await DB.get('users/' + uid); } catch (e) { return; } if (u || !Me.data || Me.data.uid !== uid) return;
+    Me._seenInUsers = null; Presence.leave(); Me.clear(); UIState.draft = {}; UIState.editing = {}; syncWatchers(); App.render();
+    UI.alert('حذف المدرب هذا الحساب من المنصة. يمكنك التسجيل من جديد.', 'تم حذف الحساب');
+  }, 1500);
+}
+// كل مسارات بيانات متدرب واحد (تُستخدم لحذف المتدرب بياناته بنفسه، ولحذف المدرب حسابًا محددًا من قائمة المسجلين)
+function purgeUserUpdates(uid) {
+  const upd = {};
+  upd['users/' + uid] = null; upd['assess/pre/' + uid] = null; upd['assess/post/' + uid] = null; upd['attendance/' + uid] = null; upd['assign/' + uid] = null; upd['leads/' + uid] = null;
+  ['30', '60', '90'].forEach(n => { upd['followups/d' + n + '/' + uid] = null; });
+  upd['private/' + uid] = null; upd['secrets/' + uid] = null; upd['devices/' + uid] = null; Attend.days().forEach(d => { upd['checkins/d' + d + '/' + uid] = null; });
+  Object.keys(Store.posts || {}).forEach(ex => { const ps = Store.posts[ex] || {}; Object.keys(ps).forEach(k => { const p = ps[k] || {}; if (k === uid) upd['posts/' + ex + '/' + k] = null; else { if (p.members && p.members[uid]) upd['posts/' + ex + '/' + k + '/members/' + uid] = null; if (p.likes && p.likes[uid]) upd['posts/' + ex + '/' + k + '/likes/' + uid] = null; if (p.by === uid) { upd['posts/' + ex + '/' + k + '/name'] = ''; upd['posts/' + ex + '/' + k + '/by'] = null; } } }); });
+  // مخرجات المختبر تبقى للمجموعة مع إزالة اسم كاتبها ومعرّفه
+  Object.keys(Store.labAnswers || {}).forEach(g => { const ga = Store.labAnswers[g] || {}; Object.keys(ga).forEach(st => { if (ga[st] && ga[st].uid === uid) { upd['lab/answers/' + g + '/' + st + '/name'] = ''; upd['lab/answers/' + g + '/' + st + '/uid'] = null; } }); });
+  Object.keys(Store.labTimers || {}).forEach(g => { if ((Store.labTimers[g] || {}).by === uid) upd['lab/timers/' + g + '/by'] = null; });
+  Object.keys(Store.storyLikes || {}).forEach(st => { if (((Store.storyLikes[st] || {}).likes || {})[uid]) upd['storyLikes/' + st + '/likes/' + uid] = null; });
+  return upd;
+}
+// حذف كل بيانات المتدرب من السيرفر (حق المستخدم في حذف بياناته)
+async function deleteMyData() {
+  const ok = await UI.confirm('سيُحذف نهائيًا من السيرفر: بياناتك، ومشاركاتك الفردية، ونتائج تقييماتك، وسجل حضورك، واهتماماتك، ومتابعاتك، وإعجاباتك. إجابات المجموعات تبقى باسم المجموعة مع إزالة اسمك منها. لا يمكن التراجع، ولن تتمكن من الحصول على الشهادة.', { danger: true, ok: 'احذف بياناتي نهائيًا', title: 'حذف بياناتي' });
+  if (!ok) return; const uid = Me.uid(); const upd = purgeUserUpdates(uid); Me._seenInUsers = null;
+  try { await DB.update('', upd, { quiet: true }); }
+  catch (e) { UI.alert('تعذر حذف بياناتك الآن (' + h((e && e.code) || (e && e.message) || e) + '). لم يُحذف شيء، أعد المحاولة، أو اطلب من المدرب حذف حسابك من قائمة المسجلين.', 'تعذر الحذف'); return; }
+  DB.transaction('stats/registered', c => Math.max(0, (Number(c) || 0) - 1), { quiet: true }).catch(() => {});
+  Me.clear(); UIState.draft = {}; UIState.editing = {}; Router.go('home'); UI.toast('تم حذف بياناتك نهائيًا');
+}
+function welcomeModal(me) {
+  const m = UI.modal('<div class="center"><div style="font-size:48px">🎉</div><h3>أهلًا ' + h(me.name) + '!</h3><p class="muted" style="font-family:var(--f-ui)">تم تسجيلك بنجاح. احفظ رقم العضوية ورمز الدخول الشخصي: تحتاجهما معًا للدخول من أي جهاز آخر.</p><div class="num" style="font-family:var(--f-display);font-size:52px;font-weight:800;letter-spacing:4px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;display:inline-block">' + pad4(me.member) + '</div>' + (me.code ? '<div style="margin-top:6px;font-family:var(--f-ui);font-size:13px;color:var(--ink-3)">رمز الدخول الشخصي</div><div class="num notranslate" translate="no" dir="ltr" style="font-family:var(--f-display);font-size:30px;font-weight:800;letter-spacing:6px;user-select:all">' + h(me.code) + '</div>' : '') + '</div><div class="actions" style="justify-content:center"><button class="btn btn-primary" data-save-card>💾 حفظ رقم العضوية</button><button class="btn btn-ghost" data-close>ابدأ الجولة</button></div>');
+  $('[data-save-card]', m.el).onclick = () => saveMemberCard(me);
+  $('[data-close]', m.el).onclick = () => m.close();
+}
+async function memberLogin() {
+  const m = UI.modal('<h3>الدخول برقم العضوية</h3><p class="muted" style="font-family:var(--f-ui);font-size:13px;margin-top:0">تجدهما في بطاقة العضوية التي ظهرت عند تسجيلك، أو في صفحة «حسابي» على جهازك الأول.</p>' +
+    '<div class="grid2"><div class="field"><label>رقم العضوية</label><input id="mlNum" inputmode="numeric" dir="ltr" placeholder="0058"></div><div class="field"><label>رمز الدخول الشخصي</label><input id="mlCode" dir="ltr" autocapitalize="characters" placeholder="ABC234"></div></div>' +
+    '<div id="mlErr" style="color:#C62F35;font-family:var(--f-ui);font-size:13px;min-height:18px"></div><div class="actions"><button class="btn btn-primary" data-ok>دخول</button><button class="btn btn-ghost" data-x>إلغاء</button></div>');
+  const err = t => { $('#mlErr', m.el).innerHTML = t; }; $('[data-x]', m.el).onclick = () => m.close(); setTimeout(() => $('#mlNum', m.el).focus(), 50);
+  $('[data-ok]', m.el).onclick = async () => {
+    const num = parseInt(String($('#mlNum', m.el).value).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^\d]/g, ''), 10); const code = String($('#mlCode', m.el).value || '').trim().toUpperCase();
+    if (!num) { err('اكتب رقم عضوية صحيحًا.'); return; }
+    try { await Course.join(); } catch (e) { err('الدورة غير مفتوحة حاليًا.'); return; }
+    let uid = null; try { uid = await DB.get('mno/' + num); } catch (e) {}
+    if (!uid) { err('لم نجد حسابًا بهذا الرقم (ربما حُذف لاحقًا). يُرجى التسجيل من جديد باسمك.'); return; }
+    if (!(await linkDevice(uid, code))) { err(code ? 'رقم العضوية أو رمز الدخول غير صحيح.' : 'اكتب رمز الدخول الشخصي المكتوب في بطاقة عضويتك.'); return; }
+    let u = null; try { u = await DB.get('users/' + uid); } catch (e) {}
+    if (!u) { err('لم نجد حسابًا بهذا الرقم (ربما حُذف لاحقًا). يُرجى التسجيل من جديد باسمك.'); return; }
+    let mycode = code;
+    if (DB.real && authUid() && !code) { mycode = genCode(); try { await DB.set('secrets/' + uid, mycode, { quiet: true }); } catch (e) { mycode = ''; } }
+    Me.save({ uid, name: u.name, role: u.role || '', member: u.member, ts: u.ts || DB.now(), group: u.group || null, code: mycode }); Course.stage = 'gate'; Course.enter();
+    m.close(); LoginModal.close(); UI.toast('مرحبًا بعودتك يا ' + u.name + ' 👋'); App.render(); window.scrollTo(0, 0);
+  };
+}
+
+// ---------- حفظ الإجابات ----------
+async function saveText(exId) {
+  const e = Content.ex(exId); const ta = $('#ans-' + CSS.escape(exId)); const text = ta ? ta.value.trim() : '';
+  if (!text) { UI.alert('اكتب إجابتك أولًا.'); return; }
+  const key = postKey(e); if (!key) return;
+  const me = Me.data; const upd = { text, name: me.name, role: me.role || '', ts: DB.now() };
+  { const st = TextGame.st(exId); const secs = st.t0 ? (Date.now() - st.t0) / 1000 : null; const g = TextGame.score(text, secs, !!st.t0); upd.pts = g.pts; upd.fast = g.fast; if (secs != null) upd.secs = Math.round(secs); st.t0 = 0; }
+  if (e.mode === 'group' && !me.admin) { upd.group = Me.group(); upd.by = me.uid; upd['members/' + me.uid] = true; } else upd.uid = me.uid;
+  await DB.update('posts/' + exId + '/' + key, upd);
+  if (ta) ta.value = ''; UIState.editing[exId] = false; UI.toast('✅ تم الحفظ'); App.render();
+}
+async function saveInter(exId) {
+  const e = Content.ex(exId); const d = UIState.draft[exId] || [];
+  const missing = e.items.some((_, i) => d[i] === null || d[i] === undefined || d[i] === '');
+  if (missing) { UI.alert(e.format === 'fillblank' ? 'املأ كل الفراغات قبل الإرسال.' : 'أجب عن كل الأسئلة قبل الحفظ.'); return; }
+  const key = postKey(e); if (!key) return; const me = Me.data;
+  const upd = { answers: e.items.map((_, i) => d[i]), name: me.name, role: me.role || '', ts: DB.now() };
+  if (e.mode === 'group' && !me.admin) { upd.group = Me.group(); upd.by = me.uid; upd['members/' + me.uid] = true; } else upd.uid = me.uid;
+  await DB.update('posts/' + exId + '/' + key, upd);
+  UIState.editing[exId] = false; UIState.draft[exId] = upd.answers.slice(); UI.toast(e.mode === 'group' ? '📤 أُرسلت إجابات المجموعة' : '✅ تم حفظ إجاباتك'); App.render();
+}
+
+// ---------- أدوات الأدمن ----------
+function stripFlags(o) { const c = JSON.parse(JSON.stringify(o)); Object.keys(c).forEach(k => { if (k.charAt(0) === '_') delete c[k]; }); delete c.exercises; return c; }
+async function copyAxis(id) {
+  const a = Content.axis(id); if (!a) return;
+  const nid = 'x' + genId(); const data = stripFlags(a); data.title = a.title + ' (نسخة)'; data.ts = DB.now(); data.slides = a.slides.map(s => { const o = stripFlags(s); delete o.chart; o.id = genId('sl'); return o; }); data.color = Content.axisIds().length % AXIS_COLORS.length; delete data.id;
+  const upd = {}; upd['added/axes/' + nid] = data;
+  Content.exercisesOf(id, { all: true }).forEach((e, i) => { const ne = stripFlags(e); delete ne.id; ne.axis = nid; ne.ts = DB.now() + i; upd['added/ex/n' + genId()] = ne; });
+  await DB.update('', upd); UI.toast('🧬 تم نسخ المحور مع شرائحه وتمارينه'); Router.go('axisEdit', { id: nid });
+}
+async function copyEx(id) {
+  const e = Content.ex(id); if (!e) return; const ne = stripFlags(e); delete ne.id; ne.title = e.title + ' (نسخة)'; ne.ts = DB.now();
+  const ax = Content.axisOfEx(id); if (ax) ne.axis = ax; else ne.kind = 'activity';
+  await DB.set('added/ex/n' + genId(), ne); UI.toast('🧬 تم نسخ التمرين');
+}
+async function backupData() { // يُقرأ من الخادم مباشرة (لا من حالة الواجهة) حتى لا تُصدَّر نسخة ناقصة
+  const g = k => DB.get(k);
+  return { app: 'phone-mobile', version: 2, exportedAt: new Date().toISOString(), data: { content: await g('content'), added: await g('added'), visibility: await g('visibility'), enabled: await g('enabled'), order: await g('order'), media: await g('media'), site: await g('site'), settings: await g('settings'), removed: await g('removed') } };
+}
+async function importBackup(file) {
+  try {
+    const obj = JSON.parse(await file.text());
+    if (!obj || obj.app !== 'phone-mobile' || !obj.data) { UI.alert('الملف ليس نسخة احتياطية صالحة لهذا الموقع.'); return; }
+    const d = obj.data; const keys = ['media', 'content', 'added', 'visibility', 'enabled', 'order', 'removed'].filter(k => d[k] != null);
+    const merge = ['site', 'settings'].filter(k => d[k] && typeof d[k] === 'object');
+    const ok = await UI.confirm('استيراد نسخة المحتوى (' + h(obj.exportedAt || '') + '):<br>• تُستبدل: ' + (keys.map(h).join('، ') || '-') + '<br>• تُحدَّث عناصرها الموجودة في الملف فقط: ' + (merge.map(h).join('، ') || '-') + '<br>ما لا يحتويه الملف يبقى كما هو، ومشاركات المتدربين لا تتأثر. سيُنزَّل ملف بالمحتوى الحالي أولًا.', { danger: true, ok: 'تنزيل الحالي ثم الاستيراد' });
+    if (!ok) return;
+    downloadBlob(new Blob([JSON.stringify(await backupData(), null, 1)], { type: 'application/json' }), 'المحتوى قبل الاستيراد ' + dayKey(DB.now()) + '.json');
+    const upd = {}; keys.forEach(k => { upd[k] = d[k]; }); merge.forEach(k => Object.keys(d[k]).forEach(c => { upd[k + '/' + c] = d[k][c]; }));
+    await DB.update('', upd, { allowTopLevel: true });
+    UI.toast('✅ تم استيراد المحتوى');
+  } catch (e) { UI.alert('تعذر الاستيراد: ' + h(e.message || e)); }
+}
+// نسخة كاملة من كل عقد القاعدة (ملف خارجي)، للاحتفاظ بها خارج Firebase
+// (admins لا تُقرأ كاملة بالقواعد وتُدار من لوحة Firebase، وmonitorData تُقرأ برمزها فقط، والحضور الحي مؤقت)
+const ALL_NODES = ['secure', 'private', 'devices', 'secrets', 'checkins', 'content', 'added', 'visibility', 'enabled', 'order', 'site', 'settings', 'media', 'users', 'posts', 'assess', 'attendance', 'lab', 'assign', 'leads', 'followups', 'storyLikes', 'reveal', 'broadcast', 'stats', 'meta', 'cohorts', 'cohortIndex', 'backups', 'backupIndex', 'invite', 'removed'];
+async function exportAll() {
+  const pm = progressModal('💾 نسخة كاملة'); const out = {};
+  // كل عقدة تُقرأ منفصلة: تعذر قراءة عقدة واحدة لا يُسقط النسخة كلها
+  const skipped = [];
+  try { for (let i = 0; i < ALL_NODES.length; i++) { pm.set(i + 1, ALL_NODES.length, ALL_NODES[i]); try { out[ALL_NODES[i]] = await DB.get(ALL_NODES[i]); } catch (e) { skipped.push(ALL_NODES[i]); } }
+    downloadBlob(new Blob([JSON.stringify({ app: 'phone-mobile', kind: 'full', exportedAt: new Date().toISOString(), skipped, data: out })], { type: 'application/json' }), 'نسخة كاملة لقاعدة البيانات ' + dayKey(DB.now()) + '.json'); pm.close();
+    if (skipped.length) UI.alert('نُزّلت النسخة، لكن تعذرت قراءة: <b dir="ltr">' + skipped.map(h).join('، ') + '</b>، غالبًا لأن القواعد المنشورة أقدم من هذه النسخة.'); else UI.toast('✅ نُزّلت النسخة الكاملة');
+  } catch (e) { pm.close(); UI.alert('تعذر التنزيل: ' + h(e.message || e)); }
+}
+// الحضور الحي والدعوة: كتابات منفصلة هادئة حتى لا تُفشل قواعدٌ قديمة عملية المسح نفسها
+function clearLive() { DB.remove('presence', { quiet: true }).catch(() => {}); DB.remove('invite', { quiet: true }).catch(() => {}); }
+async function globalReset() {
+  const ok = await UI.confirm('<b>تحذير:</b> سيُمسح نهائيًا كل ما أدخله المتدربون (المشاركات، المختبر، المؤقتات، التقييم القبلي والبعدي، الحضور، قائمة المسجّلين، التعيينات)، <b>ولا يمسّ تقييمات ختام البرنامج</b> (لها زر مسح مستقل في لوحة التحكم)، وسيُطلب من كل متصفح تسجيل اسم جديد. لا يمكن التراجع.', { danger: true, ok: 'نعم، امسح كل المدخلات', title: 'إعادة ضبط شاملة' });
+  if (!ok) return;
+  const posts = await DB.get('posts') || {}; const upd = {};
+  Object.keys(posts).forEach(k => { if (k !== SURVEY_ID) upd['posts/' + k] = null; }); // استثناء صريح للاستطلاع الختامي
+  // نسخة احتياطية تلقائية قبل المسح، وإن فشلت لا نمسح دون موافقة صريحة
+  if (!(await autoBackup(true)) && !(await UI.confirm('تعذر حفظ النسخة الاحتياطية التلقائية قبل المسح. المتابعة تعني مسح المدخلات دون نسخة. يُنصح بالإلغاء وتنزيل «💾 نسخة كاملة» أولًا.', { danger: true, ok: 'امسح دون نسخة', title: 'النسخة الاحتياطية فشلت' }))) return;
+  upd.storyLikes = null; upd.reveal = null; upd['stats/registered'] = 0;
+  upd.lab = null; upd.users = null; upd.private = null; upd.devices = null; upd.secrets = null; upd.checkins = null; upd.assign = null; upd.assess = null; upd.attendance = null; upd.leads = null; upd.followups = null; upd['meta/resetStamp'] = DB.now();
+  await DB.update('', upd, { allowTopLevel: true }); clearLive(); UI.toast('تمت إعادة الضبط الشاملة');
+}
+
+function collectRegRows() {
+  const base = UIState.regDraft || RegFields.all();
+  return $$('[data-rrow]').map(row => { const f = Object.assign({}, base[+row.getAttribute('data-rrow')]); const g = k => $('[data-rr="' + k + '"]', row);
+    f.label = g('label').value.trim() || f.label; if (!f.builtin) f.type = g('type').value; if (f.key !== 'name') { f.visible = g('visible').checked; f.required = g('required').checked; }
+    f.ph = g('ph').value.trim(); if (g('options')) f.options = g('options').value.split('\n').map(x => x.trim()).filter(Boolean); else if (f.type === 'select' && !f.options.length) f.options = ['خيار 1', 'خيار 2']; return f; });
+}
+
+// ---------- التفاعلات (تفويض أحداث واحد) ----------
+document.addEventListener('click', async ev => {
+  const t = ev.target.closest('[data-act],[data-go],[data-back],[data-like],[data-deck-go],[data-slide]'); if (!t || t.disabled) return;
+  if (!Session.check()) return;
+  if (t.hasAttribute('data-go')) { ev.preventDefault(); const p = {}; ['id', 'axis', 'from'].forEach(k => { if (t.getAttribute('data-' + k)) p[k] = t.getAttribute('data-' + k); }); if (FORM_VIEWS.indexOf(t.getAttribute('data-go')) > -1) { FormState.axisId = null; FormState.exId = null; } Router.go(t.getAttribute('data-go'), p); return; }
+  if (t.hasAttribute('data-back')) { const b = Router.backOf(Router.cur) || { view: 'home' }; Router.go(b.view, b.id ? { id: b.id } : {}); return; }
+  if (t.hasAttribute('data-like')) { const p = t.getAttribute('data-like'); const cur = getByPath(p); Likes.toggle(p, cur && cur.likes); App.render(); return; }
+  if (t.hasAttribute('data-deck-go')) { Deck.move(Router.cur.id, +t.getAttribute('data-deck-go')); return; }
+  if (t.hasAttribute('data-slide')) { Deck.to(Router.cur.id, +t.getAttribute('data-slide')); return; }
+  const act = t.getAttribute('data-act'); const id = t.getAttribute('data-id'); const exId = t.getAttribute('data-ex');
+  const root = document.getElementById('app');
+  switch (act) {
+    // ----- عام -----
+    case 'switch-user': { const ok = await UI.confirm('سيُمسح تسجيلك من هذا الجهاز فقط (لن يُحذف أي شيء من السيرفر)، وستعود إلى ' + (HAS_LANDING ? 'الصفحة التعريفية للبرنامج' : 'صفحة الدخول') + ' لتسجيل مستخدم جديد أو الدخول برقم العضوية.', { ok: 'تسجيل مستخدم جديد' }); if (ok) { Me.clear(); UIState.draft = {}; UIState.editing = {}; syncWatchers(); Router.go('home'); window.scrollTo(0, 0); } break; }
+    case 'logout': { const ok = await UI.confirm('تسجيل الخروج من هذا الجهاز؟ لن يُحذف شيء من بياناتك أو مشاركاتك. للعودة لاحقًا استخدم رقم العضوية ورمز الدخول الشخصي من صفحة «حسابي».', { ok: 'تسجيل الخروج' }); if (ok) { Presence.leave(); Me.clear(); UIState.draft = {}; UIState.editing = {}; syncWatchers(); Router.go('home'); window.scrollTo(0, 0); } break; }
+    case 'guest-login': Presence.leave(); Me.clear(); syncWatchers(); Router.go('home'); window.scrollTo(0, 0); break;
+    case 'open-login': LoginModal.open(); break;
+    case 'hub-home': Hub.home(); break;
+    case 'deck-copy': { const dk = t.closest('[data-deck]'); const a = dk && Content.axis(dk.getAttribute('data-deck')); const sl = a && a.slides[UIState.deck[a.id] || 0]; if (sl) Guard.toggle(sl.id); break; }
+    case 'ex-copy': Guard.toggle(t.getAttribute('data-id')); break;
+    case 'hs-clear': { const i = document.getElementById('homeSearch'); if (i) { i.value = ''; i.focus(); } HomeSearch.update(''); break; }
+    case 'presence-show': Presence.show(exId); break;
+    case 'presence-rules': UI.alert(Presence.rulesHint({ code: 'permission' }), 'نشر قواعد Firebase'); break;
+    case 'invite-send': Invite.send(id); break;
+    case 'invite-cancel': Invite.cancel(); break;
+    case 'lp-enter': Router.go('home'); window.scrollTo(0, 0); break;
+    case 'lp-scroll': { const n = document.querySelector('.lp-hero'); const nx = n && n.nextElementSibling; if (nx) window.scrollTo({ top: nx.getBoundingClientRect().top + window.scrollY - 70, behavior: document.documentElement.getAttribute('data-motion') === 'reduce' ? 'auto' : 'smooth' }); break; }
+    case 'lp-unit': { UIState.lpUnit = +t.getAttribute('data-i'); const old = document.querySelector('.lp-content'); if (old) { const tmp = document.createElement('div'); tmp.innerHTML = LandingSections.content(Landing.sec('content')); const nw = tmp.firstChild; $$('.rv', nw).forEach(e => e.classList.add('in')); old.replaceWith(nw); App._lastLanding = null; } break; }
+    case 'admin-enter': {
+      if (Admin.ok()) { Router.go('admin'); break; }
+      if (AUTH.enabled) { adminLogin(); break; }
+      const v = await UI.prompt('أدخل الرمز السري للوحة الإدارة', { title: '🔐 دخول المدرب', type: 'password', inputmode: 'numeric', ok: 'دخول' });
+      if (v == null) break; if (v.trim() === ADMIN_PASS && DEMO_MODE) { SafeSS.set('ec_admin', '1'); Presence.leave(); LoginModal.close(); if (Course.stage !== 'full') Course.stage = 'boot'; syncWatchers(); Router.go('home'); UI.toast('🛡️ أهلًا بك، زر «لوحة التحكم» أعلى الصفحة'); } else UI.alert('الرمز غير صحيح.');
+      break;
+    }
+    case 'admin-exit': { if (!(await UI.confirm('تسجيل خروج المدرب من هذا الجهاز؟', { ok: 'تسجيل الخروج' }))) break; SafeSS.del('ec_admin'); if (AUTH.enabled) { AUTH.isAdmin = false; try { await firebase.auth().signOut(); } catch (e) {} } Me.sync(); location.reload(); break; }
+    case 'bc-close': SafeLS.set('ec_bc_closed', t.getAttribute('data-id')); App.render(); break;
+    case 'register': doRegister(); break;
+    case 'member-login': memberLogin(); break;
+    case 'guest': LoginModal.close(); Me.setGuest(); App.render(); window.scrollTo(0, 0); break;
+    case 'open-axis': { const a = Content.axis(id); if (a && a._disabled && !Admin.ctl()) UI.alert('هذا المحور غير متاح بعد، سيُفتح قريبًا.', '⏳ قريبًا'); else Router.go('axis', { id }); break; }
+    // ----- التمارين -----
+    case 'pick-group': { const g = +t.getAttribute('data-g'); Me.setGroup(g); Object.keys(UIState.draft).forEach(k => { const e = Content.ex(k); if (e && e.mode === 'group') delete UIState.draft[k]; }); UIState.editing = {}; App.render(); break; }
+    case 'pick-opt': { const d = UIState.draft[exId]; const e = Content.ex(exId); const v = t.getAttribute('data-v'); d[+t.getAttribute('data-i')] = e.format === 'mcq' ? +v : v === 'true'; App.render(); break; }
+    case 'pick-cmp': { UIState.draft[exId][+t.getAttribute('data-i')] = t.getAttribute('data-v'); App.render(); break; }
+    case 'fb-word': { const w = t.getAttribute('data-w'); UIState.fbSel[exId] = UIState.fbSel[exId] === w ? null : w; App.render(); break; }
+    case 'fb-blank': {
+      const d = UIState.draft[exId]; const i = +t.getAttribute('data-i'); const sel = UIState.fbSel[exId];
+      if (sel) { d[i] = sel; UIState.fbSel[exId] = null; } else if (d[i]) d[i] = null; // الضغط على فراغ ممتلئ دون تحديد كلمة يُفرغه ويعيد كلمته للبنك
+      else UI.toast('اختر كلمة من البنك أولًا');
+      App.render(); break;
+    }
+    case 'vote': { // حفظ فوري لكل سؤال على حدة، والتعديل بالضغط على خيار آخر
+      if (!Me.isReg()) break; const me = Me.data; const i = t.getAttribute('data-i');
+      DB.update('posts/' + exId + '/' + me.uid, { ['answers/' + i]: +t.getAttribute('data-v'), name: me.name, role: me.role || '', uid: me.uid, ts: DB.now() });
+      break;
+    }
+    case 'save-inter': saveInter(exId); break;
+    case 'sim-save': Sims.save(exId); break;
+    case 'sv-rate': { UIState.draft.sv.ratings[t.getAttribute('data-i')] = +t.getAttribute('data-v'); App.render(); break; }
+    case 'sv-nps': { UIState.draft.sv.nps = +t.getAttribute('data-v'); App.render(); break; }
+    case 'sv-save': {
+      const e = Content.ex(exId); const d = UIState.draft.sv || { ratings: {} };
+      if (e.rates.some((_, i) => !d.ratings[i])) { UI.alert('قيّم كل البنود بالنجوم قبل الإرسال.'); break; }
+      if (e.nps && d.nps == null) { UI.alert('اختر درجة التوصية من 0 إلى 10.'); break; }
+      const me = Me.data; await DB.update('posts/' + exId + '/' + me.uid, { ratings: d.ratings, nps: d.nps, text: ($('#svText') || {}).value ? $('#svText').value.trim() : '', name: me.name, role: me.role || '', uid: me.uid, ts: DB.now() }); // الحقول فقط، لا إعادة كتابة لإعجابات الآخرين
+      UIState.editing[exId] = false; delete UIState.draft.sv; UI.toast('✅ شكرًا لتقييمك'); App.render(); break;
+    }
+    case 'sim-step': { const e = Content.ex(exId); Sims.state(e).step = +t.getAttribute('data-i'); App.render(); break; }
+    case 'sim-reset': { const e = Content.ex(exId); if (await UI.confirm('إعادة المحاكاة إلى البداية؟ (لن تُحذف النتيجة المحفوظة إلا إذا حفظت من جديد)', { ok: 'إعادة' })) { UIState.sim[exId] = Sims.of(e).def(); App.render(); } break; }
+    case 'save-text': saveText(exId); break;
+    case 'edit-ans': { UIState.editing[exId] = true; const e = Content.ex(exId); if (e) { const p = (Store.posts[exId] || {})[postKey(e)]; if (p && p.answers) UIState.draft[exId] = ansList(p.answers, e.items.length); } App.render(); break; }
+    case 'cancel-edit': UIState.editing[exId] = false; delete UIState.draft[exId]; delete UIState.draft.sv; App.render(); break;
+    case 'show-model': UIState.modelShown[exId] = true; App.render(); break;
+    case 'del-post': { if (await UI.confirm('حذف هذه المشاركة وحدها؟ لن تتأثر بقية المشاركات.', { danger: true, ok: 'حذف' })) DB.remove('posts/' + exId + '/' + t.getAttribute('data-k')); break; }
+    // ----- المختبر -----
+    case 'lab-start': { const g = Me.group(); if (g) DB.set('lab/timers/g' + g, { start: DB.now(), pausedTotal: 0, by: Me.uid() }); break; }
+    case 'lab-pause': { const g = Me.group(); DB.update('lab/timers/g' + g, { pausedAt: DB.now(), by: Me.uid() }); break; }
+    case 'lab-resume': { const g = Me.group(); const tm = Store.labTimers['g' + g] || {}; DB.update('lab/timers/g' + g, { by: Me.uid(), pausedTotal: (tm.pausedTotal || 0) + (DB.now() - (tm.pausedAt || DB.now())), pausedAt: null }); break; }
+    case 'lab-reset': { if (await UI.confirm('إعادة الوقت إلى الصفر لمجموعتك؟ الإجابات المحفوظة لن تُحذف.', { ok: 'إعادة ضبط الوقت' })) DB.set('lab/timers/g' + Me.group(), { by: Me.uid(), resetAt: DB.now() }); break; }
+    case 'lab-save': { const i = t.getAttribute('data-i'); const ta = $('#labAns' + i); const txt = ta ? ta.value.trim() : ''; if (!txt) { UI.alert('اكتبوا مخرج المرحلة أولًا.'); break; } await DB.update('lab/answers/g' + Me.group() + '/s' + i, { text: txt, name: Me.data.name, uid: Me.uid(), ts: DB.now() }); UIState.editing['lab' + i] = false; if (ta) ta.value = ''; UI.toast('✅ حُفظت المرحلة'); App.render(); break; }
+    case 'del-lab': { if (await UI.confirm('حذف إجابة هذه المرحلة؟', { danger: true, ok: 'حذف' })) DB.remove('lab/answers/' + t.getAttribute('data-k') + '/s' + t.getAttribute('data-i')); break; }
+    // ----- حسابي -----
+    case 'acc-save': { const { data, err } = RegFields.collect(document, 'acc_'); if (err) { UI.alert(err); break; } const me = Object.assign({}, Me.data, { name: data.name || Me.data.name, role: data.role != null ? data.role : Me.data.role }); Me.save(me); await DB.update('users/' + me.uid, { name: me.name, role: me.role || '' }); await DB.update('private/' + me.uid, Object.assign({ f: Object.assign({}, (Store.users[me.uid] || {}).f || {}, data.f) }, $('#accFollow') ? { 'consent/followup': $('#accFollow').checked } : {})); UI.toast('✅ تم تحديث بياناتك'); App.render(); break; }
+    case 'privacy-show': ev.preventDefault(); privacyModal(); break;
+    case 'rr-move': case 'rr-del': case 'rr-add': {
+      const fs = collectRegRows(); if (act === 'rr-add') fs.push({ key: 'c' + genId(), label: 'حقل جديد', type: 'text', visible: true, required: false, options: [], builtin: false });
+      else if (act === 'rr-del') fs.splice(+t.getAttribute('data-i'), 1); else { const i = +t.getAttribute('data-i'), j = i + (+t.getAttribute('data-d')); [fs[i], fs[j]] = [fs[j], fs[i]]; }
+      UIState.regDraft = fs; App.render(); break;
+    }
+    case 'rr-save': { const fs = collectRegRows(); const fields = {}; fs.forEach(f => { fields[f.key] = { label: f.label, type: f.type, visible: !!f.visible, required: !!f.required, options: f.options, ph: f.ph || '' }; }); const cur = ((Store.site || {}).regFields || {}).fields || {}; Object.keys(cur).forEach(k => { if (!fields[k] && !REG_DEFAULTS[k]) fields[k] = Object.assign({}, cur[k], { deleted: true }); }); await DB.set('site/regFields', { order: fs.map(f => f.key), fields }); UIState.regDraft = null; UI.toast('✅ حُفظ نموذج التسجيل'); break; }
+    case 'rr-reset': { if (await UI.confirm('استرجاع حقول التسجيل الافتراضية؟', { ok: 'استرجاع' })) { await DB.remove('site/regFields'); UIState.regDraft = null; App.render(); } break; }
+    case 'pv-save': await DB.update('site/privacy', { text: $('#pvText').value.trim(), consent: $('#pvConsent').value.trim(), followup: $('#pvFollow').value.trim() }); UI.toast('✅ حُفظ'); break;
+    case 'pv-toggle': { const k = t.getAttribute('data-k'); const cur = Content.privacy()[k] !== false; await DB.update('site/privacy', { [k]: !cur }); UI.toast(!cur ? '✅ ستظهر الخانة في نموذج التسجيل' : '⏸ أُخفيت الخانة من نموذج التسجيل'); break; }
+    case 'pv-reset': { if (await UI.confirm('استرجاع النص الافتراضي؟', { ok: 'استرجاع' })) DB.remove('site/privacy'); break; }
+    case 'users-csv': exportUsersCsv(); break;
+    case 'bk-now': { const ok = await autoBackup(true); UI.toast(ok ? '✅ أُخذت نسخة احتياطية الآن' : 'تعذر أخذ النسخة'); break; }
+    case 'bk-dl': { const d = t.getAttribute('data-d'); const b = await DB.get('backups/' + d); downloadBlob(new Blob([JSON.stringify({ app: 'phone-mobile-data', day: d, data: b && b.data }, null, 2)], { type: 'application/json' }), 'نسخة مدخلات المتدربين ' + d + '.json'); break; }
+    case 'bk-restore': restoreBackup(t.getAttribute('data-d')); break;
+    case 'delete-me': deleteMyData(); break;
+    case 'congrats-pdf': buildCongratsPdf(Me.data.name, t.getAttribute('data-kind') || 'congrats'); break;
+    case 'congrats-mail': {
+      const subj = 'تهنئة إنجاز، ' + Content.courseTitle();
+      const body = 'مرحبًا،\n\nأحتفظ بهذه الرسالة كنسخة من تهنئة الإنجاز الخاصة بي في برنامج «' + Content.courseTitle() + '».\nالاسم: ' + Me.data.name + '\nالتاريخ: ' + fmtDate(Date.now()) + '\n\nتنبيه مهم: صفحة الويب لا تستطيع إرفاق الملف تلقائيًا (لا يوجد خادم بريد). يُرجى إرفاق ملف PDF الذي حمّلته من زر «تحميل / حفظ كـ PDF» يدويًا قبل الإرسال.';
+      location.href = 'mailto:?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(body); break;
+    }
+    case 'content-pdf': buildContentPdf(); break;
+    case 'translate': Translate.menu(); break;
+    case 'save-card': saveMemberCard(Object.assign({}, Me.data, { member: Me.data.member || ((Store.users[Me.uid()] || {}).member) })); break;
+    case 'my-filter': UIState.myFilter = t.getAttribute('data-k'); App.render(); break;
+    case 'checkin': {
+      if (!Attend.on()) break;
+      const d = t.getAttribute('data-d'); const inp = $('#checkin' + d); const v = inp ? inp.value.replace(/[٠-٩]/g, x => '٠١٢٣٤٥٦٧٨٩'.indexOf(x)).trim() : '';
+      const cd = (Attend.cfg().codes || {})['d' + d] || {};
+      if (!cd.open) { UI.alert('تسجيل الحضور لهذا اليوم مغلق الآن.'); break; }
+      if (!v) { UI.alert('اكتب رمز الحضور المعروض على الشاشة.'); break; }
+      // الرمز لا يصل إلى المتصفح؛ الخادم يقارنه بالرمز السري ويقبل التسجيل أو يرفضه
+      try { await DB.set('checkins/d' + d + '/' + Me.uid(), { code: v, ts: DB.now() }, { quiet: true }); UI.toast('✅ تم تسجيل حضورك لليوم ' + d); }
+      catch (e) { UI.alert(DB.real ? 'الرمز غير صحيح أو أُغلق التسجيل. تأكد من الرمز المعروض على الشاشة.' : 'تعذر التسجيل: ' + h(e.message || e)); }
+      break;
+    }
+    case 'as-pick': { const k = 'as_' + t.getAttribute('data-ph'); UIState.draft[k][+t.getAttribute('data-i')] = +t.getAttribute('data-v'); App.render(); break; }
+    case 'as-submit': {
+      const ph = t.getAttribute('data-ph'); const d = UIState.draft['as_' + ph] || []; const A = Content.assess();
+      if (!Assess.isOpen(ph)) { UI.alert('التقييم مغلق الآن.'); break; }
+      if (A.items.some((_, i) => d[i] === null || d[i] === undefined)) { UI.alert('أجب عن كل الأسئلة قبل الإرسال.'); break; }
+      if (!(await UI.confirm('إرسال إجاباتك نهائيًا؟ لا يمكن تعديلها بعد الإرسال.', { ok: 'إرسال' }))) break;
+      const me = Me.data; await DB.set('assess/' + ph + '/' + me.uid, { answers: A.items.map((_, i) => d[i]), name: me.name, role: me.role || '', ts: DB.now(), done: true });
+      UI.toast('✅ تم إرسال ' + (ph === 'pre' ? 'التقييم القبلي' : 'التقييم البعدي')); App.render(); break;
+    }
+    // ----- لوحة الأدمن -----
+    case 'bell': UIState.bellOpen = !UIState.bellOpen; App.render(); if (UIState.bellOpen) setTimeout(() => { SafeLS.set('ec_bell_seen', String(Date.now())); if (UIState.bellOpen) App.render(); }, 1800); break;
+    case 'drop': { const k = t.getAttribute('data-k'); if (k === 'regEdit') UIState.regDraft = null; UIState.openDrop.has(k) ? UIState.openDrop.delete(k) : UIState.openDrop.add(k); App.render(); break; }
+    case 'acc': { if (ev.target.closest('.acc-actions') || ev.target.closest('.drag-handle')) break; const k = t.getAttribute('data-k'); UIState.openAcc.has(k) ? UIState.openAcc.delete(k) : UIState.openAcc.add(k); App.render(); break; }
+    case 'clear-names': { if (await UI.confirm('مسح أسماء المسجّلين فقط من السيرفر؟ لن تتأثر الإجابات أو المؤقتات، ولن يُطلب من أي متدرب حالي إعادة التسجيل.', { danger: true, ok: 'مسح الأسماء' })) { await DB.remove('users'); UI.toast('تم مسح قائمة الأسماء'); } break; }
+    case 'groups-toggle': { const on = Groups.enabled(); if (on && !(await UI.confirm('تعطيل وضع المجموعات؟ ستتحول كل تمارين المجموعات إلى تمارين فردية: يختفي اختيار المجموعة ويشارك كل متدرب باسمه، ويتغير تصنيف التمرين إلى «فردي».<br><span class="muted">لا يُحذف شيء: إجابات المجموعات السابقة تبقى، ويمكنك إعادة التفعيل في أي وقت. المختبر الختامي يبقى بالمجموعات.</span>', { ok: 'تعطيل وضع المجموعات' }))) break; await DB.update('settings/groups', { enabled: !on }); UI.toast(on ? '👤 عُطّل وضع المجموعات: التمارين فردية الآن' : '👥 فُعّل وضع المجموعات'); break; }
+    case 'save-groups': { const n = parseInt($('#grpCount').value, 10); if (!(n >= 2 && n <= 30)) { UI.alert('اختر عددًا بين 2 و30.'); break; } await DB.set('settings/groups/count', n); UI.toast('✅ عدد المجموعات: ' + n); break; }
+    case 'assign-open': Assign.show(); break;
+    case 'assign-close': if (Assign.modal) Assign.modal.close(); break;
+    case 'ag-toggle': { const g = +t.getAttribute('data-g'); Assign.open.has(g) ? Assign.open.delete(g) : Assign.open.add(g); Assign.render(); break; }
+    case 'unassign': DB.remove('assign/' + t.getAttribute('data-uid')); break;
+    case 'unassign-all': { if (await UI.confirm('إلغاء كل التعيينات وإعادة الجميع للاختيار الحر؟', { danger: true, ok: 'إلغاء الكل' })) DB.remove('assign'); break; }
+    case 'congrats-preview': { const kind = t.getAttribute('data-kind') || 'congrats'; const nm = (Me.data && Me.data.name) || 'اسم المتدرب'; const m = UI.modal('<div class="congrats-card ' + (kind === 'cert' ? 'cert-card' : '') + '">' + congratsInner(nm, kind) + '</div><div class="notice">ℹ️ ' + h(Content.doc(kind).notice) + '</div><div class="actions"><button class="btn btn-primary btn-sm" data-pv-pdf>📥 معاينة PDF</button></div>', { wide: true }); $('[data-pv-pdf]', m.el).onclick = () => buildCongratsPdf(nm, kind); break; }
+    case 'bc-send': { const txt = $('#bcText').value.trim(); if (!txt) { UI.alert('اكتب نص الرسالة.'); break; } await DB.set('broadcast', { text: txt, id: genId('b'), ts: DB.now() }); $('#bcText').value = ''; UI.toast('📣 تم البث'); break; }
+    case 'bc-stop': DB.remove('broadcast'); break;
+    case 'export-csv': exportAllCsv(); break;
+    case 'person-pdf': { const u = t.getAttribute('data-uid'); const pm = progressModal('📄 ملف ' + ((Store.users[u] || {}).name || '')); try { const doc = await personPdfDoc(u, pm); doc.save('مشاركات - ' + safeName((Store.users[u] || {}).name) + '.pdf'); } catch (e) { UI.alert('تعذر إنشاء الملف: ' + h(e.message || e)); } pm.close(); break; }
+    case 'person-csv': { const u = t.getAttribute('data-uid'); downloadBlob(personCsvBlob(u), 'مشاركات - ' + safeName((Store.users[u] || {}).name) + '.csv'); break; }
+    case 'export-all-pdf': exportAllPersons('pdf'); break;
+    case 'export-all-csv': exportAllPersons('csv'); break;
+    case 'export-all': exportAll(); break;
+    case 'code-copy': { const u = t.getAttribute('data-uid'); const x = (Store.users || {})[u] || {}; const code = (Store.secrets || {})[u]; if (!code) { UI.alert('لا يوجد رمز لهذا المتدرب بعد. اضغط «🔄 رمز جديد» لتوليده.'); break; }
+      const msg = 'مرحبًا ' + (x.name || '') + '،\nبيانات دخولك إلى منصة «' + Content.courseTitle() + '» من أي جهاز:\nرقم العضوية: ' + pad4(x.member || 0) + '\nرمز الدخول الشخصي: ' + code + '\n(اختر «مسجّل مسبقًا؟ الدخول برقم العضوية»)';
+      try { await navigator.clipboard.writeText(msg); UI.toast('📋 نُسخت رسالة الدخول، أرسلها للمتدرب'); } catch (e) { UI.prompt('انسخ الرسالة:', { value: msg, title: 'رسالة الدخول' }); } break; }
+    case 'code-new': { const u = t.getAttribute('data-uid'); const x = (Store.users || {})[u] || {};
+      if (!(await UI.confirm('توليد رمز دخول جديد لـ«' + h(x.name || '') + '»؟ سيتوقف الرمز القديم، وتُلغى الأجهزة المرتبطة حاليًا بحسابه، فيدخل من جديد برقم العضوية والرمز الجديد.', { ok: 'توليد رمز جديد' }))) break;
+      const code = genCode(); await DB.update('', { ['secrets/' + u]: code, ['devices/' + u]: null }); UI.toast('🔑 الرمز الجديد: ' + code, 7000); break; }
+    case 'backup': downloadBlob(new Blob([JSON.stringify(await backupData(), null, 2)], { type: 'application/json' }), 'نسخة احتياطية للمحتوى ' + fmtDate(Date.now()).replace(/\//g, '-') + '.json'); break;
+    case 'home-save': { const o = {}; $$('[data-home]', root).forEach(i => { o[i.getAttribute('data-home')] = i.value.trim(); }); o.heroDesc = RTE.val(root, 'heroDesc'); o.heroImage = ImgPick.val('heroImage'); await DB.set('site/home', o); UI.toast('✅ حُفظت الواجهة ونُشرت حيًا'); break; }
+    case 'home-reset': { if (await UI.confirm('استرجاع كل عناصر الواجهة لنصوصها ورسمها الأصلي؟', { ok: 'استرجاع' })) { await DB.remove('site/home'); UI.toast('تم الاسترجاع'); } break; }
+    case 'reg-set': { const n = parseInt($('#regCountIn').value, 10); if (!(n >= 0)) break; await DB.set('stats/registered', n); UI.toast('✅ تم تحديث الرقم'); break; }
+    case 'reg-zero': { if (await UI.confirm('تصفير عدد المسجّلين المعروض؟', { ok: 'تصفير' })) DB.set('stats/registered', 0); break; }
+    case 'cg-add-para': $('[data-cg-paras]', t.closest('.tool-drop')).insertAdjacentHTML('beforeend', '<div class="row" style="margin-bottom:6px"><textarea data-cg-para rows="2" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-family:var(--f-body)"></textarea><button class="btn btn-danger btn-xs" data-act="cg-del-para">🗑</button></div>'); break;
+    case 'cg-del-para': t.closest('.row').remove(); break;
+    case 'cg-save': { const kind = t.getAttribute('data-kind'); const box = t.closest('.tool-drop'); const o = { paragraphs: $$('[data-cg-para]', box).map(x => x.value.trim()).filter(Boolean) }; $$('[data-cg]', box).forEach(x => { o[x.getAttribute('data-cg')] = x.value.trim(); }); await DB.set('site/' + kind, o); UI.toast('✅ حُفظ المحتوى'); break; }
+    case 'cg-reset': { const kind = t.getAttribute('data-kind'); if (await UI.confirm('استرجاع المحتوى الافتراضي؟', { ok: 'استرجاع' })) DB.remove('site/' + kind); break; }
+    // ----- الحضور -----
+    case 'att-feature': {
+      const f = t.getAttribute('data-f'); const on = f === 'enabled' ? Attend.on() : Attend.certOn(); const upd = { [f]: !on };
+      if (f === 'enabled' && on) Attend.days().forEach(d => { if ((Attend.cfg().codes['d' + d] || {}).open) upd['codes/d' + d + '/open'] = false; }); // إغلاق أي تسجيل مفتوح
+      await DB.update('settings/attendance', upd); UI.toast(f === 'enabled' ? (on ? '⏸ عُطّل تسجيل الحضور (ومعه الشهادة)' : '✅ فُعّل تسجيل الحضور') : (on ? '⏸ عُطّلت شهادة المشاركة' : '✅ فُعّلت شهادة المشاركة')); break;
+    }
+    case 'att-cfg-save': { const days = parseInt($('#attDays').value, 10), hours = parseFloat($('#attHours').value), th = parseInt($('#attTh').value, 10); if (!(days >= 1 && days <= 10) || !(hours > 0) || !(th >= 0 && th <= 100)) { UI.alert('تحقق من القيم المدخلة.'); break; } await DB.update('settings/attendance', { days, hours, threshold: th }); UI.toast('✅ حُفظت إعدادات الحضور'); break; }
+    case 'att-code': { const d = t.getAttribute('data-d'); await DB.set('secure/attcodes/d' + d + '/code', String(Math.floor(100000 + Math.random() * 900000)) /* 6 أرقام */); break; }
+    case 'att-open': { const d = t.getAttribute('data-d'); const cd = Attend.cfg().codes['d' + d] || {}; await DB.update('settings/attendance/codes/d' + d, { open: !cd.open }); UI.toast(cd.open ? '🔒 أُغلق تسجيل الحضور' : '🟢 فُتح تسجيل الحضور لليوم ' + d); break; }
+    case 'att-show': { const d = t.getAttribute('data-d'); const cd = Attend.cfg().codes['d' + d] || {}; const m = UI.modal('<div class="center"><div class="sec-kicker">رمز حضور اليوم ' + d + '</div><div class="att-big num notranslate" translate="no">' + h(cd.code || '') + '</div><p class="muted" style="font-family:var(--f-ui)">افتح المنصة ثم أدخل الرمز في شريط «تسجيل الحضور» أعلى الصفحة</p></div><div class="actions" style="justify-content:center"><button class="btn btn-ghost" data-x>إغلاق</button></div>', { wide: true }); $('[data-x]', m.el).onclick = () => m.close(); break; }
+    case 'att-all': { const d = t.getAttribute('data-d'); if (!(await UI.confirm('تسجيل حضور كامل لكل المسجّلين في اليوم ' + d + '؟', { ok: 'تسجيل' }))) break; const upd = {}; Object.keys(Store.users || {}).forEach(u => { upd['attendance/' + u + '/d' + d] = Attend.cfg().hours; }); await DB.update('', upd); UI.toast('✅ تم'); break; }
+    case 'att-clear': { if (await UI.confirm('مسح سجل الحضور بالكامل؟', { danger: true, ok: 'مسح' })) DB.remove('attendance'); break; }
+    case 'att-csv': exportAttendanceCsv(); break;
+    // ----- التقييم -----
+    case 'as-toggle': { const ph = t.getAttribute('data-ph'); const cur = (await DB.get('settings/assess/' + ph)) || (ph === 'pre' ? 'open' : 'closed'); await DB.set('settings/assess/' + ph, cur === 'open' ? 'closed' : 'open'); break; }
+    case 'as-reveal': { const cur = await DB.get('settings/assess/reveal'); await DB.set('settings/assess/reveal', !cur); UI.toast(cur ? '🔒 أُخفيت النتائج' : '🔓 كُشفت النتائج والإجابات الصحيحة'); break; }
+    case 'as-clear': { const ph = t.getAttribute('data-ph'); if (await UI.confirm('مسح كل نتائج ' + (ph === 'pre' ? 'التقييم القبلي' : 'التقييم البعدي') + '؟', { danger: true, ok: 'مسح' })) DB.remove('assess/' + ph); break; }
+    case 'assessform-save': Views.assessEdit.save(root); break;
+    case 'assess-reset-content': { if (await UI.confirm('استرجاع الأسئلة الافتراضية؟', { ok: 'استرجاع' })) { await DB.remove('content/assess'); FormState.exId = null; Router.go('admin'); } break; }
+    case 'report-pdf': buildReportPdf(t.getAttribute('data-lang') || 'ar'); break;
+    case 'leads-csv': exportLeadsCsv(); break;
+    case 'plan-pdf': buildPlanPdf(Me.uid()); break;
+    case 'tpl-doc': { const tp = TEMPLATES.find(x => x.id === id); downloadBlob(new Blob(['\ufeff' + tplDoc(tp)], { type: 'application/msword' }), tp.title + '.doc'); break; }
+    case 'tpl-pdf': tplPdf(TEMPLATES.find(x => x.id === id)); break;
+    case 'tpl-view': { const tp = TEMPLATES.find(x => x.id === id); UI.modal('<div class="tpl-preview">' + tp.body + '</div><div class="actions"><button class="btn btn-primary btn-sm" data-act="tpl-doc" data-id="' + tp.id + '">📥 Word</button></div>', { wide: true }); break; }
+    case 'fu-save': {
+      const n = t.getAttribute('data-n'); const acts = $$('[data-fu-a]').filter(x => x.checked).map(x => FU_ACTIONS[+x.getAttribute('data-fu-a')]);
+      if (!acts.length && !$('#fuSales').value) { UI.alert('اختر ما طبقته أو تغير المبيعات على الأقل.'); break; }
+      await DB.set('followups/d' + n + '/' + Me.uid(), { actions: acts, sales: $('#fuSales').value, useful: +$('#fuUse').value || null, win: $('#fuWin').value.trim(), need: $('#fuNeed').value.trim(), name: Me.data.name, ts: DB.now() });
+      UI.toast('✅ شكرًا! أُرسلت المتابعة'); App.render(); break;
+    }
+    case 'fu-mail': followupMailto(t.getAttribute('data-n')); break;
+    case 'fu-wa': { const n = t.getAttribute('data-n'); const msg = 'مرحبًا 👋 مرّ ' + n + ' يومًا على برنامج «' + Content.courseTitle() + '». شاركنا ما طبقته في عملك عبر نموذج قصير (دقيقتان): ' + Followup.link(n); try { await navigator.clipboard.writeText(msg); UI.toast('📋 نُسخت رسالة واتساب، الصقها في مجموعة البرنامج'); } catch (e) { UI.prompt('انسخ الرسالة:', { value: msg }); } break; }
+    case 'fu-state': { const n = t.getAttribute('data-n'); const cur = Followup.cfg().open[n] || 'auto'; const nx = cur === 'auto' ? 'open' : cur === 'open' ? 'closed' : 'auto'; await DB.set('site/followup/open/' + n, nx === 'auto' ? null : nx); break; }
+    case 'fu-csv': exportFollowupCsv(); break;
+    case 'gm-toggle': { const c = Points.cfg(); await DB.set('site/gamify/' + t.getAttribute('data-k'), !c[t.getAttribute('data-k')]); break; }
+    case 'tpl-vis': DB.set('visibility/tpl_' + id, Content.isHidden('tpl_' + id) ? null : false); break;
+    case 'pr-q': { const c = Present.cfg(); DB.set('settings/present/q', Math.max(0, (+c.q || 0) + (+t.getAttribute('data-d')))); break; }
+    case 'pr-full': { try { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); } catch (e) {} break; }
+    case 'logo-save': { await DB.set('site/brandLogo', ImgPick.val('brandLogo') || null); UI.toast('✅ حُفظ الشعار'); break; }
+    case 'lead-edit': UIState.editing.lead = true; App.render(); break;
+    case 'lead-withdraw': { if (await UI.confirm('سحب اهتمامك ببرامج الدعم؟', { ok: 'سحب' })) DB.remove('leads/' + Me.uid()); break; }
+    case 'lead-save': {
+      const w = t.getAttribute('data-w'); const box = t.closest('.lead-box'); const c = Leads.cfg();
+      const programs = $$('[data-lead-p]', box).filter(x => x.checked).map(x => c.programs[+x.getAttribute('data-lead-p')]);
+      if (!programs.length) { UI.alert('اختر برنامجًا واحدًا على الأقل.'); break; }
+      if (!($('#leadConsent_' + w) || {}).checked) { UI.alert('يلزم الموافقة على مشاركة بياناتك مع الجهة الراعية.'); break; }
+      const contact = $('#leadContact_' + w).value.trim(); if (!contact) { UI.alert('اكتب رقم الهاتف أو البريد للتواصل.'); break; }
+      const u = Store.users[Me.uid()] || {};
+      await DB.set('leads/' + Me.uid(), { programs, need: $('#leadNeed_' + w).value.trim(), method: $('#leadMethod_' + w).value, contact, name: Me.data.name, org: RegFields.val(u, 'org'), consent: DB.now(), ts: DB.now() });
+      UIState.editing.lead = false; UI.toast('🤝 سُجّل اهتمامك وسيصل إلى الجهة المنظمة'); App.render(); break;
+    }
+    case 'leads-cfg-save': { const progs = $('#lcProgs').value.split('\n').map(x => x.trim()).filter(Boolean); await DB.set('site/leads', { intro: $('#lcIntro').value.trim(), consent: $('#lcConsent').value.trim(), programs: progs, axis: $('#lcAxis').value }); UI.toast('✅ حُفظ'); break; }
+    case 'leads-cfg-reset': { if (await UI.confirm('استرجاع الإعدادات الافتراضية لنموذج الاهتمام؟', { ok: 'استرجاع' })) DB.remove('site/leads'); break; }
+    case 'mon-toggle': { const c = Monitor.cfg(); const tok = c.token || genId('m') + genId(); await DB.set('secure/monitor', { enabled: !c.enabled, token: tok }); if (c.enabled) await DB.remove('monitorData/' + tok); else setTimeout(() => Monitor.publish(true), 500); break; }
+    case 'mon-new': { if (await UI.confirm('إنشاء رابط جديد؟ سيتوقف الرابط القديم عن العمل.', { ok: 'إنشاء' })) { const old = Monitor.cfg().token; await DB.set('secure/monitor', { enabled: true, token: genId('m') + genId() }); if (old) await DB.remove('monitorData/' + old); setTimeout(() => Monitor.publish(true), 500); } break; }
+    case 'mon-copy': { const u = Monitor.url(); try { await navigator.clipboard.writeText(u); UI.toast('📋 نُسخ الرابط'); } catch (e) { UI.prompt('انسخ الرابط:', { value: u, title: 'رابط المتابعة' }); } break; }
+    case 'mon-open': Router.go('monitor', { id: Monitor.cfg().token }); break;
+    case 'cohort-save': { await DB.update('settings/cohort', { name: $('#cohName').value.trim() || 'الدفعة', start: $('#cohStart').value, end: $('#cohEnd').value }); UI.toast('✅ حُفظت بيانات الدفعة'); break; }
+    case 'cohort-close': closeCohort(); break;
+    case 'coh-report': { const cid = t.getAttribute('data-cid'); const c = await DB.get('cohorts/' + cid); if (!c) break; buildReportPdf(t.getAttribute('data-lang') || 'ar', c.data, c.meta && c.meta.name); break; }
+    case 'coh-csv': { const cid = t.getAttribute('data-cid'); const c = await DB.get('cohorts/' + cid); if (c) exportReportCsv(c.data, c.meta && c.meta.name); break; }
+    case 'coh-json': { const cid = t.getAttribute('data-cid'); const c = await DB.get('cohorts/' + cid); downloadBlob(new Blob([JSON.stringify(c, null, 2)], { type: 'application/json' }), 'أرشيف ' + safeName(c && c.meta && c.meta.name) + '.json'); break; }
+    case 'coh-del': { const cid = t.getAttribute('data-cid'); if (await UI.confirm('حذف أرشيف هذه الدفعة نهائيًا؟', { danger: true, ok: 'حذف' })) DB.update('', { ['cohorts/' + cid]: null, ['cohortIndex/' + cid]: null }); break; }
+    case 'guide-pdf': buildGuidePdf(); break;
+    case 'guide-save': { const L = id2 => ($(id2).value || '').split('\n').map(x => x.trim()).filter(Boolean); const day = id2 => L(id2).map(x => { const p = x.split('|').map(y => y.trim()); return { t: p[0] || '', min: +p[1] || 0, act: p[2] || '', note: p[3] || '' }; }); await DB.set('site/guide', { objectives: L('#gObj'), methodology: L('#gMeth'), days: $$('[id^="gDay"]').map(el => day('#' + el.id)) }); UI.toast('✅ حُفظ الدليل'); break; }
+    case 'guide-reset': { if (await UI.confirm('استرجاع بيانات الدليل الافتراضية؟', { ok: 'استرجاع' })) DB.remove('site/guide'); break; }
+    case 'report-csv': exportReportCsv(); break;
+    // ----- أقسام الرئيسية -----
+    case 'sec-move': { const k = t.getAttribute('data-k'); const ids = Content.homeSections({ all: true }).map(x => x.key); const i = ids.indexOf(k), j = i + (+t.getAttribute('data-d')); if (j < 0 || j >= ids.length) break; [ids[i], ids[j]] = [ids[j], ids[i]]; DB.set('site/homeOrder', ids); break; }
+    case 'sec-add': { const k = 'c' + genId(); const type = $('#newSecType').value; await DB.set('site/sections/' + k, { type, title: SECTION_TYPES[type], kicker: '', body: '', ts: DB.now() }); FormState.exId = null; Router.go('secEdit', { id: k }); break; }
+    case 'sec-copy': { const k = t.getAttribute('data-k'); const cur = ((Store.site || {}).sections || {})[k]; if (!cur) break; await DB.set('site/sections/c' + genId(), Object.assign({}, cur, { title: (cur.title || '') + ' (نسخة)', ts: DB.now() })); UI.toast('🧬 تم نسخ القسم'); break; }
+    case 'sec-del': { const k = t.getAttribute('data-k'); if (await UI.confirm('حذف هذا القسم نهائيًا من الصفحة الرئيسية؟', { danger: true, ok: 'حذف' })) DB.update('', { ['site/sections/' + k]: null, ['visibility/home_' + k]: null }); break; }
+    case 'sec-reset-order': DB.remove('site/homeOrder'); break;
+    case 'adm-edit': UIState.adminEdit = !UIState.adminEdit; App.render(); break;
+    case 'adm-grp': UIState.adminGrp = t.getAttribute('data-g'); SafeLS.set('ec_admin_grp', UIState.adminGrp); App.render(); { const p = document.querySelector('.adm-pane'); if (p && window.innerWidth <= 860) window.scrollTo({ top: p.getBoundingClientRect().top + window.scrollY - 130, behavior: 'smooth' }); else window.scrollTo(0, 0); } break;
+    case 'adm-gmove': { const gs = AdminNav.groups(); const i = gs.findIndex(g => g.id === t.getAttribute('data-g')), j = i + (+t.getAttribute('data-d')); if (i < 0 || j < 0 || j >= gs.length) break; [gs[i], gs[j]] = [gs[j], gs[i]]; AdminNav.save(gs); break; }
+    case 'adm-gadd': { const title = await UI.prompt('اسم العنوان الجديد', { title: '➕ عنوان جديد في القائمة', placeholder: 'مثال: أدوات اليوم الأول', ok: 'إضافة' }); if (!title || !title.trim()) break; const gs = AdminNav.groups(); const id = 'g' + Date.now().toString(36); gs.push({ id, icon: '📁', title: title.trim(), blocks: [] }); await AdminNav.save(gs); UIState.adminGrp = id; SafeLS.set('ec_admin_grp', id); App.render(); break; }
+    case 'adm-gdel': { const gs = AdminNav.groups(); const g = gs.find(x => x.id === t.getAttribute('data-g')); if (!g || gs.length < 2) break; const rest = gs.filter(x => x !== g); if (!(await UI.confirm('حذف العنوان «' + h(g.title) + '»؟' + (g.blocks.length ? ' ستنتقل أدواته (<span class="num">' + g.blocks.length + '</span>) إلى «' + h(rest[0].title) + '».' : ''), { ok: 'حذف', danger: true }))) break; rest[0].blocks = rest[0].blocks.concat(g.blocks); await AdminNav.save(rest); if (UIState.adminGrp === g.id) UIState.adminGrp = rest[0].id; App.render(); break; }
+    case 'adm-reset': if (await UI.confirm('استرجاع العناوين الافتراضية وتوزيع الأدوات الأصلي؟', { ok: 'استرجاع' })) { $$('[data-keep^="adm-"]').forEach(el => el.removeAttribute('data-keep')); DB.remove('site/adminNav'); } break;
+    case 'lp-move': { const k = t.getAttribute('data-k'); const ids = Landing.order(); const i = ids.indexOf(k), j = i + (+t.getAttribute('data-d')); if (j < 0 || j >= ids.length) break; [ids[i], ids[j]] = [ids[j], ids[i]]; DB.set('site/landing/_order', ids); break; }
+    case 'lp-vis': { const k = t.getAttribute('data-k'); DB.set('site/landing/_hidden/' + k, Landing.hidden(k) ? null : true); break; }
+    case 'lp-reset-order': DB.remove('site/landing/_order'); break;
+    case 'lp-save': { const k = t.getAttribute('data-k'); const o = {}; ['kicker', 'title', 'sub', 'cta', 'cta2', 'items'].forEach(f => { const el = document.getElementById('lp_' + k + '_' + f); if (el) o[f] = el.value.trim(); }); await DB.set('site/landing/' + k, o); UI.toast('✅ حُفظ قسم «' + LANDING_NAMES[k] + '»'); break; }
+    case 'lp-reset': { const k = t.getAttribute('data-k'); if (await UI.confirm('استرجاع النصوص الافتراضية لقسم «' + LANDING_NAMES[k] + '»؟', { ok: 'استرجاع' })) { DB.remove('site/landing/' + k); $$('[data-keep^="lp-' + k + '-"]').forEach(el => el.removeAttribute('data-keep')); } break; }
+    case 'home-layout': DB.set('site/homeLayout', t.getAttribute('data-v')); UI.toast(t.getAttribute('data-v') === 'classic' ? 'عادت الرئيسية إلى التخطيط الطويل' : 'فُعّل تخطيط القائمة الجانبية'); break;
+    case 'home-sec': case 'acc-sec': {
+      if (act === 'acc-sec') { UIState.accSec = t.getAttribute('data-k'); SafeLS.set('ec_acc_sec', UIState.accSec); } else { UIState.homeSec = t.getAttribute('data-k'); SafeLS.set('ec_home_sec', UIState.homeSec); } App.render();
+      const pane = document.getElementById('homePane'); const nav = document.querySelector('.home-nav');
+      if (pane) { const top = pane.getBoundingClientRect().top + window.scrollY - (window.innerWidth <= 860 && nav ? nav.offsetHeight + 76 : 84); if (window.scrollY > top || t.classList.contains('hn-next') || window.innerWidth <= 860) window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }); }
+      const actEl = document.querySelector('.hn-item.active'); if (actEl && actEl.scrollIntoView && window.innerWidth <= 860) actEl.scrollIntoView({ block: 'nearest', inline: 'center' });
+      break;
+    }
+    case 'sec-save': Views.secEdit.save(root); break;
+    case 'sec-label-reset': { await DB.remove('site/labels/' + Router.cur.id); UI.toast('تم الاسترجاع'); Router.go('admin'); break; }
+    case 'units-save': { const o = {}; UNIT_IDS.forEach(n => { const k = $('[data-unit-k="' + n + '"]').value.trim(), nm = $('[data-unit-n="' + n + '"]').value.trim(); if (k !== UNIT_KICKERS[n] || nm !== UNIT_NAMES[n]) o[n] = { kicker: k, name: nm }; }); await DB.set('site/units', Object.keys(o).length ? o : null); UI.toast('✅ حُفظت أسماء الوحدات'); break; }
+    case 'units-reset': { if (await UI.confirm('استرجاع أسماء الوحدات الافتراضية؟', { ok: 'استرجاع' })) DB.remove('site/units'); break; }
+    // ----- الترتيب -----
+    case 'axis-move': { const ids = Content.axisIds(); const i = ids.indexOf(id), j = i + (+t.getAttribute('data-d')); if (i < 0 || j < 0 || j >= ids.length) break; [ids[i], ids[j]] = [ids[j], ids[i]]; DB.set('order/axes', ids); break; }
+    case 'ex-move': { const key = t.getAttribute('data-key'); const ids = key === '_acts' ? Content.activities({ all: true }).map(e => e.id) : Content.exIdsOf(key); const i = ids.indexOf(id), j = i + (+t.getAttribute('data-d')); if (i < 0 || j < 0 || j >= ids.length) break; [ids[i], ids[j]] = [ids[j], ids[i]]; DB.set('order/ex/' + key, ids); break; }
+    case 'story-move': { const ids = Content.storyIds(); const i = ids.indexOf(id), j = i + (+t.getAttribute('data-d')); if (i < 0 || j < 0 || j >= ids.length) break; [ids[i], ids[j]] = [ids[j], ids[i]]; DB.set('order/stories', ids); break; }
+    case 'story-reset': { if (await UI.confirm('استرجاع النص الأصلي لهذه القصة؟', { ok: 'استرجاع' })) DB.remove('content/stories/' + id); break; }
+    case 'story-delete': { if (await UI.confirm('حذف هذه القصة نهائيًا؟', { danger: true, ok: 'حذف' })) DB.update('', { ['added/stories/' + id]: null, ['visibility/' + id]: null, ['storyLikes/' + id]: null }); break; }
+    case 'storyform-save': Views.storyEdit.save(root); break;
+    // ----- المختبر -----
+    case 'lab-reset-content': { if (await UI.confirm('استرجاع المحتوى الأصلي للمختبر؟', { ok: 'استرجاع' })) DB.remove('content/lab'); break; }
+    case 'lab-clear': { if (await UI.confirm('مسح كل إجابات ومؤقتات المختبر لكل المجموعات؟', { danger: true, ok: 'مسح' })) DB.remove('lab'); break; }
+    case 'labform-save': Views.labEdit.save(root); break;
+    case 'st-add': FormState.items = Views.labEdit.collect(root); FormState.items.push({ icon: '📌', title: '', task: '' }); $('#stagesEd').innerHTML = Views.labEdit.stagesHtml(); break;
+    case 'st-del': FormState.items = Views.labEdit.collect(root); FormState.items.splice(+t.getAttribute('data-i'), 1); $('#stagesEd').innerHTML = Views.labEdit.stagesHtml(); break;
+    case 'st-move': { FormState.items = Views.labEdit.collect(root); const i = +t.getAttribute('data-i'), j = i + (+t.getAttribute('data-d')); const a = FormState.items; [a[i], a[j]] = [a[j], a[i]]; $('#stagesEd').innerHTML = Views.labEdit.stagesHtml(); break; }
+    case 'pdf-save': { const o = { enabled: $('#pdfEnabled').checked }; $$('[data-pdf]', root).forEach(i => { o[i.getAttribute('data-pdf')] = i.value.trim(); }); await DB.set('site/pdf', o); UI.toast('✅ حُفظت بيانات الملف'); break; }
+    case 'toggle-vis': DB.set('visibility/' + id, Content.isHidden(id) ? null : false); break; // مسار مستقل عن المحتوى
+    case 'toggle-en': DB.set('enabled/' + id, Content.isEnabled(id) ? false : null); break;     // مسار مستقل ثالث
+    case 'copy-axis': copyAxis(id); break;
+    case 'copy-ex': copyEx(id); break;
+    case 'reset-axis': { if (await UI.confirm('استرجاع المحتوى الأصلي لهذا المحور؟ سيُحذف التراكب فقط (حالة الإظهار والتفعيل لا تتأثر).', { ok: 'استرجاع الافتراضي' })) DB.remove('content/axes/' + id); break; }
+    case 'reset-ex': { if (await UI.confirm('استرجاع المحتوى الأصلي لهذا التمرين؟', { ok: 'استرجاع الافتراضي' })) DB.remove('content/ex/' + id); break; }
+    case 'delete-axis': {
+      const a = Content.axis(id); if (!a) break; const exIds = Content.exIdsOf(id);
+      if (!(await UI.confirm('حذف المحور «' + h(a.title) + '» مع تمارينه (<span class="num">' + exIds.length + '</span>) وكل مشاركاتها؟ يختفي من المنصة ولوحة التحكم.' + (DEF_AXIS[id] ? '<br><span class="muted">محور أصلي: يمكن استرجاع محتواه لاحقًا من «المحذوفات»، أما المشاركات فتُحذف نهائيًا.</span>' : '<br><b>محور مُضاف: لا رجعة في هذا الحذف.</b>'), { danger: true, ok: 'حذف المحور' }))) break;
+      const upd = { ['visibility/' + id]: null, ['enabled/' + id]: null, ['content/axes/' + id]: null, ['order/ex/' + id]: null };
+      if (DEF_AXIS[id]) upd['removed/axes/' + id] = true; else upd['added/axes/' + id] = null;
+      exIds.forEach(k => { upd['posts/' + k] = null; upd['visibility/' + k] = null; upd['reveal/' + k] = null; upd['content/ex/' + k] = null; upd['presence/' + k] = null; if (!DEF_EX[k]) upd['added/ex/' + k] = null; });
+      if (Store.invite && exIds.indexOf(Store.invite.ex) > -1) upd['invite'] = null;
+      await DB.update('', upd, { allowTopLevel: true }); DB.set('order/axes', arr(Store.order).filter(x => x !== id)); UI.toast('🗑 حُذف المحور'); break;
+    }
+    case 'delete-ex': {
+      const e = Content.ex(id); if (!e) break;
+      if (!(await UI.confirm('حذف التمرين «' + h(e.title) + '» وكل مشاركاته؟' + (DEF_EX[id] ? '<br><span class="muted">تمرين أصلي: يمكن استرجاعه لاحقًا من «المحذوفات»، أما المشاركات فتُحذف نهائيًا.</span>' : '<br><b>تمرين مُضاف: لا رجعة في هذا الحذف.</b>'), { danger: true, ok: 'حذف التمرين' }))) break;
+      const upd = { ['posts/' + id]: null, ['visibility/' + id]: null, ['reveal/' + id]: null, ['content/ex/' + id]: null, ['presence/' + id]: null };
+      if (DEF_EX[id]) upd['removed/ex/' + id] = true; else upd['added/ex/' + id] = null;
+      if (Store.invite && Store.invite.ex === id) upd['invite'] = null;
+      await DB.update('', upd, { allowTopLevel: true }); UI.toast('🗑 حُذف التمرين'); break;
+    }
+    case 'restore-removed': { const k = t.getAttribute('data-kind'); await DB.remove('removed/' + k + '/' + id); UI.toast('🔄 استُرجع ' + (k === 'axes' ? 'المحور' : 'التمرين')); break; }
+    case 'del-user': {
+      const uid = t.getAttribute('data-uid'); const u = (Store.users || {})[uid] || {};
+      if (!(await UI.confirm('حذف حساب «' + h(u.name || uid) + '» نهائيًا من المنصة مع كل بياناته: مشاركاته الفردية، وتقييماته، وحضوره، واهتماماته، ومتابعاته، وإعجاباته. إجابات المجموعات تبقى باسم المجموعة مع إزالة اسمه منها. <b>لا رجعة في هذا الحذف.</b>', { danger: true, ok: 'حذف المتدرب' }))) break;
+      const upd = purgeUserUpdates(uid);
+      Object.keys(Store.presence || {}).forEach(ex => { const pr = Store.presence[ex] || {}; Object.keys(pr).forEach(s => { if (pr[s] && pr[s].u === uid) upd['presence/' + ex + '/' + s] = null; }); });
+      await DB.update('', upd); DB.transaction('stats/registered', c => Math.max(0, (Number(c) || 0) - 1)); UI.toast('🗑 حُذف المتدرب وكل مشاركاته'); break;
+    }
+    case 'survey-clear': {
+      const sv = Content.survey({ all: true }); if (!sv) break; const n = Object.keys((Store.posts || {})[sv.id] || {}).length; if (!n) { UI.toast('لا توجد تقييمات لمسحها'); break; }
+      if (!(await UI.confirm('مسح <b><span class="num">' + n + '</span></b> تقييم من «' + h(sv.title) + '» نهائيًا؟ يُؤخذ قبلها نسخة احتياطية تلقائية، ولا تتأثر أي بيانات أخرى (المسجّلون والمشاركات وغيرها). <b>لا رجعة في هذا المسح.</b>', { danger: true, ok: 'مسح التقييمات', title: 'مسح تقييمات ختام البرنامج' }))) break;
+      if (!(await autoBackup(true)) && !(await UI.confirm('تعذر حفظ النسخة الاحتياطية التلقائية قبل المسح. المتابعة تعني مسح التقييمات دون نسخة.', { danger: true, ok: 'امسح دون نسخة', title: 'النسخة الاحتياطية' }))) break;
+      await DB.remove('posts/' + sv.id); UI.toast('🗑 مُسحت تقييمات ختام البرنامج'); break;
+    }
+    case 'clear-posts': { if (await UI.confirm('مسح كل مشاركات «' + h(Content.exTitle(id)) + '»؟', { danger: true, ok: 'مسح المشاركات' })) DB.remove('posts/' + id); break; }
+    case 'reveal': { const cur = await DB.get('reveal/' + id); await DB.set('reveal/' + id, cur ? null : true); UI.toast(cur ? '🔒 أُخفيت الإجابات' : '🔓 كُشفت الإجابات الصحيحة لكل المتدربين'); break; } // قراءة الحالة الفعلية من القاعدة قبل التبديل
+    case 'global-reset': globalReset(); break;
+    // ----- نموذج المحور -----
+    case 'se-add': FormState.slides = collectSlides(root); FormState.slides.push({ type: $('#newSlideType').value, title: '' }); Views.axisEdit.reslides(root); break;
+    case 'se-del': { FormState.slides = collectSlides(root); FormState.slides.splice(+t.getAttribute('data-i'), 1); Views.axisEdit.reslides(root); break; }
+    case 'se-up': case 'se-down': { FormState.slides = collectSlides(root); const i = +t.getAttribute('data-i'), j = act === 'se-up' ? i - 1 : i + 1; const s = FormState.slides; [s[i], s[j]] = [s[j], s[i]]; const k = ['text', 'rule', 'intro', 'img']; Views.axisEdit.reslides(root); break; }
+    case 'axis-save': Views.axisEdit.save(root); break;
+    case 'form-cancel': { FormState.axisId = null; FormState.exId = null; const b = Router.backOf(Router.cur); Router.go(b.view, b.id ? { id: b.id } : {}); break; }
+    case 'it-add': FormState.items = collectItems(root, FormState.format); FormState.items.push({}); $('#itemsEd').innerHTML = itemsEditorHtml(FormState.format, FormState.items); break;
+    case 'it-del': FormState.items = collectItems(root, FormState.format); FormState.items.splice(+t.getAttribute('data-i'), 1); $('#itemsEd').innerHTML = itemsEditorHtml(FormState.format, FormState.items); break;
+    case 'ex-save': exFormSave(root, t.getAttribute('data-kind')); break;
+  }
+});
+document.addEventListener('change', ev => { const t = ev.target; if (t.getAttribute && t.getAttribute('data-act-change') === 'import-backup' && t.files && t.files[0]) { importBackup(t.files[0]); t.value = ''; } });
+document.addEventListener('input', ev => { const t = ev.target; if (t.hasAttribute && t.hasAttribute('data-filter')) applyFilter(t); });
+document.addEventListener('click', ev => { if (UIState.bellOpen && !ev.target.closest('.bell-wrap')) { UIState.bellOpen = false; App.render(); } });
+
+// ---------- مؤقت المختبر ----------
+function labTick() {
+  if (Router.cur.view !== 'lab') return; const g = Me.group(); if (!g) return; const tm = Store.labTimers['g' + g]; if (!tm || !tm.start) return;
+  const el = labElapsed(tm); const total = Content.lab().stages.length * Content.lab().minutes * 60000; const c = $('#labClock'); if (c) c.textContent = mmss(total - el);
+  let rerender = false; $$('[data-lock-at]').forEach(n => { const at = +n.getAttribute('data-lock-at'); if (el >= at) rerender = true; else { const s = n.querySelector('.num'); if (s) s.textContent = mmss(at - el); } });
+  if (rerender) App.render();
+}
+
+// ---------- نسخ احتياطي يومي تلقائي لمدخلات المتدربين ----------
+// أول متصفح يفتح المنصة في يوم جديد يأخذ نسخة من المشاركات والتسجيل والحضور والتقييمات (عملية ذرّية تضمن نسخة واحدة يوميًا)
+const BACKUP_KEEP = 14;
+const BACKUP_PATHS = ['users', 'private', 'devices', 'secrets', 'posts', 'assess', 'attendance', 'checkins', 'lab', 'assign', 'leads', 'followups', 'storyLikes'];
+function dayKey(ts) { const d = new Date(ts || Date.now()); const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
+async function snapshotData() { const o = {}; for (const k of BACKUP_PATHS) o[k] = await DB.get(k); return o; }
+async function autoBackup(force) {
+  try {
+    const day = dayKey(DB.now()); const mark = day + '|' + genId();
+    const res = await DB.transaction('meta/backupDay', cur => (!force && cur && String(cur).indexOf(day + '|') === 0) ? undefined : mark);
+    if (res !== mark) return false;
+    const data = await snapshotData(); const json = JSON.stringify(data);
+    if (!force && json.length < 20) return false;
+    await DB.set('backups/' + day, { ts: DB.now(), data });
+    await DB.set('backupIndex/' + day, { ts: DB.now(), users: Object.keys(data.users || {}).length, posts: Object.keys(data.posts || {}).reduce((n, k) => n + Object.keys(data.posts[k] || {}).length, 0), kb: Math.round(json.length / 1024) });
+    const idx = Object.keys((await DB.get('backupIndex')) || {}).sort(); const old = idx.slice(0, Math.max(0, idx.length - BACKUP_KEEP));
+    if (old.length) { const upd = {}; old.forEach(k => { upd['backups/' + k] = null; upd['backupIndex/' + k] = null; }); await DB.update('', upd); }
+    return true;
+  } catch (e) { console.warn('backup', e); return false; }
+}
+async function restoreBackup(day) {
+  const b = await DB.get('backups/' + day); if (!b || !b.data) { UI.alert('النسخة غير موجودة.'); return; }
+  const cur = await snapshotData(); const cnt = d => ({ u: Object.keys(d.users || {}).length, p: Object.keys(d.posts || {}).reduce((n, k) => n + Object.keys(d.posts[k] || {}).length, 0) });
+  const nb = cnt(b.data), nc = cnt(cur);
+  if (!(await UI.confirm('استعادة مدخلات المتدربين من نسخة <b class="num">' + h(day) + '</b>:<br>• في النسخة: <b class="num">' + nb.u + '</b> مسجّل و<b class="num">' + nb.p + '</b> مشاركة<br>• الحالي الآن: <b class="num">' + nc.u + '</b> مسجّل و<b class="num">' + nc.p + '</b> مشاركة<br><br>سيُنزَّل ملف بالبيانات الحالية تلقائيًا قبل الاستعادة لتتمكن من الرجوع. المحتوى وتعديلاته لا تتأثر.', { danger: true, ok: 'تنزيل الحالي ثم الاستعادة' }))) return;
+  downloadBlob(new Blob([JSON.stringify({ app: 'phone-mobile', kind: 'trainee-data', exportedAt: new Date().toISOString(), data: cur }, null, 1)], { type: 'application/json' }), 'مدخلات المتدربين قبل الاستعادة ' + dayKey(DB.now()) + '.json');
+  const upd = {}; BACKUP_PATHS.forEach(k => { upd[k] = b.data[k] || null; }); await DB.update('', upd, { allowTopLevel: true }); UI.toast('✅ تمت الاستعادة');
+}
+
+// ---------- إغلاق الدفعة الحالية وأرشفتها ثم تجهيز المنصة لدفعة جديدة ----------
+function cohortSummary(d) { return { participants: d.uids.length, attAvg: d.attAvg, certs: d.certs, preAvg: d.preAvg == null ? null : Math.round(d.preAvg), postAvg: d.postAvg == null ? null : Math.round(d.postAvg), gain: d.gain == null ? null : Math.round(d.gain), sat: d.survey.overall == null ? null : Math.round(d.survey.overall * 100) / 100, nps: d.survey.nps, leads: d.leads.length, labGroups: d.labGroups }; }
+async function closeCohort() {
+  const cur = Cohort.cur(); const num = Cohort.list().length + 2;
+  if (!(await UI.confirm('سيتم أرشفة كل مدخلات «' + h(cur.name) + '» (المسجّلون، المشاركات، التقييمات، الحضور، المختبر، الاهتمامات، المتابعات) في أرشيف الدفعات مع ملخص مؤشراتها، ثم تفريغ المنصة لاستقبال دفعة جديدة. المحتوى وتعديلاته لا تتأثر.', { ok: 'أرشفة وبدء دفعة جديدة', title: 'إغلاق الدفعة' }))) return;
+  const pm = progressModal('📦 أرشفة الدفعة');
+  try {
+    pm.set(1, 3, 'جارٍ جمع البيانات'); const data = await snapshotData();
+    const summary = cohortSummary(reportData(data)); const id = 'c' + genId(); const meta = Object.assign({}, cur, { closedAt: DB.now() });
+    pm.set(2, 3, 'جارٍ الحفظ في الأرشيف'); await DB.set('cohorts/' + id, { meta, data }); await DB.set('cohortIndex/' + id, Object.assign({}, meta, { summary }));
+    pm.set(3, 3, 'جارٍ تجهيز الدفعة الجديدة'); const upd = {}; BACKUP_PATHS.forEach(k => { upd[k] = null; }); upd.members = null; upd.mno = null; upd['meta/memberCounter'] = null; upd['meta/resetStamp'] = DB.now(); upd['stats/registered'] = 0; upd['settings/attendance/codes'] = null; upd.reveal = null;
+    upd['settings/cohort'] = { name: 'الدفعة ' + num, start: '', end: '' };
+    await DB.update('', upd, { allowTopLevel: true }); clearLive(); pm.close(); UI.toast('✅ أُرشفت الدفعة وبدأت دفعة جديدة');
+  } catch (e) { pm.close(); UI.alert('تعذرت الأرشفة: ' + h(e.message || e)); }
+}
+
+// ---------- شاشة الاتصال (لا وضع محلي بديل: ننتظر الخادم ونعرض الحالة) ----------
+function connectScreen() {
+  const noLib = DB.status && !DB.status.lib;
+  const err = App.watchError;
+  const msg = noLib ? 'تعذّر تحميل مكتبة الاتصال بقاعدة البيانات (قد تكون الشبكة ضعيفة أو محجوبة).' : err ? 'رفضت قاعدة البيانات القراءة: ' + h(err.message || err) : '';
+  // دائرة تمتلئ تدريجيًا أثناء الاتصال؛ التأخير السالب يحفظ موضعها عند إعادة الرسم
+  if (!App._csT0) App._csT0 = Date.now();
+  const ring = '<svg class="cs-ring' + (noLib || err ? ' stop' : '') + '" viewBox="0 0 48 48" aria-hidden="true"><circle class="cs-track" cx="24" cy="24" r="20"/><circle class="cs-fill" cx="24" cy="24" r="20" pathLength="100" style="animation-delay:-' + (Date.now() - App._csT0) + 'ms"/></svg>';
+  return '<div class="connect-screen" role="status" aria-label="جارٍ التحميل"><div class="cs-box">' + ring + '<h2>' + h(Content.site ? (Content.site().headerTitle || '') : '') + '</h2>' + (msg ? '<p>' + msg + '</p>' : '') + (noLib || err || App.slow ? '<button class="btn btn-primary" onclick="location.reload()">🔄 إعادة المحاولة</button>' : '') + '</div></div>';
+}
+
+// ---------- دخول المدرب عبر Firebase Authentication ----------
+// كل زائر يحصل على جلسة Firebase مجهولة (Anonymous) تُربط بسجله، والمدرب يدخل بحساب Google، القواعد تميّز بينهما
+function authInit() {
+  const fb = !DEMO_MODE && typeof firebase !== 'undefined' && typeof firebase.auth === 'function' && !!firebaseConfig.apiKey;
+  AUTH.enabled = fb; if (!fb) return;
+  AUTH.resolved = false;
+  firebase.auth().onAuthStateChanged(async u => {
+    // انتهت مدة الجلسة (72 ساعة): خروج من حساب Firebase الحالي (مدرب أو جلسة متدرب) ثم جلسة جديدة
+    if (u && Session.expired) { Session.expired = false; AUTH.isAdmin = false; try { await firebase.auth().signOut(); return; } catch (e) {} }
+    if (!u) { try { await firebase.auth().signInAnonymously(); return; } catch (e) { console.warn('anonymous sign-in', e); AUTH.anonError = e; } }
+    AUTH.user = u || null; let ok = false;
+    if (u && !u.isAnonymous) { try { ok = (await DB.get('admins/' + u.uid)) === true; } catch (e) { ok = false; } }
+    AUTH.isAdmin = ok; AUTH.resolved = true;
+    if (SafeSS.get('ec_admin_redirect')) { SafeSS.del('ec_admin_redirect'); if (!ok && u && !u.isAnonymous) { UI.alert('الحساب ' + h(u.email || '') + ' غير مضاف إلى حسابات المدربين. أضف هذا الرقم في العقدة admins بقيمة true:<br><b class="num" dir="ltr" style="user-select:all">' + h(u.uid) + '</b>'); firebase.auth().signOut(); return; } }
+    syncWatchers(); await ensureOwnership();
+    if (ok) setTimeout(migrateSchema, 1500);
+    if (ok && SafeSS.get('ec_go_admin')) { SafeSS.del('ec_go_admin'); Router.go('home'); return; }
+    App.render();
+  });
+}
+const authUid = () => (AUTH.user && AUTH.user.uid) || null;
+function genCode() { const a = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s = ''; const r = new Uint32Array(6); try { crypto.getRandomValues(r); } catch (e) { for (let i = 0; i < 6; i++) r[i] = Math.floor(Math.random() * 1e9); } for (let i = 0; i < 6; i++) s += a[r[i] % a.length]; return s; }
+// ربط الجهاز بالسجل: السجل الجديد يُربط فورًا، والدخول من جهاز آخر يحتاج رمز الدخول الشخصي
+async function linkDevice(uid, code) { const au = authUid(); if (!DB.real || !AUTH.enabled) return true; if (!au) return false; /* بلا جلسة آمنة لا ربط */ try { await DB.set('devices/' + uid + '/' + au, code || 'legacy', { quiet: true, beforeReady: true }); return true; } catch (e) { return false; } }
+async function ensureOwnership() {
+  if (!DB.real || !Me.data || Me.isAdmin() || !authUid() || !AUTH.enabled) return;
+  const uid = Me.data.uid; if (uid === authUid()) return;
+  try { if (await DB.get('devices/' + uid + '/' + authUid())) return; } catch (e) {}
+  try { await Course.join(); } catch (e) {}
+  if (await linkDevice(uid, Me.data.code)) {
+    if (!Me.data.code) { const code = genCode(); try { await DB.set('secrets/' + uid, code, { quiet: true, beforeReady: true }); Me.save(Object.assign({}, Me.data, { code })); } catch (e) {} }
+    syncWatchers(); return;
+  }
+  Me.clear(); syncWatchers(); setTimeout(() => UI.toast('🔐 لحماية حسابك: ادخل مجددًا برقم العضوية ورمز الدخول الشخصي', 6000), 400);
+}
+// نقل البيانات القديمة إلى النموذج الآمن (مرة واحدة من جلسة المدرب)
+async function migrateSchema() {
+  try {
+    if (!Admin.ok() || !DB.real) return; const meta = await DB.get('meta/schema'); if (Number(meta) >= 3) return;
+    const users = (await DB.get('users')) || {}; const settings = (await DB.get('settings')) || {}; const upd = {};
+    Object.keys(users).forEach(u => { const x = users[u] || {}; if (x.group && !x.gkey) upd['users/' + u + '/gkey'] = 'g' + x.group; if (x.f || x.consent) { if (x.f) upd['private/' + u + '/f'] = x.f; if (x.consent) upd['private/' + u + '/consent'] = x.consent; upd['users/' + u + '/f'] = null; upd['users/' + u + '/consent'] = null; } if (x.email) { upd['private/' + u + '/f/email'] = x.email; upd['users/' + u + '/email'] = null; } if (x.org) { upd['private/' + u + '/f/org'] = x.org; upd['users/' + u + '/org'] = null; } });
+    const codes = ((settings.attendance || {}).codes) || {}; Object.keys(codes).forEach(k => { if (codes[k] && codes[k].code != null) { upd['secure/attcodes/' + k + '/code'] = String(codes[k].code); upd['settings/attendance/codes/' + k + '/code'] = null; } });
+    if (settings.monitor) { upd['secure/monitor'] = settings.monitor; upd['settings/monitor'] = null; }
+    upd['meta/schema'] = 3;
+    await DB.update('', upd); UI.toast('🔐 نُقلت البيانات الخاصة ورموز الحضور إلى النموذج المحمي');
+  } catch (e) { console.warn('migrate', e); }
+}
+function authErr(e) {
+  const c = (e && e.code) || '';
+  if (/invalid-credential|wrong-password|user-not-found|invalid-email|invalid-login/.test(c)) return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
+  if (/too-many-requests/.test(c)) return 'محاولات كثيرة. انتظر قليلًا ثم أعد المحاولة، أو استخدم «نسيت كلمة المرور».';
+  if (/network-request-failed/.test(c)) return 'تعذر الاتصال بالإنترنت. تحقق من الشبكة ثم أعد المحاولة.';
+  if (/operation-not-allowed/.test(c)) return 'تسجيل الدخول بالبريد وكلمة المرور غير مفعّل في Firebase Authentication.';
+  if (/popup-blocked/.test(c)) return 'منع المتصفح النافذة المنبثقة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم أعد المحاولة.';
+  if (/account-exists-with-different-credential/.test(c)) return 'هذا البريد مسجل بطريقة دخول أخرى. استخدم البريد وكلمة المرور.';
+  if (/unauthorized-domain/.test(c)) return 'نطاق الموقع غير مضاف إلى Authorized domains في إعدادات Firebase Authentication.';
+  return 'تعذر الدخول: ' + h((e && e.message) || e);
+}
+function adminLogin() {
+  const m = UI.modal('<h3>🔐 دخول المدرب</h3><p class="muted" style="font-family:var(--f-ui);font-size:13px;margin-top:0">لوحة الإدارة متاحة لحسابات المدربين المسجلة في Firebase فقط.</p>' +
+    '<button class="btn btn-block google-btn" data-google><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.2l7.8 6C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#5442F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FB5305" d="M10.5 28.8c-.5-1.4-.8-3-.8-4.8s.3-3.3.8-4.8l-7.8-6C1 16.5 0 20.1 0 24s1 7.5 2.7 10.8l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4.1-13.5-9.7l-7.8 6C6.6 42.6 14.6 48 24 48z"/></svg><span>الدخول بحساب Google</span></button>' +
+    '<details class="al-email"><summary>أو بالبريد الإلكتروني وكلمة المرور</summary>' +
+    '<div class="field"><label>البريد الإلكتروني</label><input id="alEmail" type="email" dir="ltr" autocomplete="username"></div>' +
+    '<div class="field"><label>كلمة المرور</label><input id="alPass" type="password" dir="ltr" autocomplete="current-password"></div>' +
+    '<div class="row"><button class="btn btn-primary btn-sm" data-ok>دخول</button><button class="btn btn-ghost btn-sm" data-reset>نسيت كلمة المرور؟</button></div></details>' +
+    '<div id="alErr" style="color:#C62F35;font-family:var(--f-ui);font-size:13px;min-height:20px;margin-top:10px"></div>' +
+    '<div class="actions"><button class="btn btn-ghost" data-x>إلغاء</button></div>');
+  const $e = $('#alEmail', m.el), $p = $('#alPass', m.el), err = t => { $('#alErr', m.el).innerHTML = t; };
+  const finish = async user => {
+    const ok = (await DB.get('admins/' + user.uid)) === true;
+    if (!ok) { await firebase.auth().signOut(); err('الحساب ' + h(user.email || '') + ' غير مضاف إلى حسابات المدربين (العقدة admins في قاعدة البيانات).<br>انسخ هذا الرقم وأضفه هناك بقيمة true:<br><span class="num" dir="ltr" style="user-select:all;font-weight:700">' + h(user.uid) + '</span>'); return false; }
+    AUTH.user = user; AUTH.isAdmin = true; m.close(); if (Course.hubMode) { Hub.afterLogin(); return true; } LoginModal.close(); Presence.leave(); if (Course.stage !== 'full') Course.stage = 'boot'; syncWatchers(); setTimeout(migrateSchema, 1500); Router.go('home'); UI.toast('🛡️ أهلًا بك، زر «لوحة التحكم» أعلى الصفحة'); return true;
+  };
+  $('[data-google]', m.el).onclick = async () => {
+    const btn = $('[data-google]', m.el); btn.disabled = true; err('');
+    try { const provider = new firebase.auth.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' }); const cred = await firebase.auth().signInWithPopup(provider); await finish(cred.user); }
+    catch (e) { if (/popup-blocked|operation-not-supported/.test((e && e.code) || '')) { try { SafeSS.set('ec_admin_redirect', '1'); await firebase.auth().signInWithRedirect(new firebase.auth.GoogleAuthProvider()); return; } catch (e2) { err(authErr(e2)); } } else if (!/popup-closed|cancelled-popup/.test((e && e.code) || '')) err(authErr(e)); }
+    finally { btn.disabled = false; }
+  };
+  const go = async () => {
+    const email = $e.value.trim(), pass = $p.value; if (!email || !pass) { err('اكتب البريد الإلكتروني وكلمة المرور.'); return; }
+    const btn = $('[data-ok]', m.el); btn.disabled = true; btn.textContent = 'جارٍ التحقق'; err('');
+    try {
+      const cred = await firebase.auth().signInWithEmailAndPassword(email, pass); await finish(cred.user);
+    } catch (e) { err(authErr(e)); } finally { btn.disabled = false; btn.textContent = 'دخول'; }
+  };
+  $('[data-ok]', m.el).onclick = go; $p.addEventListener('keydown', e => { if (e.key === 'Enter') go(); }); $e.addEventListener('keydown', e => { if (e.key === 'Enter') $p.focus(); });
+  $('[data-x]', m.el).onclick = () => m.close();
+  $('[data-reset]', m.el).onclick = async () => { const email = $e.value.trim(); if (!email) { err('اكتب بريدك الإلكتروني أولًا ثم اضغط «نسيت كلمة المرور».'); return; } try { await firebase.auth().sendPasswordResetEmail(email); err('<span style="color:#00A653">✉️ أُرسل رابط تعيين كلمة المرور إلى بريدك.</span>'); } catch (e) { err(authErr(e)); } };
+}
+
+// ---------- الإقلاع ----------
+function boot() {
+  Router.cur = Router.parse(); // قبل Me.load: تحميل الهوية يزامن الرابط (syncHash) فكان يمحو الرابط العميق (#v=axis&id=..&s=..) قبل قراءته
+  Me.load(); Session.boot();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) Session.check(); });
+  document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('brand')) { e.preventDefault(); e.target.click(); } });
+  SafeHist.replace(Router.cur, Router.url(Router.cur));
+  authInit();
+  // بيانات المتدربين تتطلب جلسة دخول: مع Firebase Authentication تبدأ المراقبات بعد اكتمال الجلسة (في authInit)
+  if (!AUTH.enabled) watchAll();
+  if (Session.notice) setTimeout(() => UI.toast('🔒 انتهت مدة الدخول (72 ساعة من آخر استخدام)، يرجى تسجيل الدخول من جديد.', 7000), 1500);
+  if (Me.data && Me.data._fromHash) DB.get('users/' + Me.data.uid).then(u => { if (u) Me.save({ uid: Me.data.uid, name: u.name, role: u.role || '', org: u.org || '', email: u.email || '', member: u.member, ts: u.ts || 0, group: u.group || null }); else Me.clear(); App.render(); });
+  Translate.boot();
+  // النسخ اليومي التلقائي من جلسة المدرب فقط، وبعد قراءة مؤكدة من الخادم (لا يكتب الزوار شيئًا تلقائيًا)
+  const bk = () => { if (App.dataReady && Admin.ok()) autoBackup(false); };
+  setTimeout(bk, 15000); setInterval(bk, 3600000);
+  setInterval(() => Monitor.publish(false), 60000); // لقطة لوحة المشرف تُحدَّث من جلسة المدرب
+  setTimeout(() => { if (!App.dataReady) { App.slow = true; App.render(); } }, 8000);
+  DB.onStatus(debounce(() => { if (App.dataReady) App.render(); }, 120));
+  DB.onReject = (e, where) => { console.warn('write rejected', where, e); UI.toast('⚠️ تعذّر حفظ التعديل: ' + ((e && e.code === 'PERMISSION_DENIED') || /permission/i.test(String(e && e.message)) ? 'رفضت قاعدة البيانات الكتابة' : String((e && e.message) || e)) + '، تُعرض الآن آخر نسخة محفوظة على الخادم', 6000); App.onData(); };
+  let wasConn = DB.status.connected; DB.onStatus(st => { if (st.connected && !wasConn) Presence.resync(); wasConn = st.connected; });
+  window.addEventListener('unhandledrejection', ev => { const r = ev.reason || {}; if (r.code === 'PERMISSION_DENIED' || /permission|لم تكتمل قراءة/i.test(String(r.message || ''))) ev.preventDefault(); });
+  DB.onSynced = () => UI.toast('✅ عاد الاتصال وحُفظت كل التعديلات المعلّقة', 4000);
+  window.addEventListener('beforeunload', e => { if (DB.status && DB.status.pending > 0) { e.preventDefault(); e.returnValue = ''; return ''; } });
+  App.render();
+  setInterval(labTick, 1000);
+}
+document.addEventListener('toggle', ev => { const d = ev.target; if (!d || !d.getAttribute || !d.classList || !d.classList.contains('ex-fold')) return; UIState.fold = UIState.fold || {}; UIState.fold[d.getAttribute('data-fold')] = d.open; }, true);
+/* ===== 09b-guard.js ===== */
+// ---------------------------------------------------------------------
+// حماية المحتوى من النسخ والتصوير (روادع، لا حظر مطلق: المتصفح لا يستطيع منع كاميرا الجوال ولا برامج التصوير الخارجية)
+//  - منع التحديد والنسخ والقص والسحب والقائمة والطباعة واختصارات المصدر والحفظ
+//  - تمويه الصفحة فور فقدان التركيز (برامج القص) وعند ضغط PrintScreen
+//  - علامة مائية متكررة باسم المتدرب ورقمه والوقت، فيُعرف مصدر أي صورة مسرّبة
+//  - المدرب مستثنى، والشرائح والتمارين التي يسمح بنسخها من لوحته (site/copyOk) قابلة للنسخ، وكذلك حقول الإدخال
+// ---------------------------------------------------------------------
+const Guard = {
+  on() { return Course.stage === 'full' && !Admin.ok() && !(typeof window !== 'undefined' && /[?&]noguard=1/.test(location.search) && DEMO_MODE); },
+  okSet() { return (Store.site && Store.site.copyOk) || {}; },
+  allowedEl(t) {
+    if (!t || !t.closest) return false;
+    if (t.closest('input,textarea,select,[contenteditable="true"],[data-copy-ok]')) return true;
+    const z = t.closest('[data-copy="1"]'); return !!z;
+  },
+  // وسم الشرائح والتمارين المسموح بنسخها بعد كل رسم
+  mark(root) {
+    const set = Guard.okSet(); if (!root) return;
+    $$('.deck[data-deck]', root).forEach(d => { const a = Content.axis(d.getAttribute('data-deck')); const tr = $('.deck-track', d); if (!a || !tr) return; Array.prototype.forEach.call(tr.children, (el, i) => { const s = a.slides[i]; if (s && set[s.id]) el.setAttribute('data-copy', '1'); else el.removeAttribute('data-copy'); }); });
+    const m = $('main.wrap', root); if (m) { if (Router.cur.view === 'ex' && set[Router.cur.id]) m.setAttribute('data-copy', '1'); else m.removeAttribute('data-copy'); }
+  },
+  wmText() { const d = Me.data || {}; const t = new Date(); const hm = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0'); return (d.name ? d.name + ' ' : '') + (d.member ? '#' + d.member : ''); },
+  wm() {
+    let el = document.getElementById('guardWM');
+    if (!Guard.on()) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement('div'); el.id = 'guardWM'; el.setAttribute('aria-hidden', 'true'); document.body.appendChild(el); }
+    const tx = Guard.wmText().replace(/[<>&"]/g, '');
+    if (el._tx !== tx) { el._tx = tx; const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420"><text x="40" y="240" transform="rotate(-20 320 210)" font-family="Tahoma,Arial,sans-serif" font-size="13" font-weight="600" fill="#1f2937" fill-opacity=".035">' + tx + '</text></svg>'; el.style.backgroundImage = 'url("data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '")'; }
+  },
+  apply() { document.body.classList.toggle('guard', Guard.on()); Guard.wm(); },
+  hide(ms) { if (!Guard.on()) return; document.body.classList.add('guard-hide'); clearTimeout(Guard._t); if (ms) Guard._t = setTimeout(() => { if (document.hasFocus()) document.body.classList.remove('guard-hide'); }, ms); },
+  show() { document.body.classList.remove('guard-hide'); },
+  init() {
+    const stop = e => { if (!Guard.on()) return; if (Guard.allowedEl(e.target)) return; e.preventDefault(); };
+    ['contextmenu', 'dragstart', 'selectstart', 'cut'].forEach(ev => document.addEventListener(ev, stop, true));
+    document.addEventListener('copy', e => { if (!Guard.on()) return; const sel = window.getSelection && window.getSelection(); const n = sel && sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement); if (n && Guard.allowedEl(n)) return; e.preventDefault(); try { e.clipboardData.setData('text/plain', 'المحتوى محمي من النسخ'); } catch (er) {} }, true);
+    document.addEventListener('keydown', e => {
+      if (!Guard.on()) return; const k = (e.key || '').toLowerCase(); const mod = e.ctrlKey || e.metaKey;
+      const inField = Guard.allowedEl(e.target);
+      if (k === 'f12' || (mod && e.shiftKey && 'ijc'.indexOf(k) > -1) || (mod && 'psu'.indexOf(k) > -1)) { e.preventDefault(); return; }
+      if (mod && (k === 'c' || k === 'x' || k === 'a') && !inField) e.preventDefault();
+    }, true);
+    document.addEventListener('keyup', e => { if (!Guard.on()) return; if (e.key === 'PrintScreen' || e.code === 'PrintScreen') { try { navigator.clipboard.writeText('المحتوى محمي'); } catch (er) {} Guard.hide(2500); } }, true);
+    document.addEventListener('keydown', e => { if (Guard.on() && (e.key === 'PrintScreen' || (e.metaKey && e.shiftKey))) Guard.hide(2500); }, true);
+    const touch = (window.matchMedia && matchMedia('(hover: none) and (pointer: coarse)').matches);
+    // على أجهزة اللمس (iOS خصوصًا) لا يعود حدث focus بعد العودة من تطبيق آخر، فلا نعتمد على فقدان التركيز ونعيد الإظهار عند أي لمسة
+    ['pageshow', 'pointerdown', 'touchstart'].forEach(ev => window.addEventListener(ev, () => { if (document.visibilityState === 'visible') Guard.show(); }, { passive: true }));
+    window.addEventListener('blur', () => { if (touch) return; setTimeout(() => { const a = document.activeElement; if (a && a.tagName === 'IFRAME') return; Guard.hide(0); }, 0); });
+    window.addEventListener('focus', Guard.show);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) Guard.hide(0); else if (document.hasFocus()) Guard.show(); });
+    window.addEventListener('beforeprint', () => Guard.hide(0)); window.addEventListener('afterprint', () => { if (document.hasFocus()) Guard.show(); });
+    // إن أُزيلت العلامة المائية أو صنف الحماية يُعاد وضعهما
+    new MutationObserver(() => { if (Guard.on() && (!document.getElementById('guardWM') || !document.body.classList.contains('guard'))) Guard.apply(); }).observe(document.body, { childList: true, attributes: true, attributeFilter: ['class'] });
+    setInterval(() => Guard.apply(), 30000); Guard.apply();
+  },
+  // المدرب يسمح أو يمنع نسخ شريحة أو تمرين
+  async toggle(id) { const cur = !!Guard.okSet()[id]; try { await DB.set('site/copyOk/' + id, cur ? null : true); UI.toast(cur ? 'مُنع نسخ المحتوى' : 'سُمح بنسخ المحتوى'); } catch (e) { UI.alert('تعذر الحفظ'); } }
+};
+document.addEventListener('DOMContentLoaded', Guard.init);
+if (document.readyState !== 'loading') Guard.init();
+/* ===== courses/ai-ecommerce/cfg.js ===== */
+// إعدادات دورة «ai-ecommerce» العامة (لا تحتوي المحتوى السري). مولَّد من tools/make_cfg.py
+COURSE_CFGS["ai-ecommerce"] = (function () {
+  const AXIS_COLORS = ['#5B4BDB','#4535B8','#7A6CF0','#FF6B35','#E5531F','#FF8F5E','#1E1B4B','#2D2A6E','#3F3A8C','#0FA3A3','#0B8585','#14B8A6','#D9306B','#B8245A','#8B5CF6'];
+  const UNIT_NAMES = {1:'الانطلاقة: عقلية رائد الأعمال وموظفك الذكي',2:'الذكاء الاصطناعي لاكتشاف السوق والفرص',3:'الذكاء الاصطناعي داخل المتجر: المحتوى والعملاء والبيانات',4:'من الموظف إلى الوكيل: الأتمتة والحوكمة',5:'من الفكرة إلى المشروع وأول عميل'};
+  const UNIT_KICKERS = {1:'الجلسة الأولى',2:'الجلسة الثانية',3:'الجلسة الثالثة',4:'الجلسة الرابعة',5:'الجلسة الخامسة'};
+  const UNIT_IDS = [1, 2, 3, 4, 5];
+  const SPECIAL_UNIT = 0;
+  const LAB_STAGE_MIN = 6;
+  const ATTEND_DAYS_DEFAULT = 5;
+  const ATTEND_HOURS_DEFAULT = 2;
+  const CERT_THRESHOLD_DEFAULT = 90;
+  const DEFAULT_SITE = {
+  headerTitle: 'تطبيقات الذكاء الاصطناعي في التجارة الإلكترونية',
+  headerSub: 'من اكتشاف الفرصة إلى بناء مشروع قابل للاختبار · دورة تفاعلية في خمس جلسات',
+  heroTitle: 'تطبيقات الذكاء الاصطناعي في التجارة الإلكترونية',
+  heroDesc: 'دورة تطبيقية في خمس جلسات (عشر ساعات): نستخدم الذكاء الاصطناعي كموظف لاكتشاف السوق، ونحوّل المهام المتكررة إلى وكلاء، ونبني فكرة مشروع يكون AI جزءًا من قيمتها، ثم نختبرها ونصل إلى أول عميل خلال 30 يومًا. ألعاب ومحاكيات وتمارين حية تشارك فيها من جوالك.',
+  heroImage: '',
+  footerName: 'حسين الحاجي',
+  footerBio: 'مدرب الدورة',
+  footerUrl: 'www.hussain-al-hajji.com',
+  linkedin: '', x: '', instagram: '', whatsapp: '', email: ''
+};
+  const DEFAULT_CONGRATS = {
+  emoji: '🏆',
+  title: 'تهنئة إنجاز',
+  paragraphs: ['نبارك لـ {{name}} إنجازه المتميز في برنامج «{{courseTitle}}».', 'لقد أتممت رحلة الدورة بجدية ومشاركة فاعلة، من اكتشاف السوق بالذكاء الاصطناعي حتى تصميم موظفك الذكي وخطة أول عميل خلال 30 يومًا.', 'نتمنى لك تطبيقًا موفقًا لما تعلمته في عملك القادم.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'حسين الحاجي، مدرب الدورة',
+  notice: 'تنبيه: ستختفي هذه التهنئة مع الأوسمة بعد ' + CONGRATS_DAYS_DEFAULT + ' أيام من انتهاء البرنامج. حمّلها الآن أو أرسلها إلى بريدك.'
+};
+  const DEFAULT_CERT = {
+  emoji: '🎓',
+  title: 'شهادة مشاركة',
+  paragraphs: ['يُشهد بأن {{name}} قد شارك في البرنامج التدريبي «{{courseTitle}}».', 'وقد استوفى متطلبات الحضور المعتمدة للبرنامج، متمنين له التوفيق في تطبيق ما اكتسبه من معارف ومهارات.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'مدرب البرنامج: حسين الحاجي',
+  notice: 'تُمنح شهادة المشاركة لمن يحضر 90% على الأقل من مدة البرنامج. حمّلها الآن واحتفظ بنسخة منها.'
+};
+  const DEFAULT_PDF = { enabled: true, coverTitle: '', coverSub: 'الملف المرجعي لشرائح الدورة', trainerName: 'حسين الحاجي', trainerRole: 'مدرب البرنامج', trainerBio: 'يقدّم برامج تطبيقية تفاعلية للشباب ورواد الأعمال في التجارة الإلكترونية والذكاء الاصطناعي.', trainerContact: 'www.hussain-al-hajji.com' };
+  const REG_DEFAULTS = {
+  name: { label: 'الاسم الكامل', type: 'text', required: true, visible: true, locked: true, ph: 'مثال: محمد عبدالله' },
+  role: { label: 'المسمى أو المجال', type: 'text', required: true, visible: true, ph: 'مثال: صاحب متجر إلكتروني / طالب / مسوّق' },
+  org: { label: 'اسم المتجر / الجهة', type: 'text', required: false, visible: false, ph: 'مثال: متجر نسمة' },
+  sector: { label: 'مجال متجرك أو اهتمامك', type: 'select', required: false, visible: false, options: ['أزياء وعبايات', 'عطور ومستحضرات', 'إلكترونيات وإكسسوارات', 'أغذية وقهوة', 'منتجات منزلية', 'منتجات رقمية وخدمات', 'أخرى'] },
+  stage: { label: 'مرحلتك في التجارة الإلكترونية', type: 'select', required: false, visible: false, options: ['أفكر في مشروع', 'متجر جديد (أقل من سنة)', 'متجر قائم (أكثر من سنة)', 'أعمل في شركة تجارة إلكترونية'] },
+  hasStore: { label: 'هل تستخدم أدوات الذكاء الاصطناعي حاليًا؟', type: 'select', required: false, visible: false, options: ['يوميًا', 'أحيانًا', 'نادرًا', 'لم أستخدمها بعد'] },
+  onlineSales: { label: 'منصة متجرك', type: 'select', required: false, visible: false, options: ['سلة', 'زد', 'Shopify', 'نون أو أمازون', 'وسائل التواصل فقط', 'لا يوجد متجر بعد'] },
+  email: { label: 'البريد الإلكتروني', type: 'email', required: false, visible: false, ph: 'name@example.com' },
+  phone: { label: 'رقم الجوال', type: 'tel', required: false, visible: false, ph: '+966' },
+  cr: { label: 'رقم السجل التجاري أو وثيقة العمل الحر', type: 'text', required: false, visible: false }
+};
+  const DEFAULT_PRIVACY = {
+  text: 'نجمع في هذه المنصة البيانات التي تدخلها عند التسجيل (الاسم والمسمى وبيانات المشروع وما تختاره من حقول اختيارية)، ومشاركاتك في التمارين والتقييمات، وسجل حضورك. نستخدمها فقط لإدارة الدورة التدريبية، وإصدار شهادة المشاركة، وقياس أثر التدريب وإعداد تقرير الختام للجهة المنظمة. لا نبيع بياناتك ولا نشاركها لأغراض تسويقية لطرف ثالث. تُحفظ البيانات في قاعدة بيانات سحابية (Google Firebase)، ويمكنك تعديل بياناتك أو حذفها بالكامل في أي وقت من صفحة «حسابي». نلتزم بمبادئ نظام حماية البيانات الشخصية في المملكة العربية السعودية.',
+  consent: 'قرأت إشعار الخصوصية وأوافق على معالجة بياناتي لأغراض الدورة',
+  followup: 'أوافق على التواصل معي بعد الدورة لقياس الأثر (بعد 30 و60 و90 يومًا) وبخصوص البرامج ذات الصلة'
+};
+  const ASSESS_AXIS = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9', 'a10', 'a11', 'a12', 'a13', 'a14', 'a15'];
+  const EN = {
+  course: 'AI Applications in E-commerce (5-session course)',
+  axes: { a1: 'What if you had an AI employee?', a2: 'How your AI employee thinks', a3: 'The art of prompting', a4: 'Market analyst: from trend to opportunity', a5: 'Competitors and the voice of the customer', a6: 'Testing the opportunity with numbers', a7: 'AI for content and marketing', a8: 'AI for customer service and sales', a9: 'Data and decisions', a10: 'From AI employee to Agent', a11: 'No-code automation', a12: 'Governance: privacy, security and ethics', a13: 'From using AI to building a venture', a14: 'From idea to first customer in 30 days', a15: 'Final challenge and one-minute pitch' },
+  assess: ['Problem before tool', 'How LLMs work', 'Prompt output format', 'Better market prompt', 'Review mining', 'Net profit per order', 'Feature vs benefit', 'Escalation to human', 'Conversion rate', 'Prompt or Agent', 'First automation', 'Anonymizing data', 'Opportunity equation', 'Customer interview', 'One-minute pitch'],
+  rates: ['Trainer knowledge & delivery', 'Content clarity & structure', 'Practical value for my project or work', 'Games & interactive exercises', 'Relevance to real e-commerce', 'Interactive platform & usability', 'Organisation & time management'],
+  fields: { sector: 'Store category', stage: 'E-commerce stage', hasStore: 'Current AI usage', onlineSales: 'Store platform' },
+  programs: []
+};
+  const EN_OPTIONS = {
+  'أزياء وعبايات': 'Fashion & abayas', 'عطور ومستحضرات': 'Fragrance & cosmetics', 'إلكترونيات وإكسسوارات': 'Electronics & accessories', 'أغذية وقهوة': 'Food & coffee', 'منتجات منزلية': 'Home products', 'منتجات رقمية وخدمات': 'Digital products & services', 'أخرى': 'Other',
+  'أفكر في مشروع': 'Considering a venture', 'متجر جديد (أقل من سنة)': 'New store (< 1 year)', 'متجر قائم (أكثر من سنة)': 'Established store (> 1 year)', 'أعمل في شركة تجارة إلكترونية': 'Work at an e-commerce company',
+  'يوميًا': 'Daily', 'أحيانًا': 'Sometimes', 'نادرًا': 'Rarely', 'لم أستخدمها بعد': 'Not yet',
+  'سلة': 'Salla', 'زد': 'Zid', 'Shopify': 'Shopify', 'نون أو أمازون': 'Noon or Amazon', 'وسائل التواصل فقط': 'Social media only', 'لا يوجد متجر بعد': 'No store yet'
+};
+  const TOOLS = [
+  { id: 'timesave', icon: '⏱️', title: 'كم يوفر لك موظفك الذكي؟', desc: 'أدخل مهمة متكررة: كم مرة تتكرر وكم تأخذ، لتعرف الوقت والمال الذي يوفره الذكاء الاصطناعي شهريًا.', axis: 'a3',
+    inputs: [['times', 'عدد مرات المهمة أسبوعيًا', 40], ['mins', 'دقائق المهمة يدويًا', 10], ['aimins', 'دقائق المهمة مع AI (مع المراجعة)', 3], ['rate', 'قيمة ساعتك بالريال', 60]],
+    calc: v => { const saved = Math.max(0, v.mins - v.aimins) * v.times * 4.3 / 60; return [['الوقت الموفّر شهريًا', fmt(saved, 1) + ' ساعة', 1], ['قيمة الوقت الموفّر', fmt(saved * v.rate) + ' ريال'], ['نسبة التوفير', fmt(v.mins ? (1 - v.aimins / v.mins) * 100 : 0, 0) + '%'], ['القراءة', saved >= 10 ? 'مهمة تستحق وكيلًا: ابدأ بتصميمه هذا الأسبوع' : saved >= 3 ? 'تستحق أمرًا جاهزًا تحفظه وتعيد استخدامه' : 'التوفير محدود؛ ابحث عن مهمة أكثر تكرارًا', 1]]; } },
+  { id: 'testcost', icon: '🧪', title: 'تكلفة اختبار المنتج قبل الطلب الكبير', desc: 'قبل أن تطلب كمية كبيرة، احسب تكلفة اختبار صغير ونقطة التعادل.', axis: 'a2',
+    inputs: [['qty', 'كمية الاختبار (قطعة)', 20], ['cost', 'تكلفة القطعة مع الشحن (ريال)', 45], ['price', 'سعر البيع (ريال)', 99], ['ads', 'ميزانية إعلان الاختبار (ريال)', 500], ['ret', 'نسبة المرتجعات المتوقعة %', 8]],
+    calc: v => { const total = v.qty * v.cost + v.ads; const margin = v.price * (1 - v.ret / 100) - v.cost; const be = margin > 0 ? Math.ceil(total / (v.price * (1 - v.ret / 100))) : Infinity; return [['إجمالي تكلفة الاختبار', fmt(total) + ' ريال', 1], ['ربح القطعة بعد المرتجعات', fmt(margin, 1) + ' ريال'], ['قطع البيع لاسترداد التكلفة', isFinite(be) ? fmt(be) + ' قطعة' : 'الهامش لا يغطي التكلفة'], ['القراءة', margin <= 0 ? 'الهامش سالب: راجع السعر أو المورد قبل أي اختبار' : be <= v.qty ? 'اختبار آمن: تسترد تكلفته قبل نفاد الكمية' : 'اختبار مكلف: قلل الإعلان أو الكمية', 1]]; } },
+  { id: 'idea', icon: '💡', title: 'مقياس الفكرة من 25', desc: 'قيّم فكرتك من 1 إلى 5 في المعايير الخمسة لتعرف هل تستحق التجربة الآن.', axis: 'a4',
+    inputs: [['real', 'مشكلة حقيقية (1-5)', 4], ['rep', 'تتكرر (1-5)', 4], ['ai', 'AI يضيف قيمة فعلية (1-5)', 3], ['cust', 'العميل واضح (1-5)', 4], ['test', 'يمكن اختبارها بسهولة (1-5)', 3]],
+    calc: v => { const t = v.real + v.rep + v.ai + v.cust + v.test; const low = [['المشكلة', v.real], ['التكرار', v.rep], ['قيمة AI', v.ai], ['وضوح العميل', v.cust], ['سهولة الاختبار', v.test]].sort((a, b) => a[1] - b[1])[0]; return [['المجموع', fmt(t) + ' / 25', 1], ['الحكم', t >= 21 ? '🔥 تستحق التجربة' : t >= 16 ? '🟡 تحتاج تضييق' : '🔴 فكرة جميلة، لكنها ليست مشروعًا بعد', 1], ['أضعف معيار', low[0] + ' (' + low[1] + ')'], ['خطوتك التالية', 'حسّن «' + low[0] + '» أولًا، ثم أعد التقييم']]; } },
+  { id: 'firstpay', icon: '💳', title: 'الطريق إلى أول عميل يدفع', desc: 'كم شخصًا تحتاج أن تقابل لتصل إلى عدد العملاء الذي تريده خلال 30 يومًا؟', axis: 'a5',
+    inputs: [['goal', 'عدد العملاء الدافعين المستهدف', 3], ['conv1', 'نسبة من يقبل التجربة بعد المقابلة %', 40], ['conv2', 'نسبة من يدفع بعد التجربة %', 30], ['price', 'السعر الشهري (ريال)', 99]],
+    calc: v => { const p1 = v.conv1 / 100, p2 = v.conv2 / 100; const trials = p2 > 0 ? Math.ceil(v.goal / p2) : Infinity; const meets = p1 > 0 && isFinite(trials) ? Math.ceil(trials / p1) : Infinity; return [['مقابلات تحتاجها', isFinite(meets) ? fmt(meets) + ' مقابلة' : 'غير ممكن', 1], ['تجارب تحتاجها', isFinite(trials) ? fmt(trials) + ' تجربة' : 'غير ممكن'], ['مقابلات أسبوعيًا', isFinite(meets) ? fmt(Math.ceil(meets / 4)) : 'غير ممكن'], ['الإيراد الشهري المتوقع', fmt(v.goal * v.price) + ' ريال', 1]]; } }
+];
+  const MATRIX_CRIT = ['مشكلة حقيقية', 'تتكرر', 'AI يضيف قيمة', 'العميل واضح', 'سهولة الاختبار'];
+  const MX_NAMES = ['الفكرة (أ)', 'الفكرة (ب)', 'الفكرة (ج)'];
+  const FU_ACTIONS = ['استخدمت أمرًا احترافيًا لاكتشاف فرص المنتجات أو تحليل المنافسين', 'تحققت من مصادر معلومة قدمها لي الذكاء الاصطناعي قبل الاعتماد عليها', 'صممت وكيلًا أو أمرًا جاهزًا لمهمة متكررة في عملي', 'قيّمت فكرة مشروع بالمعايير الخمسة من 25', 'قابلت عملاء محتملين وسألتهم عن الماضي والسلوك لا عن الرأي', 'جربت حلًا بسيطًا يدويًا مدعومًا بالذكاء الاصطناعي مع عميل حقيقي', 'حصلت على أول عميل يدفع أو التزام بتجربة مدفوعة'];
+  const DEFAULT_LANDING = {
+  hero: { kicker: 'دورة تفاعلية في خمس جلسات', title: '', sub: 'دورة تطبيقية تعلّمك كيف توظّف الذكاء الاصطناعي لاكتشاف السوق، وتبني وكلاء للمهام المتكررة، وتحوّل مشكلة حقيقية إلى مشروع، وتصل إلى أول عميل خلال 30 يومًا.', cta: 'الدخول للمنصة التعليمية', cta2: 'اكتشف الدورة' },
+  logos: { title: 'مفاهيم ستتقنها', items: 'الأمر الاحترافي\nإشارات السوق\nتحليل المنافسين\nAgent\nالصلاحيات والمراجعة\nمعادلة الفرصة\nMVP\nمقابلة العميل\nأول عميل يدفع' },
+  about: { kicker: 'نبذة عن الدورة', title: 'من استخدام الأداة إلى بناء القيمة', sub: 'صُممت الدورة للشباب ورواد الأعمال وأصحاب المتاجر. التطبيق قبل النظرية: كل مفهوم يتحول إلى لعبة أو محاكاة أو أمر جاهز تجربه فورًا.',
+    items: '🎯 | المشكلة أولًا | نبدأ من ألم تجاري حقيقي لا من أداة\n🎮 | ألعاب ومحاكيات | صياد الفرص، صمّم وكيلك، مصنع الأفكار، 30 يومًا\n📈 | يقيس أثره | تقييم قبلي وبعدي يكشف تقدمك بالأرقام' },
+  objectives: { kicker: 'أهداف الدورة', title: 'ماذا ستُتقن بنهاية الدورة؟', sub: '', items: '' },
+  features: { kicker: 'مزايا التجربة', title: 'تجربة تعلّم تفاعلية لا تشبه القاعات التقليدية', sub: 'منصة حية تعمل من جوالك طوال الدورة وبعدها.',
+    items: '⚡ | نتائج لحظية | صوّت واكتب وشاهد إجابات زملائك على شاشة القاعة\n🤖 | أوامر جاهزة للنسخ | أمر اكتشاف الفرص، وتعليمات الوكيل، وأمر مدير المشروع\n🧪 | مختبر ختامي | مشروع جماعي يجمع المحاور الأربعة\n🧮 | حاسبات وقوالب | تقييم الفكرة، تكلفة الاختبار، الوقت الموفّر\n🏅 | نقاط وأوسمة وشهادة | لوحة صدارة تحفيزية وشهادة مشاركة' },
+  content: { kicker: 'محتوى الدورة', title: 'خمس جلسات وخمسة عشر محورًا من الفرصة إلى العميل', sub: 'اختر محورًا لترى محتواه.' },
+  journey: { kicker: 'مراحل الرحلة', title: 'رحلتك خطوة بخطوة', sub: '',
+    items: '🧭 | التسجيل والتقييم القبلي | قِس نقطة انطلاقك بعشرة أسئلة\n🔎 | اكتشف | AI كموظف لاكتشاف السوق\n🤖 | وكّل | من موظف AI إلى Agent\n💡 | ابتكر واختبر | من الفكرة إلى أول عميل خلال 30 يومًا\n🏁 | التحدي النهائي والشهادة | صمّم موظفك الذكي واحصل على شهادتك' },
+  outcomes: { kicker: 'المخرجات', title: 'ماذا تأخذ معك بعد الدورة؟', sub: '',
+    items: '✍️ | أمر احترافي | لاكتشاف فرص المنتجات\n🤖 | بطاقة وكيل | تعليمات جاهزة لمهمة متكررة\n💡 | فكرة مقيّمة | من 25 بمعايير واضحة\n🗓️ | تجربة 7 أيام | وخطة 30 يومًا لأول عميل' },
+  audience: { kicker: 'لمن هذه الدورة؟', title: 'صُممت لمن يريد أن يبني بالذكاء الاصطناعي لا أن يتفرج عليه', sub: '',
+    items: '👤 | الشباب | الراغبون في بدء مشروع تجارة إلكترونية\n🏪 | أصحاب المتاجر | على سلة وزد وShopify\n📣 | المسوقون وخدمة العملاء | لتوظيف AI في عملهم اليومي\n🚀 | رواد الأعمال والمستقلون | لبناء خدمات يكون AI جزءًا من قيمتها' },
+  cta: { title: 'جاهز لتوظّف موظفك الذكي الأول؟', sub: 'سجّل خلال ثوانٍ باسمك ومسمّاك، وابدأ التمارين الحية مع زملائك.', cta: 'الدخول للمنصة التعليمية' }
+};
+  return Object.assign({ AXIS_COLORS, UNIT_NAMES, UNIT_KICKERS, UNIT_IDS, SPECIAL_UNIT, LAB_STAGE_MIN, ATTEND_DAYS_DEFAULT, ATTEND_HOURS_DEFAULT, CERT_THRESHOLD_DEFAULT, DEFAULT_SITE, DEFAULT_CONGRATS, DEFAULT_CERT, DEFAULT_PDF, REG_DEFAULTS, DEFAULT_PRIVACY, ASSESS_AXIS, EN, EN_OPTIONS, TOOLS, MATRIX_CRIT, MX_NAMES, FU_ACTIONS, DEFAULT_LANDING }, { theme: {"brand": "#5B45E0", "brand-2": "#FF6B35", "brand-3": "#FF6B35", "grad": "linear-gradient(120deg,#231C63 0%,#5B45E0 100%)", "grad-warm": "linear-gradient(120deg,#FF8A4C 0%,#FF5A2A 100%)", "bg": "#F5F4F9", "bg-dots": "#DEDBEB", "ink": "#211F33", "ink-2": "#4E4A70", "themeColor": "#5B45E0"}, meta: {"title": "تطبيقات الذكاء الاصطناعي في التجارة الإلكترونية", "short": "الذكاء الاصطناعي في التجارة الإلكترونية", "icon": "sparkles", "sessions": 5, "hours": 10} });
+})();
+/* ===== courses/b2b/cfg.js ===== */
+// إعدادات دورة «b2b» العامة (لا تحتوي المحتوى السري). مولَّد من tools/make_cfg.py
+COURSE_CFGS["b2b"] = (function () {
+  const AXIS_COLORS = ['#3A8697','#2F7385','#4A9DB0','#D99A00','#C58A00','#E6A800','#434A71','#545C8C','#343B5E','#4A4F5C','#6B6F7B','#2F333D','#2E8B83','#1F7A72','#3F8F66'];
+  const UNIT_NAMES = {1:'الهندسة الاستراتيجية لقراءة الحسابات المؤسسية B2B',2:'تصميم مسارات القيمة والعروض التجارية في علاقات B2B',3:'إدارة الحسابات والشركاء كمحرك للنمو',4:'التفاوض وإدارة القرار داخل الحساب المؤسسي',5:'إدارة أداء الحسابات المؤسسية والتحسين المستمر'};
+  const UNIT_KICKERS = {1:'الوحدة الأولى',2:'الوحدة الثانية',3:'الوحدة الثالثة',4:'الوحدة الرابعة',5:'الوحدة الخامسة'};
+  const UNIT_IDS = [1, 2, 3, 4, 5, 6];
+  const SPECIAL_UNIT = 6;
+  const LAB_STAGE_MIN = 10;
+  const ATTEND_DAYS_DEFAULT = 2;
+  const ATTEND_HOURS_DEFAULT = 4;
+  const CERT_THRESHOLD_DEFAULT = 90;
+  const DEFAULT_SITE = {
+  headerTitle: 'التميز في إدارة علاقات الأعمال بين الشركات',
+  headerSub: 'B2B · قطاع التجزئة · ورشة تفاعلية',
+  heroTitle: 'التميز في إدارة علاقات الأعمال بين الشركات',
+  heroDesc: 'رحلة من خمس وحدات: نقرأ الحساب المؤسسي كمنظومة، ونصمم مسارات القيمة والعروض، وندير الحسابات والشركاء للنمو، ونتقن التفاوض والقرار والاعتراضات، ثم نقيس ونحسّن باستمرار — بشرائح تفاعلية وتمارين حية ومحاكيات تشارك فيها من جوالك.',
+  heroImage: '',
+  footerName: 'حسين الحاجي',
+  footerBio: 'مدرب البرنامج',
+  footerUrl: 'www.hussain-al-hajji.com',
+  linkedin: '', x: '', instagram: '', whatsapp: '', email: ''
+};
+  const DEFAULT_CONGRATS = {
+  emoji: '🏆',
+  title: 'تهنئة إنجاز',
+  paragraphs: ['نبارك لـ {{name}} إنجازه المتميز في برنامج «{{courseTitle}}».', 'لقد أتممت رحلة التعلّم بجدية ومشاركة فاعلة، من قراءة الحساب المؤسسي حتى بناء منهجية التحسين المستمر.', 'نتمنى لك تطبيقًا موفقًا لما تعلمته في عملك القادم.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'حسين الحاجي — مدرب البرنامج',
+  notice: 'تنبيه: ستختفي هذه التهنئة مع الأوسمة بعد ' + CONGRATS_DAYS_DEFAULT + ' أيام من انتهاء البرنامج. حمّلها الآن أو أرسلها إلى بريدك.'
+};
+  const DEFAULT_CERT = {
+  emoji: '🎓',
+  title: 'شهادة مشاركة',
+  paragraphs: ['يُشهد بأن {{name}} قد شارك في البرنامج التدريبي «{{courseTitle}}».', 'وقد استوفى متطلبات الحضور المعتمدة للبرنامج، متمنين له التوفيق في تطبيق ما اكتسبه من معارف ومهارات.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'مدرب البرنامج: حسين الحاجي',
+  notice: 'تُمنح شهادة المشاركة لمن يحضر 90% على الأقل من مدة البرنامج. حمّلها الآن واحتفظ بنسخة منها.'
+};
+  const DEFAULT_PDF = { enabled: true, coverTitle: '', coverSub: 'الملف المرجعي لشرائح البرنامج', trainerName: 'حسين الحاجي', trainerRole: 'مدرب البرنامج', trainerBio: 'يقدّم برامج تطبيقية تفاعلية للشباب والعاملين في المبيعات وإدارة الحسابات.', trainerContact: 'www.hussain-al-hajji.com' };
+  const REG_DEFAULTS = {
+  name: { label: 'الاسم الكامل', type: 'text', required: true, visible: true, locked: true, ph: 'مثال: محمد عبدالله' },
+  role: { label: 'المجال / المسمى الوظيفي', type: 'text', required: true, visible: true, ph: 'مثال: مسؤول مبيعات / طالب' },
+  org: { label: 'اسم الشركة / الجهة', type: 'text', required: false, visible: false, ph: 'مثال: شركة الأفق' },
+  sector: { label: 'قطاع الجهة', type: 'select', required: false, visible: false, options: ['تجزئة ومنتجات استهلاكية', 'أغذية ومشروبات', 'أزياء وعطور ومستحضرات', 'خدمات وحجوزات', 'تقنية ومنتجات رقمية', 'صناعة وتوريد (B2B)', 'أخرى'] },
+  stage: { label: 'خبرتك في المبيعات وإدارة الحسابات', type: 'select', required: false, visible: false, options: ['طالب أو حديث التخرج', 'أقل من سنة', 'من 1 إلى 3 سنوات', 'أكثر من 3 سنوات'] },
+  hasStore: { label: 'هل تتعامل مع عملاء من الشركات؟', type: 'select', required: false, visible: false, options: ['نعم، بشكل يومي', 'أحيانًا', 'لا، أتعامل مع أفراد فقط', 'سأبدأ قريبًا'] },
+  onlineSales: { label: 'حجم الحسابات التي تتعامل معها عادة', type: 'select', required: false, visible: false, options: ['صغيرة (حتى 50 ألف ر.س سنويًا)', 'متوسطة (50–500 ألف)', 'كبيرة (أكثر من 500 ألف)', 'لا أعرف بعد'] },
+  email: { label: 'البريد الإلكتروني', type: 'email', required: false, visible: false, ph: 'name@example.com' },
+  phone: { label: 'رقم الجوال', type: 'tel', required: false, visible: false, ph: '+966' },
+  cr: { label: 'رقم السجل التجاري', type: 'text', required: false, visible: false }
+};
+  const DEFAULT_PRIVACY = {
+  text: 'نجمع في هذه المنصة البيانات التي تدخلها عند التسجيل (الاسم والمسمى وبيانات المشروع وما تختاره من حقول اختيارية)، ومشاركاتك في التمارين والتقييمات، وسجل حضورك. نستخدمها فقط لإدارة البرنامج التدريبي، وإصدار شهادة المشاركة، وقياس أثر التدريب وإعداد تقرير الختام للجهة المنظمة. لا نبيع بياناتك ولا نشاركها لأغراض تسويقية لطرف ثالث. تُحفظ البيانات في قاعدة بيانات سحابية (Google Firebase)، ويمكنك تعديل بياناتك أو حذفها بالكامل في أي وقت من صفحة «حسابي». نلتزم بمبادئ نظام حماية البيانات الشخصية في المملكة العربية السعودية.',
+  consent: 'قرأت إشعار الخصوصية وأوافق على معالجة بياناتي لأغراض البرنامج',
+  followup: 'أوافق على التواصل معي بعد البرنامج لقياس الأثر (بعد 30 و60 و90 يومًا) وبخصوص برامج الدعم ذات الصلة'
+};
+  const ASSESS_AXIS = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a9', 'a11', 'a15'];
+  const EN = {
+  course: 'Excellence in B2B Relationship Management',
+  axes: {}, // تُعرض العناوين العربية في التقرير الإنجليزي ما لم تُضف ترجمة هنا (a1: '...')
+  assess: ['Why a good meeting stalls', 'Roles in the account', 'From analysis to decision', 'Need vs value', 'Offer that leads to a decision', 'Acceptance vs adoption', 'Post-contract follow-up', 'Growth vs stability', 'Negotiating concessions', 'Continuous improvement'],
+  rates: ['Trainer knowledge & delivery', 'Content clarity & structure', 'Practical value for my work', 'Exercises & interactive activities', 'Relevance to real B2B accounts', 'Interactive platform & usability', 'Organisation & time management'],
+  fields: { sector: 'Business sector', stage: 'Sales experience', hasStore: 'Dealing with business clients', onlineSales: 'Typical account size' },
+  programs: []
+};
+  const EN_OPTIONS = {
+  'تجزئة ومنتجات استهلاكية': 'Retail & consumer goods', 'أغذية ومشروبات': 'Food & beverage', 'أزياء وعطور ومستحضرات': 'Fashion, fragrance & cosmetics', 'خدمات وحجوزات': 'Services & bookings', 'تقنية ومنتجات رقمية': 'Tech & digital products', 'صناعة وتوريد (B2B)': 'Manufacturing & supply (B2B)', 'أخرى': 'Other',
+  'طالب أو حديث التخرج': 'Student / fresh graduate', 'أقل من سنة': '< 1 year', 'من 1 إلى 3 سنوات': '1–3 years', 'أكثر من 3 سنوات': '> 3 years',
+  'نعم، بشكل يومي': 'Yes, daily', 'أحيانًا': 'Sometimes', 'لا، أتعامل مع أفراد فقط': 'No, individuals only', 'سأبدأ قريبًا': 'Starting soon',
+  'صغيرة (حتى 50 ألف ر.س سنويًا)': 'Small (up to SAR 50k/yr)', 'متوسطة (50–500 ألف)': 'Medium (50–500k)', 'كبيرة (أكثر من 500 ألف)': 'Large (> 500k)', 'لا أعرف بعد': 'Not sure yet'
+};
+  const TOOLS = [
+  { id: 'coverage', icon: '🗺️', title: 'تغطية الأطراف: هل غطّيت دائرة القرار؟', desc: 'أدخل عدد الأطراف المؤثرة في الحساب ومن تواصلت معه منهم، لتعرف نسبة التغطية ومستوى المخاطرة قبل العرض.', axis: 'a2',
+    inputs: [['total', 'عدد الأطراف المؤثرة في القرار', 8], ['met', 'من تواصلت معهم فعلًا', 3], ['supp', 'المؤيدون منهم', 2], ['opp', 'المعارضون أو المتحفظون', 1]],
+    calc: v => { const cov = v.total ? v.met / v.total * 100 : 0; const unk = Math.max(0, v.total - v.met); const risk = v.total ? (unk + v.opp) / v.total * 100 : 0; return [['نسبة التغطية', fmt(cov, 0) + '%', 1], ['أطراف لم أتواصل معها', fmt(unk)], ['نسبة المخاطرة (مجهول + معارض)', fmt(risk, 0) + '%'], ['القراءة', cov >= 80 ? 'تغطية جيدة، حافظ عليها' : cov >= 50 ? 'تغطية متوسطة: أدخل الأطراف الناقصة قبل العرض' : 'تغطية ضعيفة: أكبر خطر في الحساب هو من لم تعرفه بعد', 1]]; } },
+  { id: 'discount', icon: '⚖️', title: 'أثر الخصم: كم يجب أن تبيع لتعوّضه؟', desc: 'قبل أن تتنازل في السعر، احسب حجم الزيادة التي تحتاجها لتحافظ على الربح نفسه.', axis: 'a11',
+    inputs: [['price', 'سعر العقد الحالي (ر.س)', 100000], ['cost', 'تكلفة التنفيذ % من السعر', 60], ['disc', 'الخصم المطلوب %', 15]],
+    calc: v => { const m0 = v.price * (1 - v.cost / 100); const p1 = v.price * (1 - v.disc / 100); const m1 = p1 - v.price * v.cost / 100; const mult = m1 > 0 ? m0 / m1 : Infinity; return [['هامش الربح قبل الخصم', fmt(m0) + ' ر.س'], ['هامش الربح بعد الخصم', fmt(m1) + ' ر.س'], ['انخفاض الربح', fmt(m0 ? (m0 - m1) / m0 * 100 : 0, 1) + '%'], ['حجم العمل المطلوب لتعويض الخصم', isFinite(mult) ? fmt(mult, 2) + '×' : 'لا يمكن التعويض', 1], ['القراءة', isFinite(mult) ? 'كل ' + fmt(v.disc, 0) + '% خصم يتطلب زيادة ' + fmt((mult - 1) * 100, 0) + '% في حجم العمل لتبقى مكانك' : 'الخصم يلغي الربح كليًا', 1]]; } },
+  { id: 'lifetime', icon: '💎', title: 'القيمة الدائمة للحساب مقابل الصفقة الواحدة', desc: 'كم يساوي الحساب الذي تديره جيدًا على مدى سنوات؟ قارن بصفقة وحيدة.', axis: 'a7',
+    inputs: [['annual', 'قيمة العقد السنوي (ر.س)', 120000], ['years', 'مدة العلاقة (سنوات)', 4], ['growth', 'نمو سنوي بالتوسع %', 10], ['margin', 'هامش الربح %', 30], ['retain', 'احتمال التجديد كل سنة %', 85]],
+    calc: v => { let total = 0, cur = v.annual, pr = 1; for (let i = 0; i < Math.max(0, Math.round(v.years)); i++) { total += cur * pr; cur *= 1 + v.growth / 100; pr *= v.retain / 100; } const profit = total * v.margin / 100; return [['صفقة واحدة (سنة)', fmt(v.annual) + ' ر.س'], ['القيمة المتوقعة للحساب', fmt(total) + ' ر.س', 1], ['الربح المتوقع', fmt(profit) + ' ر.س'], ['الحساب = كم صفقة؟', fmt(v.annual ? total / v.annual : 0, 1) + '×', 1]]; } },
+  { id: 'health', icon: '🩺', title: 'مؤشر صحة الحساب', desc: 'قيّم الحساب من 1 إلى 5 في أربعة أبعاد، لتحصل على مؤشر واحد وإشارة تحذير مبكر.', axis: 'a13',
+    inputs: [['eng', 'التفاعل (1-5)', 3], ['sat', 'الرضا (1-5)', 4], ['exp', 'التوسع (1-5)', 2], ['stab', 'استقرار العلاقة (1-5)', 4]],
+    calc: v => { const sc = (v.eng + v.sat + v.exp + v.stab) / 20 * 100; const low = [['التفاعل', v.eng], ['الرضا', v.sat], ['التوسع', v.exp], ['الاستقرار', v.stab]].sort((a, b) => a[1] - b[1])[0]; return [['مؤشر الصحة', fmt(sc, 0) + '%', 1], ['الحالة', sc >= 75 ? 'حساب صحي 💚' : sc >= 50 ? 'يحتاج انتباهًا 🟡' : 'في خطر 🔴', 1], ['أضعف بُعد', low[0] + ' (' + low[1] + ')'], ['خطوتك التالية', 'ضع قرار تحسين محددًا لبُعد «' + low[0] + '» (من؟ متى؟ كيف نقيس؟)']]; } },
+  { id: 'cycle', icon: '⏳', title: 'تقدير دورة القرار وموعد المتابعة', desc: 'قدّر طول دورة قرار الحساب وفق مراحلها لتخطّط توقيت متابعاتك ولا تضغط مبكرًا.', axis: 'a10',
+    inputs: [['tech', 'التقييم الفني (أسابيع)', 3], ['fin', 'الاعتماد المالي (أسابيع)', 3], ['mgmt', 'الموافقة الإدارية (أسابيع)', 2], ['proc', 'المشتريات والإجراءات (أسابيع)', 4]],
+    calc: v => { const t = v.tech + v.fin + v.mgmt + v.proc; return [['الدورة المتوقعة', fmt(t) + ' أسبوعًا', 1], ['أطول بوابة', [['التقييم الفني', v.tech], ['الاعتماد المالي', v.fin], ['الموافقة الإدارية', v.mgmt], ['المشتريات', v.proc]].sort((a, b) => b[1] - a[1])[0][0]], ['موعد أول مراجعة للمسار', 'بعد ' + fmt(Math.max(1, Math.round(t / 3))) + ' أسابيع'], ['ملاحظة', 'ابدأ بإدخال المشتريات مبكرًا؛ هي غالبًا ما تُضيف المفاجآت في آخر المسار']]; } }
+];
+  const MATRIX_CRIT = ['حجم الفرصة', 'قرب الاعتماد', 'وضوح القيمة', 'جاهزية الأطراف', 'الأهمية الاستراتيجية'];
+  const MX_NAMES = ['الحساب (أ)', 'الحساب (ب)', 'الحساب (ج)'];
+  const FU_ACTIONS = ['رسمت خريطة أصحاب المصلحة لحساب حقيقي وحددت الأطراف غير المُدارة', 'صغت جملة قيمة واضحة بدل قائمة ميزات', 'أعدت تصميم عرض ليقود إلى قرار ويخاطب أكثر من طرف', 'أضفت خطة تبنٍّ أو أول 90 يومًا إلى عرض أو اتفاق', 'نظّمت متابعة دورية هادفة لحساب بعد التعاقد', 'اختبرت تنازلًا قبل قبوله وربطته بمقابل', 'عالجت اعتراضًا بالفهم والتفسير بدل الدفاع', 'بدأت دورة تحسين بمؤشرات وسجل قرارات'];
+  const DEFAULT_LANDING = {
+  hero: { kicker: 'برنامج تدريبي تفاعلي', title: '', sub: 'برنامج تطبيقي يعلّمك كيف تقرأ الحسابات المؤسسية، وتصمم عروضًا تقود إلى القرار، وتدير الشركاء والتفاوض والاعتراضات، ثم تقيس وتحسّن باستمرار — في قطاع التجزئة.', cta: 'الدخول للمنصة التعليمية', cta2: 'اكتشف البرنامج' },
+  logos: { title: 'مفاهيم ستتقنها', items: 'خريطة التأثير\nمسار القيمة\nالعرض المتكامل\nخطة التبني\nإدارة الحساب\nالتفاوض\nإدارة الاعتراضات\nمؤشرات الأداء\nالتحسين المستمر' },
+  about: { kicker: 'نبذة عن البرنامج', title: 'من عميل واحد… إلى منظومة كاملة', sub: 'صُمّم البرنامج للشباب والعاملين في المبيعات وإدارة الحسابات. يركّز على التطبيق قبل النظرية: كل مفهوم يتحول إلى تمرين حي أو محاكاة أو قرار على حالة واقعية.',
+    items: '🎯 | تطبيقي أولًا | عروض قصيرة يتبعها تطبيق فوري على حالات حقيقية\n🎮 | تفاعلي وممتع | تصويت وجدار أفكار وسباقات ومحاكيات\n📈 | يقيس أثره | تقييم قبلي وبعدي يكشف مقدار تقدمك بالأرقام' },
+  objectives: { kicker: 'أهداف البرنامج', title: 'ماذا ستُتقن بنهاية البرنامج؟', sub: '', items: '' },
+  features: { kicker: 'مزايا التجربة', title: 'تجربة تعلّم تفاعلية لا تشبه القاعات التقليدية', sub: 'منصة تعليمية حية تعمل من جوالك طوال البرنامج وبعده.',
+    items: '⚡ | تمارين حية ونتائج لحظية | صوّت واكتب وشاهد إجابات زملائك على شاشة القاعة\n🛠️ | محاكيات قرار | غرفة التفاوض، محاكي الاعتراضات، خطة التبني\n🧪 | مختبر ختامي | مشروع جماعي يجمع كل المحاور في خطة واحدة\n🧮 | حاسبات وقوالب جاهزة | تغطية الأطراف، أثر الخصم، صحة الحساب\n🏅 | نقاط وأوسمة وشهادة | لوحة صدارة تحفيزية وشهادة مشاركة' },
+  content: { kicker: 'محتوى البرنامج', title: 'وحدات مترابطة تغطي رحلة الحساب كاملة', sub: 'اختر وحدة لترى محاورها.' },
+  journey: { kicker: 'مراحل الرحلة', title: 'رحلتك خطوة بخطوة', sub: '',
+    items: '🧭 | التسجيل والتقييم القبلي | قِس نقطة انطلاقك بعشرة أسئلة\n🏗️ | اليوم الأول | قراءة الحسابات، القيمة، العروض\n🚀 | اليوم الثاني | الإدارة والنمو، التفاوض، الأداء\n🧪 | المختبر الختامي | فرق تبني خطة حساب متكاملة\n🏁 | التقييم البعدي والشهادة | قِس تقدمك واحصل على شهادتك' },
+  outcomes: { kicker: 'المخرجات', title: 'ماذا تأخذ معك بعد البرنامج؟', sub: '',
+    items: '🗺️ | خريطة تأثير | لحساب حقيقي تعرفه\n💎 | جملة قيمة وهيكل عرض | جاهز للاستخدام\n🛤️ | خطة تبنٍّ 90 يومًا | بمسؤولين ومؤشرات\n📄 | خطة عمل شخصية PDF | تلخّص ما التزمت به' },
+  audience: { kicker: 'لمن هذا البرنامج؟', title: 'صُمّم لمن يريد أن يتقن العمل مع الشركات', sub: '',
+    items: '👤 | الشباب الراغبون في المبيعات | بداية قوية في عالم B2B\n💼 | العاملون في المبيعات والحسابات | لتطوير أسلوبهم\n🤝 | رواد الأعمال | لبيع خدماتهم للشركات\n🏪 | فرق التجزئة والتوريد | لإدارة الشراكات' },
+  cta: { title: 'جاهز لتتقن علاقات الأعمال؟', sub: 'سجّل خلال ثوانٍ باسمك، وابدأ التمارين الحية مع زملائك.', cta: 'الدخول للمنصة التعليمية' }
+};
+  return Object.assign({ AXIS_COLORS, UNIT_NAMES, UNIT_KICKERS, UNIT_IDS, SPECIAL_UNIT, LAB_STAGE_MIN, ATTEND_DAYS_DEFAULT, ATTEND_HOURS_DEFAULT, CERT_THRESHOLD_DEFAULT, DEFAULT_SITE, DEFAULT_CONGRATS, DEFAULT_CERT, DEFAULT_PDF, REG_DEFAULTS, DEFAULT_PRIVACY, ASSESS_AXIS, EN, EN_OPTIONS, TOOLS, MATRIX_CRIT, MX_NAMES, FU_ACTIONS, DEFAULT_LANDING }, { theme: {"brand": "#4091A1", "brand-2": "#F3B300", "brand-3": "#F3B300", "grad": "linear-gradient(120deg,#434A71 0%,#4091A1 100%)", "grad-warm": "linear-gradient(120deg,#F3B300 0%,#E39E00 100%)", "bg": "#F4F7F9", "bg-dots": "#DCE6EA", "ink": "#1F2433", "ink-2": "#4A5470", "themeColor": "#4091A1"}, meta: {"title": "التميز في إدارة علاقات الأعمال بين الشركات B2B", "short": "علاقات الأعمال B2B", "icon": "users", "sessions": 2, "hours": 12} });
+})();
+/* ===== courses/phone/cfg.js ===== */
+// إعدادات دورة «phone» العامة (لا تحتوي المحتوى السري). مولَّد من tools/make_cfg.py
+COURSE_CFGS["phone"] = (function () {
+  const AXIS_COLORS = ['#0093A8','#00827F','#1F7E9E','#F58220','#D9670B','#E8960C','#3B4677','#56639E','#2B3360','#00A653','#008C45','#2E9E6B','#C98A00','#0B7A8C','#1F9E8F','#F5A300'];
+  const UNIT_NAMES = {1:'فهم سلوك المستخدم وبناء تجربة شراء فعّالة',2:'إدارة التسويق داخل تطبيقات التجارة عبر الهاتف المحمول وربطه بسلوك المستخدم',3:'تصميم بنية التطبيق وتنظيم المحتوى لرفع كفاءة التحويل',4:'تحسين تجربة الدفع وتعزيز الثقة لرفع معدل الإتمام',5:'إدارة وتحسين أداء تطبيقات التجارة عبر الهاتف المحمول بشكل مستمر',6:'الذكاء الاصطناعي والتجارة عبر الهاتف المحمول'};
+  const UNIT_KICKERS = {1:'الوحدة الأولى',2:'الوحدة الثانية',3:'الوحدة الثالثة',4:'الوحدة الرابعة',5:'الوحدة الخامسة',6:'فصل خاص'};
+  const UNIT_IDS = [1, 2, 3, 4, 5, 6];
+  const SPECIAL_UNIT = 6;
+  const LAB_STAGE_MIN = 10;
+  const ATTEND_DAYS_DEFAULT = 2;
+  const ATTEND_HOURS_DEFAULT = 4;
+  const CERT_THRESHOLD_DEFAULT = 90;
+  const DEFAULT_SITE = {
+  headerTitle: 'التحول التجاري عبر الهاتف المحمول',
+  headerSub: 'ورشة تفاعلية مباشرة',
+  heroTitle: 'التحول التجاري عبر الهاتف المحمول',
+  heroDesc: 'رحلة من خمس وحدات مترابطة: نفهم المستخدم، ثم نتعلم كيف نؤثر في سلوكه، ونصمم البيئة التي يتحرك داخلها، ونزيل عوائق الدفع ونبني الثقة، ثم نقرأ البيانات ونحسّن باستمرار — مع شرائح تفاعلية وتمارين حية تشارك فيها من جوالك.',
+  heroImage: '',
+  footerName: 'حسين الحاجي',
+  footerBio: 'مدرب التجارة الإلكترونية والعمل الحر عبر الإنترنت، متخصص في العمل مع الشباب',
+  footerUrl: 'www.hussain-al-hajji.com',
+  linkedin: '', x: '', instagram: '', whatsapp: '', email: ''
+};
+  const DEFAULT_CONGRATS = {
+  emoji: '🏆',
+  title: 'تهنئة إنجاز',
+  paragraphs: ['نبارك لـ {{name}} إنجازه المتميز في برنامج «{{courseTitle}}».', 'لقد أتممت رحلة التعلّم بجدية ومشاركة فاعلة، من فهم سلوك المستخدم حتى بناء منهجية التحسين المستمر.', 'نتمنى لك تطبيقًا موفقًا لما تعلمته في عملك القادم.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'حسين الحاجي — مدرب البرنامج',
+  notice: 'تنبيه: ستختفي هذه التهنئة مع الأوسمة بعد ' + CONGRATS_DAYS_DEFAULT + ' أيام من انتهاء البرنامج. حمّلها الآن أو أرسلها إلى بريدك.'
+};
+  const DEFAULT_CERT = {
+  emoji: '🎓',
+  title: 'شهادة مشاركة',
+  paragraphs: ['يُشهد بأن {{name}} قد شارك في البرنامج التدريبي «{{courseTitle}}».', 'وقد استوفى متطلبات الحضور المعتمدة للبرنامج، متمنين له التوفيق في تطبيق ما اكتسبه من معارف ومهارات.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'مدرب البرنامج: حسين الحاجي',
+  notice: 'تُمنح شهادة المشاركة لمن يحضر 90% على الأقل من مدة البرنامج. حمّلها الآن واحتفظ بنسخة منها.'
+};
+  const DEFAULT_PDF = { enabled: true, coverTitle: '', coverSub: 'الملف المرجعي لشرائح البرنامج', trainerName: 'حسين الحاجي', trainerRole: 'مدرب التجارة الإلكترونية والعمل الحر عبر الإنترنت', trainerBio: 'متخصص في العمل مع الشباب، ويقدّم برامج تطبيقية في التجارة الإلكترونية والتحول الرقمي للأعمال.', trainerContact: 'www.hussain-al-hajji.com' };
+  const REG_DEFAULTS = {
+  name: { label: 'الاسم الكامل', type: 'text', required: true, visible: true, locked: true, ph: 'مثال: محمد عبدالله' },
+  role: { label: 'المجال / المسمى الوظيفي', type: 'text', required: true, visible: true, ph: 'مثال: مسؤول تسويق إلكتروني' },
+  org: { label: 'اسم المشروع / الشركة', type: 'text', required: false, visible: false, ph: 'مثال: سوق الجيب' },
+  sector: { label: 'قطاع المشروع', type: 'select', required: false, visible: false, options: ['تجزئة ومنتجات استهلاكية', 'أغذية ومشروبات', 'أزياء وعطور ومستحضرات', 'خدمات وحجوزات', 'تقنية ومنتجات رقمية', 'صناعة وتوريد (B2B)', 'أخرى'] },
+  stage: { label: 'مرحلة المشروع', type: 'select', required: false, visible: false, options: ['فكرة لم تنطلق بعد', 'مشروع قائم دون بيع إلكتروني', 'بدأت البيع إلكترونيًا منذ أقل من سنة', 'متجر إلكتروني قائم يسعى للتوسع'] },
+  hasStore: { label: 'هل لديك قناة بيع إلكترونية؟', type: 'select', required: false, visible: false, options: ['متجر إلكتروني خاص', 'سوق إلكتروني (مثل Noon أو Amazon)', 'وسائل التواصل وواتساب فقط', 'أكثر من قناة', 'لا يوجد بعد'] },
+  onlineSales: { label: 'نسبة المبيعات الإلكترونية من إجمالي المبيعات', type: 'select', required: false, visible: false, options: ['لا توجد مبيعات إلكترونية', 'أقل من 10%', '10% – 30%', '30% – 60%', 'أكثر من 60%'] },
+  email: { label: 'البريد الإلكتروني', type: 'email', required: false, visible: false, ph: 'name@example.com' },
+  phone: { label: 'رقم الجوال', type: 'tel', required: false, visible: false, ph: '+966' },
+  cr: { label: 'رقم السجل التجاري', type: 'text', required: false, visible: false }
+};
+  const DEFAULT_PRIVACY = {
+  text: 'نجمع في هذه المنصة البيانات التي تدخلها عند التسجيل (الاسم والمسمى وبيانات المشروع وما تختاره من حقول اختيارية)، ومشاركاتك في التمارين والتقييمات، وسجل حضورك. نستخدمها فقط لإدارة البرنامج التدريبي، وإصدار شهادة المشاركة، وقياس أثر التدريب وإعداد تقرير الختام للجهة المنظمة. لا نبيع بياناتك ولا نشاركها لأغراض تسويقية لطرف ثالث. تُحفظ البيانات في قاعدة بيانات سحابية (Google Firebase)، ويمكنك تعديل بياناتك أو حذفها بالكامل في أي وقت من صفحة «حسابي». نلتزم بمبادئ نظام حماية البيانات الشخصية في المملكة العربية السعودية.',
+  consent: 'قرأت إشعار الخصوصية وأوافق على معالجة بياناتي لأغراض البرنامج',
+  followup: 'أوافق على التواصل معي بعد البرنامج لقياس الأثر (بعد 30 و60 و90 يومًا) وبخصوص برامج الدعم ذات الصلة'
+};
+  const ASSESS_AXIS = ['a1', 'a4', 'a6', 'a7', 'a9', 'a12', 'a11', 'a13', 'a15', 'a16'];
+  const EN = {
+  course: 'Mobile Commerce Transformation',
+  axes: {}, // تُعرض العناوين العربية في التقرير الإنجليزي ما لم تُضف ترجمة هنا (a1: '...')
+  assess: ['Why interested users leave', 'Timing of in-app messages', 'Reach vs engagement vs conversion', 'App structure vs visual design', 'Reading the funnel drop-off', 'Last-minute checkout surprises', 'Ease of use vs trust', 'Reading metrics in context', 'One change at a time', 'Human review of AI output'],
+  rates: ['Trainer knowledge & delivery', 'Content clarity & structure', 'Practical value for my work', 'Exercises & interactive activities', 'Relevance to mobile apps & stores', 'Interactive platform & usability', 'Organisation & time management'],
+  fields: { sector: 'Business sector', stage: 'Business stage', hasStore: 'Online sales channel', onlineSales: 'Share of online sales' },
+  programs: []
+};
+  const EN_OPTIONS = {
+  'تجزئة ومنتجات استهلاكية': 'Retail & consumer goods', 'أغذية ومشروبات': 'Food & beverage', 'أزياء وعطور ومستحضرات': 'Fashion, fragrance & cosmetics', 'خدمات وحجوزات': 'Services & bookings', 'تقنية ومنتجات رقمية': 'Tech & digital products', 'صناعة وتوريد (B2B)': 'Manufacturing & supply (B2B)', 'أخرى': 'Other',
+  'فكرة لم تنطلق بعد': 'Idea stage', 'مشروع قائم دون بيع إلكتروني': 'Operating, no online sales', 'بدأت البيع إلكترونيًا منذ أقل من سنة': 'Selling online < 1 year', 'متجر إلكتروني قائم يسعى للتوسع': 'Established store seeking scale',
+  'متجر إلكتروني خاص': 'Own online store', 'سوق إلكتروني (مثل Noon أو Amazon)': 'Marketplace (e.g. Noon, Amazon)', 'وسائل التواصل وواتساب فقط': 'Social media & WhatsApp only', 'أكثر من قناة': 'Multiple channels', 'لا يوجد بعد': 'None yet',
+  'لا توجد مبيعات إلكترونية': 'No online sales', 'أقل من 10%': '< 10%', '10% – 30%': '10% – 30%', '30% – 60%': '30% – 60%', 'أكثر من 60%': '> 60%'
+};
+  const TOOLS = [
+  { id: 'funnel', icon: '🧭', title: 'قمع الرحلة: أين يتسرب المستخدمون؟', desc: 'أدخل أعداد كل مرحلة لتعرف نسب الانتقال وأكبر نقطة فقد تستحق التحقيق أولًا.', axis: 'a9',
+    inputs: [['visits', 'الزيارات / فتح التطبيق', 40000], ['views', 'مشاهدة منتج', 18000], ['carts', 'إضافة للسلة', 5200], ['checkout', 'بدء الدفع', 3100], ['orders', 'طلبات مكتملة', 1150]],
+    calc: v => { const st = [['الزيارة ← المشاهدة', v.visits, v.views], ['المشاهدة ← السلة', v.views, v.carts], ['السلة ← الدفع', v.carts, v.checkout], ['الدفع ← الإتمام', v.checkout, v.orders]].map(([l, a, b]) => [l, a ? b / a * 100 : 0]); const worst = st.slice().sort((a, b) => a[1] - b[1])[0]; return st.map(([l, r]) => [l, fmt(r, 1) + '%']).concat([['التحويل الكلي', fmt(v.visits ? v.orders / v.visits * 100 : 0, 2) + '%', 1], ['أكبر نقطة فقد', worst ? worst[0] + ' (يعبر ' + fmt(worst[1], 1) + '% فقط)' : '—', 1]]); } },
+  { id: 'uplift', icon: '📈', title: 'أثر تحسين التحويل على الإيرادات', desc: 'كم يساوي تحسين بسيط في نسبة الإتمام؟ قبل أن تزيد الإعلانات، احسب قيمة إزالة الاحتكاك.', axis: 'a15',
+    inputs: [['sessions', 'الجلسات شهريًا', 60000], ['conv', 'نسبة التحويل الحالية %', 1.8], ['aov', 'متوسط قيمة الطلب (ر.س)', 180], ['gain', 'التحسين المتوقع في التحويل (نقطة مئوية)', 0.3]],
+    calc: v => { const base = v.sessions * v.conv / 100, after = v.sessions * (v.conv + v.gain) / 100; const extra = (after - base) * v.aov; const rel = v.conv ? v.gain / v.conv * 100 : 0; return [['الطلبات شهريًا الآن', fmt(base)], ['الطلبات بعد التحسين', fmt(after)], ['نمو نسبي في الطلبات', fmt(rel, 1) + '%'], ['إيراد إضافي شهريًا', fmt(extra) + ' ر.س', 1], ['إيراد إضافي سنويًا', fmt(extra * 12) + ' ر.س', 1]]; } },
+  { id: 'inapp', icon: '💬', title: 'أداء رسالة داخل التطبيق', desc: 'الوصول ≠ التفاعل ≠ التحويل: اقرأ الرسالة من الظهور حتى الشراء.', axis: 'a6',
+    inputs: [['reach', 'عدد من ظهرت لهم الرسالة', 50000], ['clicks', 'النقرات', 900], ['buyers', 'المشترون بعد النقر', 45], ['rev', 'الإيراد من المشترين (ر.س)', 8100], ['cost', 'تكلفة الحملة أو الخصم (ر.س)', 1500]],
+    calc: v => { const ctr = v.reach ? v.clicks / v.reach * 100 : 0, cvr = v.clicks ? v.buyers / v.clicks * 100 : 0, all = v.reach ? v.buyers / v.reach * 100 : 0; const roi = v.cost ? (v.rev - v.cost) / v.cost * 100 : 0; return [['نسبة النقر CTR', fmt(ctr, 2) + '%'], ['التحويل بعد النقر', fmt(cvr, 1) + '%'], ['التحويل من إجمالي الوصول', fmt(all, 3) + '%'], ['الإيراد لكل 1000 وصول', fmt(v.reach ? v.rev / v.reach * 1000 : 0, 1) + ' ر.س', 1], ['العائد على التكلفة', fmt(roi) + '%', 1], ['القراءة', ctr < 1 ? '⚠️ التفاعل ضعيف: راجع ملاءمة الرسالة وتوقيتها' : cvr < 3 ? '⚠️ النقر جيد لكن الوجهة لا تُكمل الوعد' : '✅ الرسالة والوجهة متسقتان', 1]]; } },
+  { id: 'gateways', icon: '💳', title: 'مقارنة رسوم بوابتي دفع', desc: 'قارن التكلفة الفعلية على طلبك النموذجي وأثر مدة التسوية على سيولتك.', axis: 'a10',
+    inputs: [['aov', 'متوسط قيمة الطلب (ر.س)', 200], ['orders', 'الطلبات شهريًا', 300], ['pa', 'البوابة (أ): النسبة %', 2.5], ['fa', 'البوابة (أ): رسم ثابت لكل عملية (ر.س)', 1], ['da', 'البوابة (أ): مدة التسوية (أيام)', 7], ['pb', 'البوابة (ب): النسبة %', 2], ['fb', 'البوابة (ب): رسم ثابت لكل عملية (ر.س)', 2], ['db', 'البوابة (ب): مدة التسوية (أيام)', 2]],
+    calc: v => { const ca = v.aov * v.pa / 100 + v.fa, cb = v.aov * v.pb / 100 + v.fb; const monthly = v.orders * v.aov; const tied = d => monthly / 30 * d; return [['تكلفة الطلب: البوابة (أ)', fmt(ca, 2) + ' ر.س'], ['تكلفة الطلب: البوابة (ب)', fmt(cb, 2) + ' ر.س'], ['الفرق الشهري', fmt(Math.abs(ca - cb) * v.orders) + ' ر.س لصالح ' + (ca <= cb ? '(أ)' : '(ب)'), 1], ['مال محتجز بانتظار التسوية (أ)', fmt(tied(v.da)) + ' ر.س'], ['مال محتجز بانتظار التسوية (ب)', fmt(tied(v.db)) + ' ر.س', 1]]; } },
+  { id: 'marketing', icon: '📣', title: 'تكلفة الاستحواذ والقيمة الدائمة والعائد', desc: 'هل تربح من إعلاناتك فعلًا على المدى الطويل؟', axis: 'a5',
+    inputs: [['spend', 'الإنفاق الإعلاني (ر.س)', 3000], ['newC', 'العملاء الجدد', 60], ['rev', 'الإيرادات من الحملة (ر.س)', 12000], ['aov', 'متوسط قيمة الطلب (ر.س)', 200], ['freq', 'مرات الشراء سنويًا', 4], ['years', 'مدة العلاقة (سنوات)', 2], ['margin', 'هامش الربح %', 30]],
+    calc: v => { const cac = v.newC ? v.spend / v.newC : 0; const clv = v.aov * v.freq * v.years * v.margin / 100; const roas = v.spend ? v.rev / v.spend : 0; const ratio = cac ? clv / cac : 0; return [['تكلفة الاستحواذ CAC', fmt(cac, 1) + ' ر.س'], ['العائد على الإنفاق ROAS', fmt(roas, 2)], ['القيمة الدائمة للعميل CLV', fmt(clv) + ' ر.س'], ['نسبة CLV إلى CAC', fmt(ratio, 1) + ' : 1', 1], ['الحكم', ratio >= 3 ? '✅ علاقة صحية' : ratio >= 1 ? '⚠️ مقبولة لكن حسّن الاحتفاظ' : '❌ كل عميل جديد يخسرك', 1]]; } },
+  { id: 'breakeven', icon: '⚖️', title: 'سعر التعادل وهامش الربح', desc: 'أقل سعر تبيع به دون خسارة، والسعر المطلوب لهامشك المستهدف.', axis: 'a12',
+    inputs: [['cost', 'تكلفة المنتج (ر.س)', 60], ['ship', 'الشحن والتغليف لكل طلب (ر.س)', 18], ['fees', 'رسوم الدفع والعمولة %', 3], ['mkt', 'التسويق لكل طلب (ر.س)', 20], ['target', 'هامش الربح الصافي المستهدف %', 20], ['price', 'سعرك الحالي (ر.س)', 150]],
+    calc: v => { const fixed = v.cost + v.ship + v.mkt; const be = fixed / Math.max(0.01, 1 - v.fees / 100); const tgt = fixed / Math.max(0.01, 1 - v.fees / 100 - v.target / 100); const net = v.price - fixed - v.price * v.fees / 100; return [['سعر التعادل', fmt(be, 1) + ' ر.س', 1], ['السعر لتحقيق الهامش المستهدف', fmt(tgt, 1) + ' ر.س', 1], ['صافي ربحك بالسعر الحالي', fmt(net, 1) + ' ر.س (' + fmt(v.price ? net / v.price * 100 : 0, 1) + '%)']]; } }
+];
+  const MATRIX_CRIT = ['قابلية التوسع', 'التكلفة الإجمالية', 'ملاءمة القطاع', 'الوصول للسوق', 'سهولة التشغيل'];
+  const MX_NAMES = ['الخيار الأول', 'الخيار الثاني', 'الخيار الثالث'];
+  const FU_ACTIONS = ['دقّقت رحلة المستخدم في تطبيق أو متجر وحددت نقاط الاحتكاك', 'أزلت خطوة أو معلومة كانت تربك المستخدم', 'صممت رسالة داخل التطبيق مرتبطة بسلوك وتوقيت محددين', 'حسّنت بنية التطبيق أو صفحة المنتج أو مسار التنقل', 'أزلت مفاجأة من مرحلة الدفع أو أضفت ما يطمئن المستخدم', 'بدأت متابعة مؤشرات الرحلة والتحويل أسبوعيًا', 'اختبرت تغييرًا واحدًا بفرضية ومؤشر واضحين', 'استخدمت الذكاء الاصطناعي في مهمة مع مراجعة بشرية']
+const FU_SALES = ['انخفضت', 'لم تتغير', 'زادت حتى 10%', 'زادت 10% – 30%', 'زادت أكثر من 30%', 'لا أستطيع التقدير بعد'];
+  const DEFAULT_LANDING = {
+  hero: { kicker: 'برنامج تدريبي تفاعلي', title: '', sub: 'برنامج تطبيقي مكثّف يأخذ مشروعك من اختيار المنصة المناسبة إلى متجر إلكتروني يبيع داخل المملكة وخارجها — بالدفع الآمن، والتوصيل الذكي، والتسويق المبني على البيانات، والعمليات القابلة للتوسع.', cta: 'الدخول للمنصة التعليمية', cta2: 'اكتشف البرنامج' },
+  logos: { title: 'منصات وأدوات ستتعامل معها', items: 'Shopify\nWooCommerce\nسلة\nزد\nNoon\nAmazon\nمدى\nSTC Pay\nTamara\nTap\nMyFatoorah\nStripe\nPayPal\nAramex\nDHL\nGoogle Analytics\nMeta Ads\nTikTok Shop' },
+  about: { kicker: 'نبذة عن البرنامج', title: 'من فكرة متجر… إلى نموٍّ قابل للتوسع', sub: 'صُمّم البرنامج لأصحاب المشاريع الصغيرة والمتوسطة في مختلف مراحل نضجهم الرقمي. يركّز على التطبيق قبل النظرية: كل مفهوم يتحول إلى تمرين حي أو محاكاة أو قرار على مشروعك الحقيقي، لتخرج بأدوات عملية وخارطة طريق واضحة لتسريع مبيعاتك الإلكترونية.',
+    items: '🎯 | تطبيقي أولًا | عروض قصيرة يتبعها تطبيق فوري على حالات ومشاريع حقيقية\n🇸🇦 | مصمم للسوق السعودي | بوابات دفع محلية، شركاء توصيل، وقصص نجاح من السعودية والخليج\n📈 | يقيس أثره | تقييم قبلي وبعدي يكشف مقدار تقدمك بالأرقام' },
+  objectives: { kicker: 'أهداف البرنامج', title: 'ماذا ستُتقن بنهاية البرنامج؟', sub: '', items: '' },
+  features: { kicker: 'مزايا التجربة', title: 'تجربة تعلّم تفاعلية لا تشبه القاعات التقليدية', sub: 'منصة تعليمية حية تعمل من جوالك طوال البرنامج وبعده.',
+    items: '⚡ | تمارين حية ونتائج لحظية | صوّت وأجب وشاهد إجابات زملائك تظهر مباشرة على شاشة القاعة\n🛠️ | ثلاثة محاكيات تطبيقية | أعدّ متجرك، صمّم صفحة إتمام الشراء، ووزّع ميزانية التسويق\n🌟 | قصص نجاح حقيقية | قصص من السوق السعودي والخليجي — بمصادرها ودروسها\n🧪 | مختبر نمو ختامي | مشروع جماعي بمؤقّت حي يجمع كل المحاور في خطة واحدة\n🧮 | حاسبات وقوالب جاهزة | التكلفة الإجمالية، رسوم الدفع، نقطة إعادة الطلب، CAC وCLV وROAS\n🏅 | نقاط وأوسمة وشهادة | لوحة صدارة تحفيزية وشهادة مشاركة عند إتمام الحضور' },
+  content: { kicker: 'محتوى البرنامج', title: 'وحدات مترابطة تغطي رحلة المتجر كاملة', sub: 'اختر وحدة لترى محاورها.' },
+  journey: { kicker: 'مراحل الرحلة', title: 'رحلتك خطوة بخطوة', sub: '',
+    items: '🧭 | التسجيل والتقييم القبلي | انضم للمنصة وقِس نقطة انطلاقك بعشرة أسئلة تطبيقية\n🏗️ | اليوم الأول: البناء | اختيار المنصة، الدفع الآمن، التنفيذ والشحن داخل المملكة وخارجها\n🚀 | اليوم الثاني: النمو | قصص النجاح، التسويق بالبيانات، الأتمتة، التحليلات والذكاء الاصطناعي\n🧪 | مختبر النمو الختامي | فرق عمل تبني خطة نمو متكاملة لحالة واقعية\n🏁 | التقييم البعدي والشهادة | قِس تقدمك واحصل على شهادة المشاركة وخطة عملك الشخصية\n🤝 | متابعة 30/60/90 يومًا | تذكيرات ومتابعة لما طبّقته فعلًا بعد البرنامج' },
+  outcomes: { kicker: 'المخرجات', title: 'ماذا تأخذ معك بعد البرنامج؟', sub: '',
+    items: '🗺️ | قرار منصة مدروس | مصفوفة موزونة وتكلفة تشغيل إجمالية لمشروعك\n💳 | بوابة دفع مناسبة | مقارنة فعلية للرسوم ومدة التسوية ووسائل الدفع المحلية\n🚚 | خطة تنفيذ وشحن | نقطة إعادة الطلب ومسار المرتجعات والتكلفة الواصلة للعميل الدولي\n📣 | خطة تسويق بالأرقام | توزيع ميزانية يُحكم عليه بالعائد وقيمة العميل الدائمة\n⚙️ | إجراءات وأتمتة | إجراء تشغيل قياسي وأول أتمتة لمتجرك\n📄 | خطة عمل شخصية PDF | خطة نمو من خمس ركائز مع برنامج الدعم المناسب' },
+  audience: { kicker: 'لمن هذا البرنامج؟', title: 'صُمّم لمن يريد أن يبيع أونلاين بجدية', sub: '',
+    items: '👤 | أصحاب المشاريع ورواد الأعمال | الساعون للتوسع في المبيعات الإلكترونية\n🤝 | المؤسسون والشركاء المؤسسون | لمشاريع قائمة على المنتجات أو الخدمات\n🏪 | المستعدون لإطلاق متجرهم | من يجهّز لافتتاح واجهته الرقمية الأولى\n👥 | فرق التحول والتسويق والعمليات | المسؤولون عن التحول الرقمي داخل المشروع' },
+  cta: { title: 'جاهز لتسريع متجرك الإلكتروني؟', sub: 'سجّل خلال ثوانٍ باسمك، وابدأ التمارين الحية مع زملائك.', cta: 'الدخول للمنصة التعليمية' }
+};
+  return Object.assign({ AXIS_COLORS, UNIT_NAMES, UNIT_KICKERS, UNIT_IDS, SPECIAL_UNIT, LAB_STAGE_MIN, ATTEND_DAYS_DEFAULT, ATTEND_HOURS_DEFAULT, CERT_THRESHOLD_DEFAULT, DEFAULT_SITE, DEFAULT_CONGRATS, DEFAULT_CERT, DEFAULT_PDF, REG_DEFAULTS, DEFAULT_PRIVACY, ASSESS_AXIS, EN, EN_OPTIONS, TOOLS, MATRIX_CRIT, MX_NAMES, FU_ACTIONS, DEFAULT_LANDING }, { theme: {"brand": "#0093A8", "brand-2": "#F58220", "brand-3": "#FAB20B", "grad": "linear-gradient(120deg,#3B4677 0%,#0093A8 45%,#00A653 100%)", "grad-warm": "linear-gradient(120deg,#FAB20B 0%,#F58220 100%)", "bg": "#F3F7F8", "bg-dots": "#DCE8EB", "ink": "#1C2340", "ink-2": "#4A5470", "themeColor": "#0093A8"}, meta: {} });
+})();
+/* ===== courses/project-management/cfg.js ===== */
+// إعدادات دورة «project-management» العامة (لا تحتوي المحتوى السري). مأخوذة من ورشة «ورشة إدارة المشاريع: من فكرة إلى واقع»
+COURSE_CFGS["project-management"] = (function () {
+  const AXIS_COLORS = ['#8A6508','#2A7A76','#9A6B00','#B5432E','#4F5C75','#A87C0E','#1F6A66','#8F3524','#3D4A66','#B8860B','#2E8B83','#C2543A','#6B7790','#7A5A06','#3F8F66'];
+  const UNIT_NAMES = {1:'الشرارة',2:'المفهوم',3:'الرحلة',4:'العاصفة',5:'الخاتمة'};
+  const UNIT_KICKERS = {1:'المحطة الأولى',2:'المحطة الثانية',3:'المحطة الثالثة',4:'المحطة الرابعة',5:'المحطة الخامسة'};
+  const UNIT_IDS = [1, 2, 3, 4, 5];
+  const SPECIAL_UNIT = 0;
+  const LAB_STAGE_MIN = 5;
+  const ATTEND_DAYS_DEFAULT = 1;
+  const ATTEND_HOURS_DEFAULT = 1;
+  const CERT_THRESHOLD_DEFAULT = 90;
+  const DEFAULT_SITE = {
+  headerTitle: 'إدارة المشاريع التفاعلية',
+  headerSub: 'من فكرة إلى واقع · ورشة تفاعلية',
+  heroTitle: 'إدارة المشاريع: من فكرة إلى واقع',
+  heroDesc: 'ورشة ساعة واحدة في خمس محطات: الشرارة والمفهوم والرحلة والعاصفة والخاتمة. تصويت ولوحات حية وخرائط مخاطر ومحاكي مدير مشروع وألعاب جماعية، تشارك فيها من جوالك.',
+  heroImage: '',
+  footerName: 'حسين الحاجي',
+  footerBio: 'مدرب التجارة الإلكترونية والعمل الحر عبر الإنترنت، متخصص في العمل مع الشباب',
+  footerUrl: 'www.hussain-al-hajji.com',
+  linkedin: '', x: '', instagram: '', whatsapp: '', email: ''
+};
+  const DEFAULT_CONGRATS = {
+  emoji: '🏆',
+  title: 'تهنئة إنجاز',
+  paragraphs: ['نبارك لـ {{name}} إنجازه المتميز في ورشة «{{courseTitle}}».', 'لقد أتممت رحلة من فكرة إلى واقع بمشاركة فاعلة، من الشرارة حتى الخاتمة والدروس المستفادة.', 'نتمنى لك تطبيقًا موفقًا لما تعلمته في مشروعك القادم.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'حسين الحاجي، مدرب الورشة',
+  notice: 'تنبيه: ستختفي هذه التهنئة مع الأوسمة بعد ' + CONGRATS_DAYS_DEFAULT + ' أيام من انتهاء الورشة. حمّلها الآن أو أرسلها إلى بريدك.'
+};
+  const DEFAULT_CERT = {
+  emoji: '🎓',
+  title: 'شهادة مشاركة',
+  paragraphs: ['يُشهد بأن {{name}} قد شارك في ورشة «{{courseTitle}}».', 'وقد استوفى متطلبات الحضور المعتمدة للورشة، متمنين له التوفيق في تطبيق ما اكتسبه من معارف ومهارات.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'مدرب الورشة: حسين الحاجي',
+  notice: 'تُمنح شهادة المشاركة لمن يحضر 90% على الأقل من مدة الورشة. حمّلها الآن واحتفظ بنسخة منها.'
+};
+  const DEFAULT_PDF = { enabled: true, coverTitle: '', coverSub: 'الملف المرجعي لشرائح الورشة', trainerName: 'حسين الحاجي', trainerRole: 'مدرب الورشة', trainerBio: 'مدرب التجارة الإلكترونية والعمل الحر عبر الإنترنت، متخصص في العمل مع الشباب.', trainerContact: 'www.hussain-al-hajji.com' };
+  const REG_DEFAULTS = {
+  name: { label: 'الاسم الكامل', type: 'text', required: true, visible: true, locked: true, ph: 'مثال: محمد عبدالله' },
+  role: { label: 'المجال / المسمى الوظيفي', type: 'text', required: true, visible: true, ph: 'مثال: طالب / مسؤول مبيعات' },
+  org: { label: 'اسم الجهة', type: 'text', required: false, visible: false, ph: 'مثال: جامعة أو شركة أو مبادرة' },
+  sector: { label: 'مجال المشاريع التي تهمّك', type: 'select', required: false, visible: false, options: ['فعاليات ومبادرات', 'تطبيقات وتقنية', 'مشاريع تجارية', 'مشاريع طلابية أو تطوعية', 'أخرى'] },
+  stage: { label: 'خبرتك في إدارة المشاريع', type: 'select', required: false, visible: false, options: ['لم أدِر مشروعًا من قبل', 'أدرت مشروعًا صغيرًا', 'أدير مشاريع بانتظام'] },
+  hasStore: { label: 'هل تشارك حاليًا في مشروع؟', type: 'select', required: false, visible: false, options: ['نعم', 'لا', 'سأبدأ قريبًا'] },
+  onlineSales: { label: 'حجم فريق مشروعك', type: 'select', required: false, visible: false, options: ['أعمل وحدي', '2 إلى 5 أشخاص', 'أكثر من 5 أشخاص', 'لا أعرف بعد'] },
+  email: { label: 'البريد الإلكتروني', type: 'email', required: false, visible: false, ph: 'name@example.com' },
+  phone: { label: 'رقم الجوال', type: 'tel', required: false, visible: false, ph: '+966' },
+  cr: { label: 'رقم السجل التجاري', type: 'text', required: false, visible: false }
+};
+  const DEFAULT_PRIVACY = {
+  text: 'نجمع في هذه المنصة البيانات التي تدخلها عند التسجيل (الاسم والمسمى وما تختاره من حقول اختيارية)، ومشاركاتك في التمارين والتقييمات، وسجل حضورك. نستخدمها فقط لإدارة الورشة التدريبية، وإصدار شهادة المشاركة، وقياس أثر التدريب وإعداد تقرير الختام للجهة المنظمة. لا نبيع بياناتك ولا نشاركها لأغراض تسويقية لطرف ثالث. تُحفظ البيانات في قاعدة بيانات سحابية (Google Firebase)، ويمكنك تعديل بياناتك أو حذفها بالكامل في أي وقت من صفحة «حسابي». نلتزم بمبادئ نظام حماية البيانات الشخصية في المملكة العربية السعودية.',
+  consent: 'قرأت إشعار الخصوصية وأوافق على معالجة بياناتي لأغراض الورشة',
+  followup: 'أوافق على التواصل معي بعد الورشة لقياس الأثر (بعد 30 و60 و90 يومًا) وبخصوص برامج الدعم ذات الصلة'
+};
+  const ASSESS_AXIS = ['a2', 'a2', 'a3', 'a3', 'a3', 'a3', 'a4', 'a3', 'a4', 'a5'];
+  const EN = {
+  course: 'Interactive Project Management Workshop: From Idea to Reality',
+  axes: { a1: 'The Spark', a2: 'The Concept', a3: 'The Journey', a4: 'The Storm', a5: 'The Closing' },
+  assess: ['What counts as a project', 'The triple constraint', 'First phase of the life cycle', 'SMART goals', 'What WBS means', 'What a risk is', 'Scope creep', 'High power, low interest stakeholder', 'Handling a late change request', 'What happens at closing'],
+  rates: ['Trainer knowledge & delivery', 'Content clarity & structure', 'Practical value for my projects', 'Games & interactive exercises', 'Relevance to real projects', 'Interactive platform & usability', 'Organisation & time management'],
+  fields: { sector: 'Project field', stage: 'Project management experience', hasStore: 'Currently in a project', onlineSales: 'Project team size' },
+  programs: []
+};
+  const EN_OPTIONS = {
+  'فعاليات ومبادرات': 'Events & initiatives', 'تطبيقات وتقنية': 'Apps & technology', 'مشاريع تجارية': 'Business projects', 'مشاريع طلابية أو تطوعية': 'Student or volunteer projects', 'أخرى': 'Other',
+  'لم أدِر مشروعًا من قبل': 'Never managed a project', 'أدرت مشروعًا صغيرًا': 'Managed a small project', 'أدير مشاريع بانتظام': 'Manage projects regularly',
+  'نعم': 'Yes', 'لا': 'No', 'سأبدأ قريبًا': 'Starting soon',
+  'أعمل وحدي': 'Working alone', '2 إلى 5 أشخاص': '2 to 5 people', 'أكثر من 5 أشخاص': 'More than 5 people', 'لا أعرف بعد': 'Not sure yet'
+};
+  const TOOLS = [
+  { id: 'estimate', icon: '🧮', title: 'حاسبة التقدير الثلاثي', desc: 'متفائل وأرجح ومتشائم، ثم تقدير واقعي مع هامش عدم اليقين. جرّبها على مهمة مثل تصميم الهوية البصرية للمشروع.', axis: 'a3',
+    inputs: [['o', 'متفائل O (بالأيام)', 3], ['m', 'الأرجح M (بالأيام)', 5], ['p', 'متشائم P (بالأيام)', 12]],
+    calc: v => { const o = Math.max(1, v.o), m = Math.max(1, v.m), p = Math.max(1, v.p); const e = (o + 4 * m + p) / 6, sd = (p - o) / 6; return [['التقدير = (O + 4M + P) ÷ 6', fmt(e, 1) + ' يوم', 1], ['هامش عدم اليقين', '± ' + fmt(sd, 1) + ' يوم'], ['القراءة', p > m * 2.2 ? 'الفرق بين الأرجح والمتشائم كبير: هناك مخاطرة خفية تستحق السؤال.' : 'التقديرات متقاربة: ثقة أعلى.', 1]]; } },
+  { id: 'riskscore', icon: '📡', title: 'رادار المخاطر: الاحتمال × الأثر', desc: 'قيّم الخطر بالاحتمال والأثر (من 1 إلى 5) لتعرف في أي خانة يقع وما الرد المناسب.', axis: 'a3',
+    inputs: [['prob', 'الاحتمال (1-5)', 3], ['impact', 'الأثر لو وقع (1-5)', 4]],
+    calc: v => { const hp = v.prob >= 3, hi = v.impact >= 3; const q = hp && hi ? 'حرِجة: عالجها الآن' : (!hp && hi) ? 'نادرة لكن مدمّرة: جهّز خطة طوارئ' : (hp && !hi) ? 'متكرّرة محدودة: خفّف' : 'راقب فقط'; return [['درجة الخطر = الاحتمال × الأثر', fmt(v.prob * v.impact), 1], ['الخانة', q, 1], ['الردود الأربعة', 'تجنّب · خفّف · انقل · اقبل']]; } },
+  { id: 'progress', icon: '📏', title: 'مؤشر التقدّم: المنجز ÷ المخطط', desc: 'رقم واحد لكل مسار عمل: ما أنجزته مقابل ما خططت له حتى اليوم.', axis: 'a4',
+    inputs: [['done', 'المنجز حتى اليوم (%)', 48], ['plan', 'المخطط حتى اليوم (%)', 70]],
+    calc: v => { const r = v.plan ? v.done / v.plan * 100 : 0; return [['المنجز ÷ المخطط', fmt(r, 0) + '%', 1], ['الفجوة', fmt(v.done - v.plan, 0) + ' نقطة'], ['القراءة', 'اللون الأحمر ليس عيبًا: الصمت هو العيب. أخبر الفريق والراعي بصراحة وبعوائقك.', 1]]; } }
+];
+  const MATRIX_CRIT = ['وضوح الهدف', 'واقعية الجدول والتقدير', 'وضوح الأدوار', 'إدارة المخاطر', 'التواصل مع أصحاب المصلحة'];
+  const MX_NAMES = ['المشروع (أ)', 'المشروع (ب)', 'المشروع (ج)'];
+  const FU_ACTIONS = ['كتبت جملة «لماذا؟» (وثيقة التعريف) لمشروع حقيقي', 'صغت هدفًا SMART محددًا وقابلًا للقياس ومحدّدًا بزمن', 'رسمت خريطة أصحاب المصلحة (القوة × الاهتمام) لمشروعي', 'فكّكت مشروعًا إلى حزم ومهام (WBS) وأسندتها', 'قدّرت مهمة بالتقدير الثلاثي بدل رقم واحد متفائل', 'قيّمت المخاطر بالاحتمال × الأثر واخترت ردًّا لكل منها', 'قيّمت أثر طلب تغيير قبل الموافقة عليه ووثّقت القرار', 'كتبت الدروس المستفادة بعد إغلاق مشروع أو نشاط'];
+  const DEFAULT_LANDING = {
+  hero: { kicker: 'ورشة تفاعلية حيّة · للشباب', title: '', sub: 'شرائح تأسيسية تُلعَب ولا تُحفَظ: تصويت، لوحات تطفو أمام الجميع، خرائط مخاطر، ومحاكي لمدير مشروع. ادخل من جوالك وابدأ.', cta: 'الدخول للمنصة التعليمية', cta2: 'اكتشف الورشة' },
+  logos: { title: 'مفاهيم ستتقنها', items: 'المشروع المؤقت والفريد\nمثلث القيود\nدورة حياة المشروع\nوثيقة التعريف\nهدف SMART\nأصحاب المصلحة\nهيكل تقسيم العمل WBS\nالتقدير الثلاثي\nرادار المخاطر\nإدارة التغيير' },
+  about: { kicker: 'نبذة عن الورشة', title: 'من فكرة إلى واقع في ساعة واحدة', sub: 'ورشة تأسيسية في إدارة المشاريع للشباب: خمس محطات، وكل محطة تنتهي بتحدٍّ تلعبه بنفسك لا بمحاضرة تسمعها.',
+    items: '🎯 | تُلعَب ولا تُحفَظ | تصويت وتمارين حية تطبّق بها كل مفهوم\n🎮 | محاكاة وألعاب | محاكي مدير المشروع، ورادار المخاطر، وسبعة ملفات فرق\n📈 | يقيس أثره | تقييم قبلي وبعدي يكشف ما تغيّر خلال ساعة' },
+  objectives: { kicker: 'أهداف الورشة', title: 'ماذا ستُتقن بنهاية الورشة؟', sub: '', items: '' },
+  features: { kicker: 'مزايا التجربة', title: 'ورشة لا تشبه القاعات التقليدية', sub: 'منصة حية تعمل من جوالك طوال الورشة وبعدها.',
+    items: '⚡ | تمارين حية ونتائج لحظية | صوّت واكتب وشاهد إجابات زملائك على شاشة القاعة\n🎮 | محاكي مدير المشروع | ستة مواقف وخمسة مؤشرات، ولا قرار بلا ثمن\n📡 | خرائط تفاعلية | أصحاب المصلحة والمخاطر على خريطة واحدة تتشكل بإجماع القاعة\n🧮 | حاسبات وقوالب جاهزة | التقدير الثلاثي، رادار المخاطر، وقوالب أوراق الفرق\n🏅 | نقاط وأوسمة وشهادة | لوحة صدارة تحفيزية وشهادة مشاركة' },
+  content: { kicker: 'محتوى الورشة', title: 'خمس محطات تأخذك من فكرة إلى واقع', sub: 'اختر محطة لترى محتواها.' },
+  journey: { kicker: 'مراحل الرحلة', title: 'رحلتك خطوة بخطوة', sub: '',
+    items: '⚡ | الشرارة | نقيس نقطة البداية ونختار مشروعنا\n🧩 | المفهوم | ما المشروع؟ لماذا يفشل؟ مثلث القيود\n🗺️ | الرحلة | البدء، التخطيط، المخاطر، الفريق\n🌪️ | العاصفة | التنفيذ والمتابعة ومحاكي المدير\n🏁 | الخاتمة | الدروس، قياس التغيّر، الخطوة التالية' },
+  outcomes: { kicker: 'المخرجات', title: 'ماذا تأخذ معك بعد الورشة؟', sub: '',
+    items: '🧭 | جملة «لماذا؟» | وثيقة تعريف لمشروعك\n🎯 | هدف SMART | محدد وقابل للقياس وبزمن\n🗺️ | خريطة أصحاب المصلحة | ورادار مخاطر\n🐘 | هيكل WBS وتقدير ثلاثي | لمشروعك الأول\n🔄 | وعد ابدأ، توقف، استمر | تلتزم به بعد الورشة' },
+  audience: { kicker: 'لمن هذه الورشة؟', title: 'صُممت لمن يريد أن يحوّل فكرته إلى مشروع منظّم', sub: '',
+    items: '👤 | الشباب | الراغبون في تنفيذ أول مشروع لهم\n🎓 | الطلاب | في المعارض والفعاليات والمبادرات\n🤝 | المتطوعون | في الفرق والجمعيات والمبادرات\n🛒 | أصحاب الأفكار التجارية | الذين يريدون خطة وفريقًا' },
+  cta: { title: 'جاهز لتحوّل فكرتك إلى واقع؟', sub: 'سجّل خلال ثوانٍ باسمك، وابدأ التمارين الحية مع زملائك.', cta: 'الدخول للمنصة التعليمية' }
+};
+  return Object.assign({ AXIS_COLORS, UNIT_NAMES, UNIT_KICKERS, UNIT_IDS, SPECIAL_UNIT, LAB_STAGE_MIN, ATTEND_DAYS_DEFAULT, ATTEND_HOURS_DEFAULT, CERT_THRESHOLD_DEFAULT, DEFAULT_SITE, DEFAULT_CONGRATS, DEFAULT_CERT, DEFAULT_PDF, REG_DEFAULTS, DEFAULT_PRIVACY, ASSESS_AXIS, EN, EN_OPTIONS, TOOLS, MATRIX_CRIT, MX_NAMES, FU_ACTIONS, DEFAULT_LANDING }, { theme: {"brand": "#8A6508", "brand-2": "#C9A227", "brand-3": "#2A7A76", "grad": "linear-gradient(120deg,#8A6508 0%,#C9A227 100%)", "grad-warm": "linear-gradient(120deg,#C9A227 0%,#2A7A76 100%)", "bg": "#F7F4EC", "bg-dots": "#E8E0CC", "ink": "#1C2333", "ink-2": "#4F5C75", "themeColor": "#8A6508"}, meta: {"title": "إدارة المشاريع التفاعلية", "short": "إدارة المشاريع", "icon": "target", "sessions": 5, "hours": 1} });
+})();
+/* ===== courses/sales-intelligence/cfg.js ===== */
+// إعدادات دورة «sales-intelligence» العامة (لا تحتوي المحتوى السري). مولَّد من tools/make_cfg.py
+COURSE_CFGS["sales-intelligence"] = (function () {
+  const AXIS_COLORS = ['#E2531F','#C9440F','#F07A4B','#13AE9C','#0E8F80','#3CC4B3','#20263D','#3B4469','#536DFE','#8458DB','#6B45C0','#A783E8','#FFBD35','#E0A010','#EC5B77','#C63F5D','#2B7A8C'];
+  const UNIT_NAMES = {1:'قراءة الطلب: من الإشارة إلى القرار',2:'التأثير: التوصيات الذكية والتسعير الديناميكي',3:'الأداء والمنظومة: من نمط الأداء إلى منظومة المبيعات المتكاملة'};
+  const UNIT_KICKERS = {1:'اليوم الأول',2:'اليوم الثاني',3:'اليوم الثالث'};
+  const UNIT_IDS = [1, 2, 3];
+  const SPECIAL_UNIT = 0;
+  const LAB_STAGE_MIN = 6;
+  const ATTEND_DAYS_DEFAULT = 3;
+  const ATTEND_HOURS_DEFAULT = 3;
+  const CERT_THRESHOLD_DEFAULT = 90;
+  const DEFAULT_SITE = {
+  headerTitle: 'ذكاء المبيعات في قطاع التجزئة',
+  headerSub: 'من الإشارة إلى القرار · برنامج تفاعلي في ثلاثة أيام',
+  heroTitle: 'ذكاء المبيعات في قطاع التجزئة',
+  heroDesc: 'برنامج تطبيقي في ثلاثة أيام (تسع ساعات): نقرأ إشارات الطلب، ونبني توصيات مؤثرة وتسعيرًا واعيًا، ونتحكم في الأداء استباقيًا، ثم نصمم منظومة مبيعات ذكية متكاملة. ألعاب ومحاكيات وتمارين حية من واقع التجزئة تشارك فيها من جوالك.',
+  heroImage: '',
+  footerName: 'حسين الحاجي',
+  footerBio: 'مدرب البرنامج',
+  footerUrl: 'www.hussain-al-hajji.com',
+  linkedin: '', x: '', instagram: '', whatsapp: '', email: ''
+};
+  const DEFAULT_CONGRATS = {
+  emoji: '🏆',
+  title: 'تهنئة إنجاز',
+  paragraphs: ['نبارك لـ {{name}} إنجازه المتميز في برنامج «{{courseTitle}}».', 'لقد أتممت رحلة التعلّم بجدية ومشاركة فاعلة، من قراءة إشارات الطلب حتى تصميم منظومة مبيعات ذكية متكاملة.', 'نتمنى لك تطبيقًا موفقًا لما تعلمته في عملك القادم.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'حسين الحاجي، مدرب البرنامج',
+  notice: 'تنبيه: ستختفي هذه التهنئة مع الأوسمة بعد ' + CONGRATS_DAYS_DEFAULT + ' أيام من انتهاء البرنامج. حمّلها الآن أو أرسلها إلى بريدك.'
+};
+  const DEFAULT_CERT = {
+  emoji: '🎓',
+  title: 'شهادة مشاركة',
+  paragraphs: ['يُشهد بأن {{name}} قد شارك في البرنامج التدريبي «{{courseTitle}}».', 'وقد استوفى متطلبات الحضور المعتمدة للبرنامج، متمنين له التوفيق في تطبيق ما اكتسبه من معارف ومهارات.'],
+  footerRight: 'التاريخ: {{date}}',
+  footerLeft: 'مدرب البرنامج: حسين الحاجي',
+  notice: 'تُمنح شهادة المشاركة لمن يحضر 90% على الأقل من مدة البرنامج. حمّلها الآن واحتفظ بنسخة منها.'
+};
+  const DEFAULT_PDF = { enabled: true, coverTitle: '', coverSub: 'الملف المرجعي لشرائح البرنامج', trainerName: 'حسين الحاجي', trainerRole: 'مدرب البرنامج', trainerBio: 'يقدّم برامج تطبيقية تفاعلية للعاملين في المبيعات والتجزئة والتجارة الإلكترونية.', trainerContact: 'www.hussain-al-hajji.com' };
+  const REG_DEFAULTS = {
+  name: { label: 'الاسم الكامل', type: 'text', required: true, visible: true, locked: true, ph: 'مثال: محمد عبدالله' },
+  role: { label: 'المسمى الوظيفي أو المجال', type: 'text', required: true, visible: true, ph: 'مثال: مدير فرع / مسؤول مبيعات / محلل' },
+  org: { label: 'اسم المنشأة / الجهة', type: 'text', required: false, visible: false, ph: 'مثال: سلسلة متاجر الأفق' },
+  sector: { label: 'نشاط التجزئة', type: 'select', required: false, visible: false, options: ['مواد غذائية وسوبرماركت', 'أزياء وعبايات وعطور', 'إلكترونيات وأجهزة منزلية', 'أثاث ومستلزمات منزلية', 'مطاعم ومقاهٍ', 'صيدليات ومستحضرات', 'تجارة إلكترونية متعددة', 'أخرى'] },
+  stage: { label: 'خبرتك في المبيعات', type: 'select', required: false, visible: false, options: ['طالب أو حديث التخرج', 'أقل من سنة', 'من 1 إلى 3 سنوات', 'أكثر من 3 سنوات'] },
+  hasStore: { label: 'هل تستخدم تقارير أو لوحات بيانات في قراراتك؟', type: 'select', required: false, visible: false, options: ['يوميًا', 'أحيانًا', 'نادرًا', 'لا أستخدمها بعد'] },
+  onlineSales: { label: 'القنوات التي تبيع عبرها', type: 'select', required: false, visible: false, options: ['فروع فقط', 'متجر إلكتروني فقط', 'فروع ومتجر إلكتروني', 'تطبيق ومنصات متعددة', 'لا أعمل في البيع بعد'] },
+  email: { label: 'البريد الإلكتروني', type: 'email', required: false, visible: false, ph: 'name@example.com' },
+  phone: { label: 'رقم الجوال', type: 'tel', required: false, visible: false, ph: '+966' },
+  cr: { label: 'رقم السجل التجاري (إن وُجد)', type: 'text', required: false, visible: false }
+};
+  const DEFAULT_PRIVACY = {
+  text: 'نجمع في هذه المنصة البيانات التي تدخلها عند التسجيل (الاسم والمسمى وبيانات المشروع وما تختاره من حقول اختيارية)، ومشاركاتك في التمارين والتقييمات، وسجل حضورك. نستخدمها فقط لإدارة البرنامج التدريبي، وإصدار شهادة المشاركة، وقياس أثر التدريب وإعداد تقرير الختام للجهة المنظمة. لا نبيع بياناتك ولا نشاركها لأغراض تسويقية لطرف ثالث. تُحفظ البيانات في قاعدة بيانات سحابية (Google Firebase)، ويمكنك تعديل بياناتك أو حذفها بالكامل في أي وقت من صفحة «حسابي». نلتزم بمبادئ نظام حماية البيانات الشخصية في المملكة العربية السعودية.',
+  consent: 'قرأت إشعار الخصوصية وأوافق على معالجة بياناتي لأغراض البرنامج',
+  followup: 'أوافق على التواصل معي بعد البرنامج لقياس الأثر (بعد 30 و60 و90 يومًا) وبخصوص برامج الدعم ذات الصلة'
+};
+  const ASSESS_AXIS = ['a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9', 'a10', 'a11', 'a12', 'a13', 'a14', 'a15', 'a16'];
+  const EN = {
+  course: 'Sales Intelligence in Retail (3-day program)',
+  axes: {},
+  assess: ['Stable sales hide segment shifts', 'Forecast error', 'Analytics aligned to decisions', 'Proactive control', 'Influential recommendation', 'Recommendation value alignment', 'Sustaining recommendations', 'Price as a decision signal', 'Dynamic pricing', 'Discount dependency', 'Performance pattern', 'Systemic deviation', 'Preventive intervention', 'Connected decision flow', 'Unified operating logic'],
+  rates: ['Trainer knowledge & delivery', 'Content clarity & structure', 'Practical value for my retail work', 'Exercises & interactive activities', 'Relevance to real retail', 'Interactive platform & usability', 'Organisation & time management'],
+  fields: { sector: 'Retail activity', stage: 'Sales experience', hasStore: 'Use of dashboards', onlineSales: 'Sales channels' },
+  programs: []
+};
+  const EN_OPTIONS = {
+  'مواد غذائية وسوبرماركت': 'Grocery & supermarket', 'أزياء وعبايات وعطور': 'Fashion, abayas & fragrance', 'إلكترونيات وأجهزة منزلية': 'Electronics & appliances', 'أثاث ومستلزمات منزلية': 'Furniture & home', 'مطاعم ومقاهٍ': 'Restaurants & cafes', 'صيدليات ومستحضرات': 'Pharmacy & cosmetics', 'تجارة إلكترونية متعددة': 'Multi-category e-commerce', 'أخرى': 'Other',
+  'طالب أو حديث التخرج': 'Student / fresh graduate', 'أقل من سنة': '< 1 year', 'من 1 إلى 3 سنوات': '1 to 3 years', 'أكثر من 3 سنوات': '> 3 years',
+  'يوميًا': 'Daily', 'أحيانًا': 'Sometimes', 'نادرًا': 'Rarely', 'لا أستخدمها بعد': 'Not yet',
+  'فروع فقط': 'Branches only', 'متجر إلكتروني فقط': 'Online store only', 'فروع ومتجر إلكتروني': 'Branches and online', 'تطبيق ومنصات متعددة': 'App and multiple platforms', 'لا أعمل في البيع بعد': 'Not in sales yet'
+};
+  const TOOLS = [
+  { id: 'forecast', icon: '🔮', title: 'دقة التنبؤ: كم أخطأ التوقع؟', desc: 'أدخل ما توقعته وما بِعته فعلًا، لتعرف حجم الخطأ ونسبته وهل يستحق النموذج الثقة.', axis: 'a3',
+    inputs: [['exp', 'الكمية المتوقعة', 500], ['act', 'الكمية الفعلية', 400], ['limit', 'حد الخطأ المقبول %', 15]],
+    calc: v => { const diff = Math.abs(v.act - v.exp); const pct = v.act ? diff / v.act * 100 : 0; return [['الفرق المطلق', fmt(diff) + ' وحدة'], ['نسبة الخطأ (من الفعلي)', fmt(pct, 1) + '%', 1], ['الاتجاه', v.exp > v.act ? 'توقع أعلى من الفعلي (مخزون زائد محتمل)' : v.exp < v.act ? 'توقع أقل من الفعلي (نفاد محتمل)' : 'مطابق'], ['القراءة', pct <= v.limit ? 'ضمن الحد المقبول، تابع القياس أسبوعيًا' : 'خارج الحد: راجع جودة البيانات والافتراضات قبل الاعتماد', 1]]; } },
+  { id: 'discount', icon: '⚖️', title: 'أثر الخصم: كم يجب أن تبيع لتعوّضه؟', desc: 'قبل أن تخفض السعر، احسب حجم الزيادة في المبيعات التي تحتاجها لتحافظ على الربح نفسه.', axis: 'a11',
+    inputs: [['price', 'سعر المنتج (ر.س)', 200], ['cost', 'تكلفة المنتج (ر.س)', 120], ['disc', 'الخصم المقترح %', 15]],
+    calc: v => { const m0 = v.price - v.cost; const m1 = v.price * (1 - v.disc / 100) - v.cost; const mult = m1 > 0 ? m0 / m1 : Infinity; return [['ربح القطعة قبل الخصم', fmt(m0) + ' ر.س'], ['ربح القطعة بعد الخصم', fmt(m1) + ' ر.س'], ['الزيادة المطلوبة في الكمية', isFinite(mult) ? fmt((mult - 1) * 100, 0) + '%' : 'لا يمكن التعويض', 1], ['القراءة', isFinite(mult) ? 'كل ' + fmt(v.disc, 0) + '% خصم يحتاج ' + fmt(mult, 2) + '× الكمية لتبقى مكانك' : 'الخصم يلغي الربح كليًا', 1]]; } },
+  { id: 'rec', icon: '🎯', title: 'أثر التوصية على الإيراد', desc: 'قدّر ما تضيفه التوصية لإيراد متجرك عند تحسين تفاعلها أو قيمة السلة.', axis: 'a7',
+    inputs: [['orders', 'عدد الطلبات شهريًا', 3000], ['basket', 'متوسط قيمة السلة (ر.س)', 220], ['click', 'نسبة قبول التوصية %', 4], ['add', 'قيمة المنتج المضاف (ر.س)', 60]],
+    calc: v => { const extra = v.orders * v.click / 100 * v.add; const base = v.orders * v.basket; return [['إيراد التوصية الشهري', fmt(extra) + ' ر.س', 1], ['نسبته من إجمالي الإيراد', fmt(base ? extra / base * 100 : 0, 1) + '%'], ['لو ارتفع القبول نقطة واحدة', '+' + fmt(v.orders * 0.01 * v.add) + ' ر.س شهريًا'], ['ملاحظة', 'أرقام تقديرية للتعلم: قِس قبول توصيتك الفعلي أسبوعيًا']]; } },
+  { id: 'abandon', icon: '🛒', title: 'ثمن السلة المتروكة', desc: 'كم يساوي الفاقد الشهري حين يغادر العملاء عند نقطة محددة من الرحلة؟', axis: 'a2',
+    inputs: [['carts', 'سلال تُنشأ شهريًا', 5000], ['aband', 'نسبة الترك عند الشحن %', 22], ['val', 'متوسط قيمة السلة (ر.س)', 240], ['rec', 'نسبة ما يمكن استرجاعه %', 15]],
+    calc: v => { const lost = v.carts * v.aband / 100; const loss = lost * v.val; return [['سلال متروكة عند الشحن', fmt(lost)], ['القيمة المتروكة شهريًا', fmt(loss) + ' ر.س', 1], ['ما يمكن استرجاعه', fmt(loss * v.rec / 100) + ' ر.س', 1], ['القراءة', 'استرجاع جزء بسيط عبر تعديل الشحن أو تذكير مناسب أرخص من جذب عملاء جدد']]; } },
+  { id: 'warning', icon: '🚦', title: 'حد الإنذار المبكر', desc: 'حدد متى يستدعي مؤشرك تنبيهًا: انحراف عن المعتاد بنسبة مئوية.', axis: 'a14',
+    inputs: [['norm', 'القيمة المعتادة للمؤشر', 100], ['now', 'القيمة الحالية', 88], ['warn', 'حد التنبيه %', 10], ['crit', 'حد التدخل %', 20]],
+    calc: v => { const dev = v.norm ? Math.abs(v.now - v.norm) / v.norm * 100 : 0; const state = dev >= v.crit ? 'تدخل الآن 🔴' : dev >= v.warn ? 'تنبيه: جهّز الخطوة الوقائية 🟡' : 'ضمن المعتاد 🟢'; return [['الانحراف عن المعتاد', fmt(dev, 1) + '%', 1], ['الحالة', state, 1], ['ملاحظة', 'الحدود يضعها الفريق من تاريخ المؤشر، لا من الحدس']]; } }
+];
+  const MATRIX_CRIT = ['وضوح الإشارة', 'جودة البيانات', 'أثر القرار على الإيراد', 'سهولة التنفيذ', 'قابلية القياس'];
+  const MX_NAMES = ['الإشارة (أ)', 'الإشارة (ب)', 'الإشارة (ج)'];
+  const FU_ACTIONS = ['قرأت مبيعاتي حسب الفئة والقناة بدل الإجمالي فقط', 'فحصت جودة تقرير أعتمد عليه واكتشفت ثغرة', 'ربطت لوحة أو مؤشرًا بقرار ومالك وموعد', 'حددت إشارة إنذار مبكر وخطوة وقائية جاهزة', 'ربطت توصية أو عرضًا بهدف بيعي ومؤشر واحد', 'راجعت أداء التوصيات أو العروض دوريًا وعدلتها', 'سألت عن هدف التعديل قبل أن أخفض سعرًا وقست الأثر', 'وثقت قاعدة قرار موحدة مع فريقي'];
+  const DEFAULT_LANDING = {
+  hero: { kicker: 'برنامج تدريبي تفاعلي في ثلاثة أيام', title: '', sub: 'برنامج تطبيقي يعلّمك كيف تقرأ إشارات الطلب، وتبني توصيات وتسعيرًا يؤثران في قرار العميل، وتضبط الأداء قبل أن يتراجع، وتصمم منظومة مبيعات ذكية متكاملة في قطاع التجزئة.', cta: 'الدخول للمنصة التعليمية', cta2: 'اكتشف البرنامج' },
+  logos: { title: 'مفاهيم ستتقنها', items: 'إشارات الطلب\nجودة البيانات\nدقة التنبؤ\nالتوصية المؤثرة\nالتسعير الديناميكي\nالضبط الاستباقي\nالانحراف النظامي\nالتدخل الوقائي\nمنظومة القرار' },
+  about: { kicker: 'نبذة عن البرنامج', title: 'من الأرقام إلى منظومة القرار', sub: 'صُمّم البرنامج للعاملين في المبيعات والتجزئة. التطبيق قبل النظرية: كل مفهوم يتحول إلى لعبة أو محاكاة أو قرار على حالة من التجزئة السعودية.',
+    items: '🎯 | القرار أولًا | نبدأ من القرار البيعي لا من الأداة\n🎮 | ألعاب ومحاكيات | غرفة التحكم، مختبر التسعير، مدير المنظومة\n📈 | يقيس أثره | تقييم قبلي وبعدي يكشف تقدمك بالأرقام' },
+  objectives: { kicker: 'أهداف البرنامج', title: 'ماذا ستُتقن بنهاية البرنامج؟', sub: '', items: '' },
+  features: { kicker: 'مزايا التجربة', title: 'تجربة تعلّم تفاعلية لا تشبه القاعات التقليدية', sub: 'منصة حية تعمل من جوالك طوال البرنامج وبعده.',
+    items: '⚡ | نتائج لحظية | صوّت واكتب وشاهد إجابات زملائك على شاشة القاعة\n🕹️ | محاكيات قرار | قرارات تسعير وضبط وتوصيات بمؤشرات حية\n🧪 | مختبر ختامي | فريقك يبني منظومة مبيعات ذكية لمتجر تجزئة\n🧮 | حاسبات وقوالب | دقة التنبؤ، أثر الخصم، ثمن السلة المتروكة\n🏅 | نقاط وأوسمة وشهادة | لوحة صدارة تحفيزية وشهادة مشاركة' },
+  content: { kicker: 'محتوى البرنامج', title: 'ثلاثة أيام وسبعة عشر محورًا من الإشارة إلى المنظومة', sub: 'اختر محورًا لترى محتواه.' },
+  journey: { kicker: 'مراحل الرحلة', title: 'رحلتك خطوة بخطوة', sub: '',
+    items: '🧭 | التسجيل والتقييم القبلي | قِس نقطة انطلاقك بخمسة عشر سؤالًا\n📡 | اليوم الأول | قراءة الطلب والبيانات والضبط الاستباقي\n🎯 | اليوم الثاني | التوصيات الذكية والتسعير الديناميكي\n🧩 | اليوم الثالث | الأداء والانحراف والمنظومة\n🏁 | المختبر الختامي والشهادة | فريقك يبني منظومة ذكية ويعرضها' },
+  outcomes: { kicker: 'المخرجات', title: 'ماذا تأخذ معك بعد البرنامج؟', sub: '',
+    items: '📋 | أسئلة اكتشاف | ورقة جاهزة للاستخدام مع العملاء\n🛡️ | بطاقة رد على الاعتراض | تعاطف وسؤال ودليل\n🚦 | لوحة إنذار مبكر | مؤشرات وحدود وخطوات وقائية\n📜 | قواعد قرار موحدة | ثلاث قواعد تبدأ بها فريقك' },
+  audience: { kicker: 'لمن هذا البرنامج؟', title: 'صُمّم لمن يريد أن يقود المبيعات بالفهم لا بالضغط', sub: '',
+    items: '🏪 | مدراء الفروع | لقراءة أداء الفرع بعمق\n💼 | فرق المبيعات | لتحسين قرار البيع\n📊 | المحللون | لربط التحليل بالقرار\n🛒 | التجارة الإلكترونية | لتحسين التوصية والتسعير' },
+  cta: { title: 'جاهز لتحوّل مبيعاتك إلى منظومة قرار؟', sub: 'سجّل خلال ثوانٍ باسمك، وابدأ التمارين الحية مع زملائك.', cta: 'الدخول للمنصة التعليمية' }
+};
+  return Object.assign({ AXIS_COLORS, UNIT_NAMES, UNIT_KICKERS, UNIT_IDS, SPECIAL_UNIT, LAB_STAGE_MIN, ATTEND_DAYS_DEFAULT, ATTEND_HOURS_DEFAULT, CERT_THRESHOLD_DEFAULT, DEFAULT_SITE, DEFAULT_CONGRATS, DEFAULT_CERT, DEFAULT_PDF, REG_DEFAULTS, DEFAULT_PRIVACY, ASSESS_AXIS, EN, EN_OPTIONS, TOOLS, MATRIX_CRIT, MX_NAMES, FU_ACTIONS, DEFAULT_LANDING }, { theme: {"brand": "#E2531F", "brand-2": "#13AE9C", "brand-3": "#13AE9C", "grad": "linear-gradient(120deg,#20263D 0%,#E2531F 100%)", "grad-warm": "linear-gradient(120deg,#13AE9C 0%,#0E8F80 100%)", "bg": "#FFF8F4", "bg-dots": "#F6DCCF", "ink": "#20263D", "ink-2": "#4A5270", "themeColor": "#E2531F"}, meta: {"title": "ذكاء المبيعات في قطاع التجزئة", "short": "ذكاء المبيعات", "icon": "chart", "sessions": 3, "hours": 9} });
+})();
+/* ===== courses/trainer-journey/cfg.js ===== */
+// إعدادات دورة «trainer-journey» العامة (لا تحتوي المحتوى السري).
+COURSE_CFGS["trainer-journey"] = (function () {
+  const AXIS_COLORS = ["#118A93", "#0D737B", "#2BB8BF", "#E27412", "#C25F0A", "#F58A1F", "#D4A017", "#B88A0C", "#1D2B4F", "#34457A", "#4B5F9E", "#0F9AA5"];
+  const UNIT_NAMES = {"1": "أنت والمتدرب: أساس الحقيبة", "2": "من الحقيبة إلى القاعة: التصميم والتقديم والتقييم"};
+  const UNIT_KICKERS = {"1": "اليوم الأول", "2": "اليوم الثاني"};
+  const UNIT_IDS = [1, 2];
+  const SPECIAL_UNIT = 0;
+  const LAB_STAGE_MIN = 7;
+  const ATTEND_DAYS_DEFAULT = 2;
+  const ATTEND_HOURS_DEFAULT = 4;
+  const CERT_THRESHOLD_DEFAULT = 90;
+  const DEFAULT_SITE = {"headerTitle": "رحلتك نحو التأثير", "headerSub": "حقيبة المدرب البارع · برنامج تفاعلي في يومين", "heroTitle": "رحلتك نحو التأثير: حقيبة المدرب البارع", "heroDesc": "برنامج تطبيقي في يومين (ثماني ساعات): نبني حقيبة المدرب ركيزة ركيزة، ونتدرب على التحليل والتصميم والإلقاء وقيادة القاعة والتقييم، ثم تقدّم جلستك المصغرة. شرائح بأسئلة حية وتمارين ومحاكيات تشارك فيها من جوالك.", "heroImage": "", "footerName": "حسين الحاجي", "footerBio": "مدرب البرنامج", "footerUrl": "www.hussain-al-hajji.com", "linkedin": "", "x": "", "instagram": "", "whatsapp": "", "email": ""};
+  const DEFAULT_CONGRATS = Object.assign({"emoji": "🏆", "title": "تهنئة إنجاز", "paragraphs": ["نبارك لـ {{name}} إنجازه المتميز في برنامج «{{courseTitle}}».", "لقد أتممت رحلة بناء حقيبة المدرب بجدية ومشاركة فاعلة، من اكتشاف مهارتك الأولى حتى تقديم جلستك المصغرة.", "نتمنى لك انطلاقة موفقة في أول دورة تقدمها."], "footerRight": "التاريخ: {{date}}", "footerLeft": "حسين الحاجي، مدرب البرنامج"}, { notice: 'تنبيه: ستختفي هذه التهنئة مع الأوسمة بعد ' + CONGRATS_DAYS_DEFAULT + ' أيام من انتهاء البرنامج. حمّلها الآن أو أرسلها إلى بريدك.' });
+  const DEFAULT_CERT = {"emoji": "🎓", "title": "شهادة مشاركة", "paragraphs": ["يُشهد بأن {{name}} قد شارك في البرنامج التدريبي «{{courseTitle}}».", "وقد استوفى متطلبات الحضور المعتمدة للبرنامج، متمنين له التوفيق في تطبيق ما اكتسبه من معارف ومهارات."], "footerRight": "التاريخ: {{date}}", "footerLeft": "مدرب البرنامج: حسين الحاجي", "notice": "تُمنح شهادة المشاركة لمن يحضر 90% على الأقل من مدة البرنامج. حمّلها الآن واحتفظ بنسخة منها."};
+  const DEFAULT_PDF = {"enabled": true, "coverTitle": "", "coverSub": "الملف المرجعي لشرائح البرنامج", "trainerName": "حسين الحاجي", "trainerRole": "مدرب البرنامج", "trainerBio": "يقدّم برامج تطبيقية تفاعلية للمدربين الجدد وللعاملين في التجارة الإلكترونية والمبيعات.", "trainerContact": "www.hussain-al-hajji.com"};
+  const REG_DEFAULTS = {"name": {"label": "الاسم الكامل", "type": "text", "required": true, "visible": true, "locked": true, "ph": "مثال: محمد عبدالله"}, "role": {"label": "تخصصك أو مجال خبرتك", "type": "text", "required": true, "visible": true, "ph": "مثال: مصوّر / مصمم / معلم / محلل"}, "org": {"label": "جهة العمل أو الدراسة", "type": "text", "required": false, "visible": false, "ph": "مثال: جامعة أو شركة"}, "sector": {"label": "المجال الذي تفكر في تدريبه", "type": "select", "required": false, "visible": false, "options": ["التقنية والذكاء الاصطناعي", "التصميم والتصوير والمحتوى", "التعليم ومهارات الدراسة", "الأعمال والإدارة والمبيعات", "الصحة والرياضة", "الألعاب والترفيه", "أخرى"]}, "stage": {"label": "خبرتك في التدريب", "type": "select", "required": false, "visible": false, "options": ["لم أقدم دورة بعد", "قدّمت ورشة أو اثنتين", "أقدم دورات منتظمة", "أدرّب منذ سنوات"]}, "hasStore": {"label": "هل أعددت حقيبة تدريبية من قبل؟", "type": "select", "required": false, "visible": false, "options": ["لا", "جزئيًا", "نعم لدورة واحدة", "نعم لعدة دورات"]}, "onlineSales": {"label": "نمط التدريب الذي تتوقعه", "type": "select", "required": false, "visible": false, "options": ["حضوري", "عن بعد", "هجين", "لا أعلم بعد"]}, "email": {"label": "البريد الإلكتروني", "type": "email", "required": false, "visible": false, "ph": "name@example.com"}, "phone": {"label": "رقم الجوال", "type": "tel", "required": false, "visible": false, "ph": "+966"}, "cr": {"label": "رابط حسابك المهني (إن وُجد)", "type": "text", "required": false, "visible": false}};
+  const DEFAULT_PRIVACY = {"text": "نجمع في هذه المنصة البيانات التي تدخلها عند التسجيل (الاسم والمجال وما تختاره من حقول اختيارية)، ومشاركاتك في التمارين والتقييمات والأسئلة الحية، وسجل حضورك. نستخدمها فقط لإدارة البرنامج التدريبي، وإصدار شهادة المشاركة، وقياس أثر التدريب وإعداد تقرير الختام للجهة المنظمة. لا نبيع بياناتك ولا نشاركها لأغراض تسويقية لطرف ثالث. تُحفظ البيانات في قاعدة بيانات سحابية (Google Firebase)، ويمكنك تعديل بياناتك أو حذفها بالكامل في أي وقت من صفحة «حسابي». نلتزم بمبادئ نظام حماية البيانات الشخصية في المملكة العربية السعودية.", "consent": "قرأت إشعار الخصوصية وأوافق على معالجة بياناتي لأغراض البرنامج", "followup": "أوافق على التواصل معي بعد البرنامج لقياس الأثر (بعد 30 و60 و90 يومًا) وبخصوص برامج الدعم ذات الصلة"};
+  const ASSESS_AXIS = ["a2", "a1", "a3", "a3", "a4", "a4", "a5", "a5", "a6", "a7", "a8", "a8", "a9", "a10", "a11"];
+  const EN = {"course": "The Trainer Journey: the Skilled Trainer Toolkit (2-day program)", "axes": {}, "assess": ["Great trainer definition", "Trainer, facilitator, lecturer, coach", "Curse of knowledge", "Not knowing an answer", "Adult learning: need to know", "Training vs system problem", "Measurable verbs", "ABCD model", "Backward design", "Debrief turns activity into learning", "Body language myth", "Strong opening", "Dominating participant", "Hybrid sessions", "Kirkpatrick levels"], "rates": ["Trainer knowledge & delivery", "Content clarity & structure", "Practical value for my trainer career", "Exercises & interactive activities", "Templates & tools", "Interactive platform & usability", "Organisation & time management"], "fields": {"sector": "Field to train", "stage": "Training experience", "hasStore": "Prepared a toolkit before", "onlineSales": "Expected delivery mode"}, "programs": []};
+  const EN_OPTIONS = {"التقنية والذكاء الاصطناعي": "Technology & AI", "التصميم والتصوير والمحتوى": "Design, photography & content", "التعليم ومهارات الدراسة": "Education & study skills", "الأعمال والإدارة والمبيعات": "Business, management & sales", "الصحة والرياضة": "Health & sports", "الألعاب والترفيه": "Games & entertainment", "أخرى": "Other", "لم أقدم دورة بعد": "Not yet delivered a course", "قدّمت ورشة أو اثنتين": "Delivered one or two workshops", "أقدم دورات منتظمة": "Deliver courses regularly", "أدرّب منذ سنوات": "Training for years", "لا": "No", "جزئيًا": "Partly", "نعم لدورة واحدة": "Yes, for one course", "نعم لعدة دورات": "Yes, for several courses", "حضوري": "In person", "عن بعد": "Online", "هجين": "Hybrid", "لا أعلم بعد": "Not sure yet"};
+  const TOOLS = [
+  { id: 'timeplan', icon: '⏱️', title: 'مخطط وقت الجلسة', desc: 'أدخل مدة جلستك وعدد الاستراحات لتعرف صافي وقت التدريب وعدد الكتل التفاعلية المقترحة.', axis: 'a6',
+    inputs: [['total', 'مدة الجلسة (دقيقة)', 180], ['brk', 'مجموع الاستراحات (دقيقة)', 20], ['open', 'افتتاح وختام (دقيقة)', 20], ['blk', 'طول الكتلة قبل نشاط (دقيقة)', 20]],
+    calc: v => { const net = Math.max(0, v.total - v.brk - v.open); const n = v.blk > 0 ? Math.floor(net / v.blk) : 0; return [['صافي وقت المحتوى والأنشطة', fmt(net) + ' دقيقة', 1], ['عدد الكتل التقريبي', fmt(n) + ' كتلة'], ['اقتراح', n ? 'ضع نشاطًا أو سؤالًا تفاعليًا داخل كل كتلة من ' + fmt(v.blk) + ' دقيقة' : 'الوقت المتبقي قليل: قلّل الاستراحات أو الافتتاح'], ['ملاحظة', 'القيم أمثلة للتعلم: عدّلها بحسب جمهورك ونوع الموضوع']]; } },
+  { id: 'words', icon: '🎤', title: 'كم دقيقة يستغرق نصّي؟', desc: 'قدّر زمن حديثك من عدد كلمات نصك وسرعتك المعتادة.', axis: 'a8',
+    inputs: [['w', 'عدد الكلمات', 650], ['pace', 'سرعة الإلقاء (كلمة في الدقيقة)', 130], ['pause', 'مجموع الوقفات والتفاعل (دقيقة)', 3]],
+    calc: v => { const m = v.pace > 0 ? v.w / v.pace : 0; const t = m + v.pause; return [['زمن الإلقاء الصافي', fmt(m, 1) + ' دقيقة'], ['مع الوقفات والتفاعل', fmt(t, 1) + ' دقيقة', 1], ['القراءة', t > 5 ? 'النص طويل لجلسة مصغرة من خمس دقائق: اختصره إلى فكرة واحدة' : 'مناسب لجلسة مصغرة قصيرة'], ['ملاحظة', 'السرعة 130 مثال تقريبي: قِس سرعتك بتسجيل صوتي']]; } },
+  { id: 'groups', icon: '👥', title: 'تقسيم المجموعات وزمن العروض', desc: 'كم مجموعة ستحصل؟ وكم يلزم من الوقت إن قدّمت كل مجموعة عرضًا قصيرًا؟', axis: 'a7',
+    inputs: [['n', 'عدد المتدربين', 24], ['size', 'حجم المجموعة', 4], ['each', 'زمن عرض كل مجموعة (دقيقة)', 3], ['fb', 'زمن التعليق بعد كل عرض (دقيقة)', 1]],
+    calc: v => { const g = v.size > 0 ? Math.ceil(v.n / v.size) : 0; const t = g * (v.each + v.fb); return [['عدد المجموعات', fmt(g), 1], ['زمن العروض والتعليق', fmt(t) + ' دقيقة', 1], ['القراءة', t > 30 ? 'الزمن طويل: قلّل زمن العرض أو اطلب عرض عينة من المجموعات' : 'مناسب لنشاط واحد في الجلسة'], ['ملاحظة', 'للنقاش تصلح المجموعات من ثلاثة إلى خمسة، وللمهارة اثنان']]; } },
+  { id: 'roi', icon: '📈', title: 'عائد التدريب (ROI)', desc: 'قدّر نسبة عائد التدريب على التكلفة بمعادلة فيليبس البسيطة لمستوى النتائج.', axis: 'a11',
+    inputs: [['cost', 'تكلفة التدريب الكلية (ر.س)', 20000], ['ben', 'الفائدة المالية المقدّرة للنتائج (ر.س)', 30000]],
+    calc: v => { const roi = v.cost ? (v.ben - v.cost) / v.cost * 100 : 0; return [['صافي الفائدة', fmt(v.ben - v.cost) + ' ر.س'], ['عائد التدريب', fmt(roi, 0) + '%', 1], ['القراءة', roi >= 0 ? 'الفائدة تغطي التكلفة، لكن تأكد أن تقدير الفائدة مبني على مؤشر عمل حقيقي' : 'التكلفة أعلى من الفائدة المقدرة: راجع التصميم أو التقدير'], ['ملاحظة', 'أرقام تقديرية للتعلم: العزل الحقيقي لأثر التدريب يحتاج مؤشرات وقياسات سابقة']]; } },
+  { id: 'fee', icon: '💰', title: 'تقدير أجر ورشة', desc: 'من ساعات التحضير والتقديم وتكلفتك المعتادة تقدّر الحد الأدنى لأجر الورشة.', axis: 'a12',
+    inputs: [['deliv', 'ساعات التقديم', 4], ['prep', 'ساعات التحضير لكل ساعة تقديم', 3], ['rate', 'أجرك المستهدف للساعة (ر.س)', 200], ['exp', 'مصاريف مباشرة (ر.س)', 300]],
+    calc: v => { const hrs = v.deliv * (1 + v.prep); const fee = hrs * v.rate + v.exp; return [['إجمالي الساعات المبذولة', fmt(hrs) + ' ساعة'], ['الحد الأدنى المقترح للأجر', fmt(fee) + ' ر.س', 1], ['لكل ساعة تقديم', fmt(v.deliv ? fee / v.deliv : 0) + ' ر.س'], ['ملاحظة', 'نسبة التحضير والأجر أمثلة: غالبًا يقل التحضير مع تكرار الدورة']]; } }
+];
+  const MATRIX_CRIT = ["خبرتي في الموضوع", "طلب الجمهور عليه", "شغفي به", "سهولة تحضيره", "قابلية التطبيق العملي"];
+  const MX_NAMES = ["الفكرة (أ)", "الفكرة (ب)", "الفكرة (ج)"];
+  const FU_ACTIONS = ["كتبت هدفًا قابلًا للقياس بصيغة ABCD لدورتي", "حللت احتياج جمهوري بالأسئلة الستة", "أعددت خطة جلسة بتوزيع الوقت", "صممت نشاطًا ببطاقة نشاط وتلخيص", "قدّمت جلسة مصغرة أمام زملاء وأخذت تغذية راجعة", "وضعت أداة لقياس أثر دورتي", "بدأت ملف أعمال أو صفحة تعريفية", "حددت موعد أول دورة أقدمها"];
+  const DEFAULT_LANDING = {"hero": {"kicker": "برنامج تدريبي تفاعلي في يومين", "title": "", "sub": "برنامج تطبيقي يعلّمك كيف تصبح مدربًا متميزًا: تبني حقيبة المدرب، وتحلل جمهورك، وتكتب أهدافًا وتصمم دورة وأنشطة، وتتقن الإلقاء وقيادة القاعة والتقييم، ثم تقدّم جلستك الأولى بثقة.", "cta": "الدخول للمنصة التعليمية", "cta2": "اكتشف البرنامج"}, "logos": {"title": "مفاهيم ستتقنها", "items": "حقيبة المدرب\nتعلّم الكبار\nتحليل الاحتياج\nأهداف ABCD\nالتصميم العكسي\nتصميم الأنشطة\nالإلقاء والقصة\nقيادة القاعة\nنموذج كيركباتريك"}, "about": {"kicker": "نبذة عن البرنامج", "title": "من الخبرة إلى التأثير", "sub": "صُمّم البرنامج لمن يملك خبرة ويريد أن ينقلها. التطبيق قبل النظرية: كل مفهوم يتحول إلى أسئلة حية أو لعبة أو محاكاة أو تمرين تصميم.", "items": "🎒 | حقيبة متكاملة | خمس ركائز تغطي المعرفة والجمهور والمحتوى والإلقاء والقيادة\n🎮 | محاكيات واقعية | المتدرب الصعب، طاقة القاعة، مقابلة جهة تطلب دورة\n📈 | يقيس أثره | تقييم قبلي وبعدي وقياس ثقة قبل وبعد"}, "objectives": {"kicker": "أهداف البرنامج", "title": "ماذا ستُتقن بنهاية البرنامج؟", "sub": "", "items": ""}, "features": {"kicker": "مزايا التجربة", "title": "تجربة تعلّم تفاعلية لا تشبه القاعات التقليدية", "sub": "منصة حية تعمل من جوالك طوال البرنامج وبعده.", "items": "⚡ | أسئلة حية في الشرائح | أجب تحت الشريحة وشاهد نتائج القاعة فورًا\n🕹️ | محاكيات قرار | تعامل مع المتدرب الصعب واضبط طاقة القاعة\n🎤 | ورشة المدرب الصغير | تقدّم فكرة وسؤالًا ومثالًا أمام زملائك\n🧰 | قوالب جاهزة | لوحة تصميم الدورة وخطة الجلسة وبطاقة النشاط\n🏅 | نقاط وأوسمة وشهادة | لوحة صدارة تحفيزية وشهادة مشاركة"}, "content": {"kicker": "محتوى البرنامج", "title": "يومان واثنا عشر محورًا من الخبرة إلى التأثير", "sub": "اختر محورًا لترى محتواه."}, "journey": {"kicker": "مراحل الرحلة", "title": "رحلتك خطوة بخطوة", "sub": "", "items": "🧭 | التسجيل والتقييم القبلي | قِس نقطة انطلاقك بخمسة عشر سؤالًا\n🎒 | اليوم الأول | الحقيبة والمعرفة والمتدرب والأهداف وتصميم الدورة\n🎤 | اليوم الثاني | المحتوى والإلقاء وقيادة القاعة والتقييم\n🚀 | الورشة الختامية | جلستك المصغرة وخطتك لأول تسعين يومًا\n🏁 | الشهادة | قياس الثقة بعد ونتائج التقييم البعدي"}, "outcomes": {"kicker": "المخرجات", "title": "ماذا تأخذ معك بعد البرنامج؟", "sub": "", "items": "🗺️ | لوحة تصميم الدورة | من الموضوع إلى التقييم في صفحة\n⏱️ | خطة جلسة | توزيع الوقت والأنشطة والتلخيص\n🧩 | بطاقة نشاط | هدف ومدة وتعليمات وتلخيص\n📆 | خطة تسعين يومًا | لأول دورة تقدمها"}, "audience": {"kicker": "لمن هذا البرنامج؟", "title": "صُمّم لمن يريد أن يؤثر بعلمه لا أن يكرره فقط", "sub": "", "items": "🌱 | الراغبون في التدريب | لخطوة أولى واثقة\n🧑‍🏫 | المدربون الجدد | لتنظيم الخبرة وتحسين التقديم\n💼 | قادة الفرق | لتدريب فرقهم بفاعلية\n📚 | المعلمون والمشرفون | لتطوير مهارات التيسير والإلقاء"}, "cta": {"title": "جاهز لتصبح مدربًا واثقًا؟", "sub": "سجّل خلال ثوانٍ باسمك، وابدأ بناء حقيبتك مع زملائك.", "cta": "الدخول للمنصة التعليمية"}};
+  return Object.assign({ AXIS_COLORS, UNIT_NAMES, UNIT_KICKERS, UNIT_IDS, SPECIAL_UNIT, LAB_STAGE_MIN, ATTEND_DAYS_DEFAULT, ATTEND_HOURS_DEFAULT, CERT_THRESHOLD_DEFAULT, DEFAULT_SITE, DEFAULT_CONGRATS, DEFAULT_CERT, DEFAULT_PDF, REG_DEFAULTS, DEFAULT_PRIVACY, ASSESS_AXIS, EN, EN_OPTIONS, TOOLS, MATRIX_CRIT, MX_NAMES, FU_ACTIONS, DEFAULT_LANDING }, { theme: {"brand": "#118A93", "brand-2": "#F58A1F", "brand-3": "#F2C840", "grad": "linear-gradient(120deg,#1D2B4F 0%,#118A93 100%)", "grad-warm": "linear-gradient(120deg,#F58A1F 0%,#E27412 100%)", "bg": "#F3FBFB", "bg-dots": "#D5EEF0", "ink": "#1D2B4F", "ink-2": "#46557A", "themeColor": "#118A93"}, meta: {"title": "رحلتك نحو التأثير: حقيبة المدرب البارع", "short": "حقيبة المدرب البارع", "icon": "megaphone", "sessions": 2, "hours": 8} });
+})();
+/* ===== courses/empowered-leader/cfg.js ===== */
+// إعدادات دورة «empowered-leader» العامة (لا تحتوي المحتوى السري).
+COURSE_CFGS["empowered-leader"] = (function () {
+  const AXIS_COLORS = ["#129AA3", "#0D7F87", "#2BB8BF", "#E27412", "#C25F0A", "#F58A1D", "#D4A017", "#B88A0C", "#1D4E5F", "#2C6E83", "#3E8FA3", "#0F9AA5", "#E8861A", "#B8570B", "#0B6E76", "#CF8F0E", "#1F5C73", "#EE9A33", "#0E8A92", "#A9740A"];
+  const UNIT_NAMES = {"1": "أقود نفسي أولًا", "2": "أقود الآخرين", "3": "أقود التغيير"};
+  const UNIT_KICKERS = {"1": "اليوم الأول", "2": "اليوم الثاني", "3": "اليوم الثالث"};
+  const UNIT_IDS = [1, 2, 3];
+  const SPECIAL_UNIT = 0;
+  const LAB_STAGE_MIN = 7;
+  const ATTEND_DAYS_DEFAULT = 3;
+  const ATTEND_HOURS_DEFAULT = 5;
+  const CERT_THRESHOLD_DEFAULT = 90;
+  const DEFAULT_SITE = {"headerTitle": "قائد تحت التمكين", "headerSub": "رحلتك نحو القيادة الفاعلة · برنامج تفاعلي في ثلاثة أيام", "heroTitle": "قائد تحت التمكين: رحلتك نحو القيادة الفاعلة", "heroDesc": "قرر مجلس الإدارة تعيينك في موقع قيادي. برنامج تطبيقي في ثلاثة أيام يبدأ بقيادة نفسك، ثم قيادة الآخرين بالتأثير والثقة والتواصل والتفويض، ثم قيادة التغيير، لتخرج بمشروع قيادي وخطة تسعين يومًا. شرائح بأسئلة حية وتمارين ومحاكيات تشارك فيها من جوالك.", "heroImage": "", "footerName": "حسين الحاجي", "footerBio": "مدرب البرنامج", "footerUrl": "www.hussain-al-hajji.com", "linkedin": "", "x": "", "instagram": "", "whatsapp": "", "email": ""};
+  const DEFAULT_CONGRATS = Object.assign({"emoji": "🏆", "title": "تهنئة إنجاز", "paragraphs": ["نبارك لـ {{name}} إنجازه المتميز في برنامج «{{courseTitle}}».", "لقد أتممت رحلة القيادة بجدية ومشاركة فاعلة، من قيادة نفسك إلى قيادة الآخرين والتغيير، وعرضت مشروعك القيادي.", "نتمنى لك انطلاقة موفقة في أول تسعين يومًا من قيادتك."], "footerRight": "التاريخ: {{date}}", "footerLeft": "حسين الحاجي، مدرب البرنامج"}, { notice: 'تنبيه: ستختفي هذه التهنئة مع الأوسمة بعد ' + CONGRATS_DAYS_DEFAULT + ' أيام من انتهاء البرنامج. حمّلها الآن أو أرسلها إلى بريدك.' });
+  const DEFAULT_CERT = {"emoji": "🎓", "title": "شهادة مشاركة", "paragraphs": ["يُشهد بأن {{name}} قد شارك في البرنامج التدريبي «{{courseTitle}}».", "وقد استوفى متطلبات الحضور المعتمدة للبرنامج، متمنين له التوفيق في تطبيق ما اكتسبه من معارف ومهارات قيادية."], "footerRight": "التاريخ: {{date}}", "footerLeft": "مدرب البرنامج: حسين الحاجي", "notice": "تُمنح شهادة المشاركة لمن يحضر 90% على الأقل من مدة البرنامج. حمّلها الآن واحتفظ بنسخة منها."};
+  const DEFAULT_PDF = {"enabled": true, "coverTitle": "", "coverSub": "الملف المرجعي لشرائح البرنامج", "trainerName": "حسين الحاجي", "trainerRole": "مدرب البرنامج", "trainerBio": "يقدّم برامج تطبيقية تفاعلية للقادة الجدد وللعاملين في التجارة الإلكترونية والمبيعات والتدريب.", "trainerContact": "www.hussain-al-hajji.com"};
+  const REG_DEFAULTS = {"name": {"label": "الاسم الكامل", "type": "text", "required": true, "visible": true, "locked": true, "ph": "مثال: محمد عبدالله"}, "role": {"label": "المسمى الوظيفي", "type": "text", "required": true, "visible": true, "ph": "مثال: مشرف مبيعات / رئيس قسم"}, "org": {"label": "جهة العمل", "type": "text", "required": false, "visible": false, "ph": "مثال: شركة أو جهة حكومية"}, "sector": {"label": "قطاع عملك", "type": "select", "required": false, "visible": false, "options": ["التقنية والاتصالات", "التجزئة والتجارة الإلكترونية", "الصناعة والطاقة", "الصحة", "التعليم والتدريب", "الخدمات المالية", "القطاع الحكومي", "أخرى"]}, "stage": {"label": "مدتك في القيادة", "type": "select", "required": false, "visible": false, "options": ["أول تعيين لي", "أقل من سنة", "من سنة إلى ثلاث سنوات", "أكثر من ثلاث سنوات"]}, "hasStore": {"label": "هل حضرت برنامجًا قياديًا من قبل؟", "type": "select", "required": false, "visible": false, "options": ["لا", "ورشة قصيرة", "برنامج واحد", "عدة برامج"]}, "onlineSales": {"label": "حجم الفريق الذي تقوده", "type": "select", "required": false, "visible": false, "options": ["لا فريق مباشرًا بعد", "من 1 إلى 5", "من 6 إلى 15", "أكثر من 15"]}, "email": {"label": "البريد الإلكتروني", "type": "email", "required": false, "visible": false, "ph": "name@example.com"}, "phone": {"label": "رقم الجوال", "type": "tel", "required": false, "visible": false, "ph": "+966"}, "cr": {"label": "رابط حسابك المهني (إن وُجد)", "type": "text", "required": false, "visible": false}};
+  const DEFAULT_PRIVACY = {"text": "نجمع في هذه المنصة البيانات التي تدخلها عند التسجيل (الاسم والمسمى الوظيفي وما تختاره من حقول اختيارية)، ومشاركاتك في التمارين والتقييمات والأسئلة الحية، وسجل حضورك. نستخدمها فقط لإدارة البرنامج التدريبي، وإصدار شهادة المشاركة، وقياس أثر التدريب وإعداد تقرير الختام للجهة المنظمة. لا نبيع بياناتك ولا نشاركها لأغراض تسويقية لطرف ثالث. تُحفظ البيانات في قاعدة بيانات سحابية (Google Firebase)، ويمكنك تعديل بياناتك أو حذفها بالكامل في أي وقت من صفحة «حسابي». نلتزم بمبادئ نظام حماية البيانات الشخصية في المملكة العربية السعودية.", "consent": "قرأت إشعار الخصوصية وأوافق على معالجة بياناتي لأغراض البرنامج", "followup": "أوافق على التواصل معي بعد البرنامج لقياس الأثر (بعد 30 و60 و90 يومًا) وبخصوص برامج الدعم ذات الصلة"};
+  const ASSESS_AXIS = ["a2", "a2", "a3", "a4", "a4", "a5", "a6", "a6", "a9", "a10", "a11", "a12", "a13", "a16", "a19"];
+  const EN = {"course": "Empowered Leader: Your Journey to Effective Leadership (3-day program)", "axes": {}, "assess": ["Leader vs manager", "Leadership without a title", "Self-leadership", "Johari blind spot", "Pause before reacting", "Defeatist leadership", "Risk lens", "Promotion criteria", "Authority vs influence", "Trust bank", "CLEAR communication", "ACIP decision model", "TEAM delegation", "Situational leadership", "Kotter quick wins"], "rates": ["Trainer knowledge & delivery", "Content clarity & structure", "Practical value for my leadership role", "Exercises, simulations & interactive activities", "Templates & tools", "Interactive platform & usability", "Organisation & time management"], "fields": {"sector": "Sector", "stage": "Time in leadership", "hasStore": "Attended a leadership program before", "onlineSales": "Team size"}, "programs": []};
+  const EN_OPTIONS = {"التقنية والاتصالات": "Technology & telecom", "التجزئة والتجارة الإلكترونية": "Retail & e-commerce", "الصناعة والطاقة": "Industry & energy", "الصحة": "Health", "التعليم والتدريب": "Education & training", "الخدمات المالية": "Financial services", "القطاع الحكومي": "Government", "أخرى": "Other", "أول تعيين لي": "My first appointment", "أقل من سنة": "Under one year", "من سنة إلى ثلاث سنوات": "One to three years", "أكثر من ثلاث سنوات": "More than three years", "لا": "No", "ورشة قصيرة": "A short workshop", "برنامج واحد": "One program", "عدة برامج": "Several programs", "لا فريق مباشرًا بعد": "No direct team yet", "من 1 إلى 5": "1 to 5", "من 6 إلى 15": "6 to 15", "أكثر من 15": "More than 15"};
+  const TOOLS = [
+  { id: 'delegation', icon: '🔑', title: 'كلفة عدم التفويض', desc: 'قدّر ما تنفقه من وقتك في مهام يستطيع غيرك أداءها وما كان يمكنك فعله بهذا الوقت.', axis: 'a13',
+    inputs: [['h', 'ساعات أسبوعيًا على مهام قابلة للتفويض', 6], ['w', 'أسابيع العمل في السنة', 46], ['val', 'قيمة ساعة القائد التقديرية (ر.س)', 150]],
+    calc: v => { const yr = v.h * v.w; return [['ساعات شهريًا', fmt(v.h * 4) + ' ساعة'], ['ساعات سنويًا', fmt(yr) + ' ساعة', 1], ['القيمة التقديرية للوقت', fmt(yr * v.val) + ' ر.س'], ['أيام عمل ثمانية ساعات', fmt(yr / 8, 0) + ' يوم'], ['ملاحظة', 'أرقام تقديرية للتعلم: استخدم أرقامك أنت واجعل الهدف تفويض مهمة واحدة هذا الأسبوع']]; } },
+  { id: 'oneone', icon: '📅', title: 'ميزانية الاجتماعات الفردية', desc: 'كم يستغرق الاجتماع الفردي المنتظم مع كل عضو في فريقك؟ وكم تمثل من شهر عملك؟', axis: 'a11',
+    inputs: [['n', 'عدد أعضاء الفريق', 8], ['min', 'مدة الاجتماع (دقيقة)', 30], ['f', 'عدد الاجتماعات لكل عضو شهريًا', 2], ['prep', 'تحضير ومتابعة لكل اجتماع (دقيقة)', 10]],
+    calc: v => { const hrs = v.n * v.f * (v.min + v.prep) / 60; const share = hrs / 160 * 100; return [['إجمالي ساعات الاجتماعات شهريًا', fmt(hrs, 1) + ' ساعة', 1], ['نسبة من شهر عمل من 160 ساعة', fmt(share, 0) + '%'], ['ساعات لكل عضو', fmt(v.f * (v.min + v.prep) / 60, 1) + ' ساعة'], ['القراءة', share > 30 ? 'النسبة مرتفعة: ضاعف المدة بين اللقاءات أو اقصرها' : 'استثمار معقول في نمو الفريق'], ['ملاحظة', 'الشهر 160 ساعة افتراض للتعلم: عدّله بحسب عملك']]; } },
+  { id: 'turnover', icon: '🚪', title: 'كلفة مغادرة عضو (تقدير)', desc: 'قدّر كلفة مغادرة عضو من فريقك من تعويض ووقت تأهيل وانخفاض إنتاجية.', axis: 'a10',
+    inputs: [['sal', 'الراتب الشهري (ر.س)', 12000], ['rec', 'تكلفة الاستقطاب والتعيين (ر.س)', 15000], ['gap', 'أشهر الشغور', 2], ['ramp', 'أشهر التأهيل بنصف إنتاجية', 3]],
+    calc: v => { const vac = v.sal * v.gap; const lost = v.sal * v.ramp * 0.5; const tot = v.rec + vac + lost; return [['كلفة الشغور', fmt(vac) + ' ر.س'], ['كلفة نقص الإنتاجية أثناء التأهيل', fmt(lost) + ' ر.س'], ['الإجمالي التقديري', fmt(tot) + ' ر.س', 1], ['بالنسبة للراتب السنوي', fmt(tot / (v.sal * 12) * 100, 0) + '%'], ['ملاحظة', 'تقدير مبسط للتعلم: لا يشمل المعرفة الضائعة وأثر المغادرة على معنويات الفريق']]; } },
+  { id: 'timequad', icon: '⏱️', title: 'أين يذهب وقتك؟', desc: 'وزّع ساعات أسبوعك على مربعات العاجل والمهم وانظر حصة التخطيط والتنمية.', axis: 'a12',
+    inputs: [['q1', 'مهم وعاجل (ساعات)', 18], ['q2', 'مهم وغير عاجل (ساعات)', 8], ['q3', 'عاجل وغير مهم (ساعات)', 10], ['q4', 'غير مهم وغير عاجل (ساعات)', 4]],
+    calc: v => { const t = v.q1 + v.q2 + v.q3 + v.q4; const p = x => t ? x / t * 100 : 0; return [['إجمالي الساعات', fmt(t) + ' ساعة'], ['حصة المهم وغير العاجل', fmt(p(v.q2), 0) + '%', 1], ['حصة العاجل وغير المهم', fmt(p(v.q3), 0) + '%'], ['القراءة', p(v.q2) < 20 ? 'حصة التخطيط والتنمية صغيرة: احجز ساعتين ثابتتين أسبوعيًا' : 'حصة جيدة للتخطيط والتنمية'], ['ملاحظة', 'الحدود أمثلة تعليمية وليست قاعدة علمية ثابتة']]; } },
+  { id: 'feedback', icon: '🗣️', title: 'إيقاع التغذية الراجعة', desc: 'قدّر كم ملاحظة تقدّمها شهريًا لفريقك والوقت اللازم.', axis: 'a11',
+    inputs: [['n', 'عدد أعضاء الفريق', 8], ['pos', 'ملاحظات تقدير لكل عضو شهريًا', 4], ['cor', 'ملاحظات تصحيحية لكل عضو شهريًا', 1], ['min', 'دقائق لكل ملاحظة', 5]],
+    calc: v => { const tot = v.n * (v.pos + v.cor); const mins = tot * v.min; return [['إجمالي الملاحظات شهريًا', fmt(tot)], ['إجمالي الوقت', fmt(mins / 60, 1) + ' ساعة', 1], ['نسبة التقدير إلى التصحيح', v.cor ? fmt(v.pos / v.cor, 1) + ' إلى 1' : 'لا تصحيح'], ['ملاحظة', 'الأرقام أمثلة للتعلم: الأهم أن تكون الملاحظة محددة وقريبة من الحدث']]; } }
+];
+  const MATRIX_CRIT = ["الأثر على الأشخاص", "العائد على النتائج", "الاتساق مع القيم", "انخفاض المخاطر", "سهولة التنفيذ"];
+  const MX_NAMES = ["الخيار (أ)", "الخيار (ب)", "الخيار (ج)"];
+  const FU_ACTIONS = ["عقدت اجتماعًا فرديًا منتظمًا مع كل عضو في فريقي", "فوّضت مهمة بنموذج TEAM", "قدمت ملاحظة محددة بنموذج SBI", "سجلت قرارًا مهمًا في سجل القرارات", "شكرت عضوًا بلغة التقدير المناسبة له", "نفذت خطوة من مشروعي القيادي", "ناقشت أولوياتي وتوقعاتي مع مديري", "راجعت خطة التسعين يومًا مع شريك المساءلة"];
+  const DEFAULT_LANDING = {"hero": {"kicker": "برنامج قيادي تفاعلي في ثلاثة أيام", "title": "", "sub": "برنامج تطبيقي يرافقك من قرار تعيينك قائدًا إلى أول تسعين يومًا: تقود نفسك أولًا، ثم تقود الآخرين بالتأثير والثقة والتواصل والتفويض، ثم تقود التغيير، وتبني علامتك القيادية وتعرض مشروعك.", "cta": "الدخول للمنصة التعليمية", "cta2": "اكتشف البرنامج"}, "logos": {"title": "مفاهيم ستتقنها", "items": "القيادة والإدارة\nقيادة الذات\nالوعي الذاتي\nالأنماط القيادية\nبنك الثقة\nCLEAR\nACIP\nTEAM\nقيادة التغيير"}, "about": {"kicker": "نبذة عن البرنامج", "title": "من قرار التعيين إلى قيادة فاعلة", "sub": "صُمّم البرنامج لمن تولى موقعًا قياديًا حديثًا أو يستعد له. التطبيق قبل النظرية: كل مفهوم يتحول إلى أسئلة حية أو لعبة أو محاكاة أو تمرين.", "items": "🧭 | ثلاث رحلات | قيادة الذات ثم الآخرين ثم التغيير\n🎮 | محاكيات واقعية | قرارات القائد الجديد، محكمة القائد، سوق المواهب، مجلس الإدارة\n📈 | يقيس أثره | تقييم قبلي وبعدي وقياس ثقة قبل وبعد"}, "objectives": {"kicker": "أهداف البرنامج", "title": "ماذا ستُتقن بنهاية البرنامج؟", "sub": "", "items": ""}, "features": {"kicker": "مزايا التجربة", "title": "تجربة تعلّم تفاعلية لا تشبه القاعات التقليدية", "sub": "منصة حية تعمل من جوالك طوال البرنامج وبعده.", "items": "⚡ | أسئلة حية في الشرائح | أجب تحت الشريحة وشاهد نتائج القاعة فورًا\n🕹️ | محاكيات قرار | قرارات متتابعة تحت الضغط ومحكمة وسوق مواهب\n🚀 | مشروع قيادي | مبادرة تعرضها في اليوم الثالث\n🧰 | قوالب وأدوات | بطاقة التفويض وسجل القرارات وخطة التسعين يومًا\n🏅 | نقاط وأوسمة وشهادة | لوحة صدارة تحفيزية وشهادة مشاركة"}, "content": {"kicker": "محتوى البرنامج", "title": "ثلاثة أيام وعشرون محورًا من التعيين إلى التأثير", "sub": "اختر محورًا لترى محتواه."}, "journey": {"kicker": "مراحل الرحلة", "title": "رحلتك خطوة بخطوة", "sub": "", "items": "🧭 | التسجيل والتقييم القبلي | قِس نقطة انطلاقك بخمسة عشر سؤالًا\n🪞 | اليوم الأول | أقود نفسي أولًا\n🤝 | اليوم الثاني | أقود الآخرين\n🔄 | اليوم الثالث | أقود التغيير\n🏛️ | ورشة مجلس الإدارة | تطبيق جماعي وعرض المشاريع\n🏁 | الشهادة | قياس الثقة بعد ونتائج التقييم البعدي"}, "outcomes": {"kicker": "المخرجات", "title": "ماذا تأخذ معك بعد البرنامج؟", "sub": "", "items": "🚀 | ورقة مشروعك القيادي | مبادرة بعشرة أقسام جاهزة للعرض\n🔑 | بطاقة تفويض | نموذج TEAM لرسالة واضحة\n🗣️ | دليل ملاحظة SBI | الموقف والسلوك والأثر\n📆 | خطة تسعين يومًا | بتواريخ وشريك مساءلة"}, "audience": {"kicker": "لمن هذا البرنامج؟", "title": "صُمّم لمن يريد أن يقود لا أن يدير فقط", "sub": "", "items": "🌱 | قادة جدد | لانتقال أسلس من الموظف إلى القائد\n🧑‍💼 | مرشحون للقيادة | ليستعدوا قبل التعيين\n🏢 | رؤساء الأقسام | لتجديد أدواتهم القيادية\n🎓 | مسؤولو تطوير القادة | لبرنامج جاهز للتطبيق"}, "cta": {"title": "جاهز لتقود بثقة؟", "sub": "سجّل خلال ثوانٍ باسمك، وابدأ رحلتك القيادية مع زملائك.", "cta": "الدخول للمنصة التعليمية"}};
+  return Object.assign({ AXIS_COLORS, UNIT_NAMES, UNIT_KICKERS, UNIT_IDS, SPECIAL_UNIT, LAB_STAGE_MIN, ATTEND_DAYS_DEFAULT, ATTEND_HOURS_DEFAULT, CERT_THRESHOLD_DEFAULT, DEFAULT_SITE, DEFAULT_CONGRATS, DEFAULT_CERT, DEFAULT_PDF, REG_DEFAULTS, DEFAULT_PRIVACY, ASSESS_AXIS, EN, EN_OPTIONS, TOOLS, MATRIX_CRIT, MX_NAMES, FU_ACTIONS, DEFAULT_LANDING }, { theme: {"brand": "#129AA3", "brand-2": "#F58A1D", "brand-3": "#F1C73F", "grad": "linear-gradient(120deg,#0E4A52 0%,#129AA3 100%)", "grad-warm": "linear-gradient(120deg,#F58A1D 0%,#E27412 100%)", "bg": "#F3FAFA", "bg-dots": "#D3EBEC", "ink": "#12343B", "ink-2": "#44656C", "themeColor": "#129AA3"}, meta: {"title": "قائد تحت التمكين: رحلتك نحو القيادة الفاعلة", "short": "قائد تحت التمكين", "icon": "compass", "sessions": 3, "hours": 16} });
+})();
+/* ===== registry ===== */
+Object.assign(COURSE_REGISTRY, {"ai-ecommerce":{"title":"تطبيقات الذكاء الاصطناعي في التجارة الإلكترونية","short":"الذكاء الاصطناعي في التجارة الإلكترونية","kicker":"دورة تفاعلية","desc":"من اكتشاف الفرصة إلى بناء مشروع قابل للاختبار: تستخدم الذكاء الاصطناعي كموظف لاكتشاف السوق وإدارة المتجر، وتحوّل المهام المتكررة إلى وكلاء وأتمتة، وتبني فكرة مشروع تصل بها إلى أول عميل خلال 30 يومًا.","icon":"sparkles","color":"#5B45E0","sessionsText":"5 جلسات","hoursText":"10 ساعات","order":1,"no":"01","id":"ai-ecommerce","v":"9650ee75","units":[{"n":1,"name":"الانطلاقة: عقلية رائد الأعمال وموظفك الذكي","kicker":"الجلسة الأولى"},{"n":2,"name":"الذكاء الاصطناعي لاكتشاف السوق والفرص","kicker":"الجلسة الثانية"},{"n":3,"name":"الذكاء الاصطناعي داخل المتجر: المحتوى والعملاء والبيانات","kicker":"الجلسة الثالثة"},{"n":4,"name":"من الموظف إلى الوكيل: الأتمتة والحوكمة","kicker":"الجلسة الرابعة"},{"n":5,"name":"من الفكرة إلى المشروع وأول عميل","kicker":"الجلسة الخامسة"}],"axes":[{"id":"a1","title":"ماذا لو كان لديك موظف ذكي؟","desc":"<p>نفتتح الدورة بسؤال بسيط: لو كان عندك موظف ذكاء اصطناعي يعمل معك 24 ساعة، ماذا ستطلب منه؟ ومن هنا نضع الفكرة التي تقود الدورة كلها: لا نبدأ من الأداة، بل من المشكلة التجارية التي نريد حلها، ونتعرف على خريطة الجلسات الخمس.</p>","duration":"35 دقيقة","unit":1,"ex":8,"icon":"sparkles","color":"#5B4BDB"},{"id":"a2","title":"كيف يفكر موظفك الذكي؟","desc":"<p>لن نتعلم البرمجة، لكن من يفهم كيف تعمل الأداة يعرف متى يثق بها ومتى يتحقق. نتعرف على طريقة عمل نماذج اللغة، وأين تتفوق وأين تتعثر، ومعنى الهلوسة ونافذة السياق، وكيف نختار الأداة المناسبة لكل مهمة.</p>","duration":"40 دقيقة","unit":1,"ex":8,"icon":"bolt","color":"#4535B8"},{"id":"a3","title":"فن الأمر: كيف تتحدث مع موظفك الذكي","desc":"<p>الذكاء الاصطناعي لا يقرأ أفكارك؛ كل ما لا تكتبه سيخمنه. نتعلم مكونات الأمر الاحترافي الستة، وأساليب متقدمة بلغة بسيطة، ودورة تحسين الأمر، ونبدأ ببناء مكتبة أوامر لمتجرك.</p>","duration":"45 دقيقة","unit":1,"ex":6,"icon":"file","color":"#7A6CF0"},{"id":"a4","title":"محلل السوق: من الترند إلى الفرصة","desc":"<p>كيف تستخدم الذكاء الاصطناعي للبحث عن المنتجات والاتجاهات واكتشاف الفرص قبل أن تستثمر أموالك؛ من الطلب الضعيف «أعطني منتجًا رائجًا» إلى أمر احترافي يجمع الأدلة ويفصل الحقيقة عن الاستنتاج، مع التمييز بين الترند والفرصة.</p>","duration":"40 دقيقة","unit":2,"ex":7,"icon":"search","color":"#FF6B35"},{"id":"a5","title":"محقق المنافسين وصوت العميل","desc":"<p>بعد أن نجد فرصة محتملة نسأل: ماذا يفعل المنافسون؟ وماذا يقول العملاء فعلًا؟ نتعلم تحليل المنافسين بهدف اكتشاف الفجوة لا التقليد، واستخراج الشكاوى والرغبات من مئات التقييمات، وبناء شخصية العميل من بيانات حقيقية.</p>","duration":"40 دقيقة","unit":2,"ex":7,"icon":"eye","color":"#E5531F"},{"id":"a6","title":"اختبار الفرصة بالأرقام","desc":"<p>الفكرة الجميلة لا تكفي؛ يجب أن تربح في كل طلب. نحسب التكلفة الحقيقية للطلب الواحد (المنتج، الشحن، رسوم الدفع، الإعلان، المرتجعات)، ونفهم التسعير ونقطة التعادل، ثم نتعرف على طرق التحقق من الطلب بأقل تكلفة قبل أي طلب كبير، ونستخدم الذكاء الاصطناعي في الحسابات بحذر.</p>","duration":"40 دقيقة","unit":2,"ex":6,"icon":"wallet","color":"#FF8F5E"},{"id":"a7","title":"المحتوى والتسويق بالذكاء الاصطناعي","desc":"<p>كيف يصبح الذكاء الاصطناعي فريق محتوى كاملًا لمتجرك: دليل صوت العلامة، وأوصاف منتجات تبيع بالفوائد لا بالمواصفات، وصور منتجات وإعلانات بنسخ متعددة للاختبار، وخطة محتوى شهرية، مع حدود أخلاقية ونظامية لا نتجاوزها.</p>","duration":"40 دقيقة","unit":3,"ex":7,"icon":"megaphone","color":"#1E1B4B"},{"id":"a8","title":"خدمة العملاء والمبيعات بالذكاء الاصطناعي","desc":"<p>خدمة العملاء أكثر مكان يستهلك وقت صاحب المتجر، وأكثر مكان يربح فيه ولاء العميل. نتعلم بناء قاعدة معرفة لمساعد ذكي، وقواعد التصعيد للإنسان، والردود على الشكاوى والتقييمات، ورسائل استرجاع السلات المتروكة، والبيع الإضافي الذي يخدم العميل.</p>","duration":"40 دقيقة","unit":3,"ex":7,"icon":"heart","color":"#2D2A6E"},{"id":"a9","title":"البيانات والقرار: اسأل أرقامك","desc":"<p>متجرك يجمع بيانات كل يوم: زيارات وطلبات وتقييمات ومرتجعات. نتعلم أهم مؤشرات الأداء للتجارة الإلكترونية، وكيف نرفع ملف المبيعات لموظفنا الذكي ونسأله الأسئلة الصحيحة، ونقرأ تحليل ABC للمنتجات، ونستعد للمواسم السعودية بالبيانات لا بالتخمين.</p>","duration":"40 دقيقة","unit":3,"ex":6,"icon":"chart","color":"#3F3A8C"},{"id":"a10","title":"من موظف AI إلى Agent","desc":"<p>كيف تحوّل المهام المتكررة إلى وكلاء ذكاء اصطناعي يعملون وفق هدف وخطوات وأدوات وقواعد محددة، ومتى تكفيك تعليمة واحدة ومتى تحتاج وكيلًا، وكيف تضع حدود الصلاحيات والمراجعة البشرية، مع تطبيق عملي على التجارة الإلكترونية.</p>","duration":"40 دقيقة","unit":4,"ex":8,"icon":"gear","color":"#0FA3A3"},{"id":"a11","title":"الأتمتة بلا كود: ابنِ أول سير عمل","desc":"<p>الوكيل يفكر، والأتمتة تربط. نتعلم لغة الأتمتة البسيطة (محفز ثم إجراءات)، وأمثلة جاهزة لمتجر إلكتروني، ومنصات الربط بلا كود، والمساعدات المخصصة بقاعدة معرفة، وكيف نختار أول أتمتة بعائد واضح ونبدأ صغيرًا مع نقطة مراجعة بشرية.</p>","duration":"40 دقيقة","unit":4,"ex":7,"icon":"loop","color":"#0B8585"},{"id":"a12","title":"الحوكمة: الخصوصية والأمان والأخلاقيات","desc":"<p>كلما زاد اعتمادك على الذكاء الاصطناعي زادت مسؤوليتك. نتعرف على مبادئ حماية البيانات الشخصية في السعودية، وما لا يجوز إدخاله في الأدوات العامة، والصدق في التسويق والتقييمات، وحقوق الصور والمحتوى، وأمان الحسابات، ونكتب سياسة استخدام بسيطة لمتجرنا.</p>","duration":"40 دقيقة","unit":4,"ex":6,"icon":"shield","color":"#14B8A6"},{"id":"a13","title":"من استخدام AI إلى بناء مشروع","desc":"<p>كيف تكتشف مشكلة حقيقية وتحولها إلى فكرة منتج أو خدمة يكون الذكاء الاصطناعي جزءًا أساسيًا من قيمتها؛ من مستوى الأداة إلى مستوى الموظف ثم مستوى الشريك في بناء مشروع، مع معادلة بسيطة لاكتشاف الفرص وتقييمها.</p>","duration":"35 دقيقة","unit":5,"ex":7,"icon":"bulb","color":"#D9306B"},{"id":"a14","title":"من الفكرة إلى أول عميل خلال 30 يومًا","desc":"<p>كيف تختبر مشروع الذكاء الاصطناعي بأقل تكلفة، بدون الحاجة إلى بناء منتج تقني متكامل من البداية: الطريق الصحيح من المشكلة إلى أول عميل يدفع، وما الذي تستطيع البدء به دون مبرمج، وخطة أسبوعية لثلاثين يومًا، ومتى تثق بالذكاء الاصطناعي ومتى تتحقق.</p>","duration":"45 دقيقة","unit":5,"ex":7,"icon":"rocket","color":"#B8245A"},{"id":"a15","title":"التحدي النهائي: صمّم موظفك الذكي","desc":"<p>التحدي الختامي: يصمم كل مشارك موظفه الذكي أو وكيله الخاص في بطاقة من سبعة أسئلة، تظهر على شاشة القاعة، ويخرج بأول تجربة يبدؤها خلال سبعة أيام، مع الرحلة الكاملة من الاكتشاف إلى التطوير.</p>","duration":"40 دقيقة","unit":5,"ex":8,"icon":"trophy","color":"#8B5CF6"}],"objectives":["فهم طريقة عمل الذكاء الاصطناعي التوليدي وحدوده، وكتابة أوامر احترافية بالمكونات الستة.","استخدام الذكاء الاصطناعي لاكتشاف السوق: الترند والفرصة، وتحليل المنافسين والتقييمات، وبناء شخصية العميل، واختبار الفرصة بالأرقام.","توظيف الذكاء الاصطناعي داخل المتجر: المحتوى والتسويق بصوت العلامة، وخدمة العملاء والمبيعات، وتحليل البيانات واتخاذ القرار.","تحويل المهام المتكررة إلى وكلاء وأتمتة بلا كود، مع حدود صلاحيات ومراجعة بشرية وسياسة استخدام تحمي البيانات والثقة.","اكتشاف مشكلة حقيقية وتحويلها إلى مشروع يكون AI جزءًا من قيمته، وبناء خطة 30 يومًا لأول عميل يدفع، وعرضها في دقيقة."],"outcomes":[["✍️","أمر احترافي","لاكتشاف فرص المنتجات"],["🤖","بطاقة وكيل","تعليمات جاهزة لمهمة متكررة"],["💡","فكرة مقيّمة","من 25 بمعايير واضحة"],["🗓️","تجربة 7 أيام","وخطة 30 يومًا لأول عميل"]]},"b2b":{"title":"التميز في إدارة علاقات الأعمال بين الشركات B2B","short":"علاقات الأعمال B2B","kicker":"برنامج تدريبي تفاعلي","desc":"رحلة من خمس وحدات: نقرأ الحساب المؤسسي كمنظومة، ونصمم مسارات القيمة والعروض، وندير الحسابات والشركاء للنمو، ونتقن التفاوض والقرار والاعتراضات، ثم نقيس ونحسّن باستمرار، بشرائح تفاعلية وتمارين حية ومحاكيات تشارك فيها من جوالك.","icon":"users","color":"#3A8697","sessionsText":"يومان","hoursText":"10 ساعات","order":2,"no":"02","id":"b2b","v":"3912b874","units":[{"n":1,"name":"الهندسة الاستراتيجية لقراءة الحسابات المؤسسية B2B","kicker":"الوحدة الأولى"},{"n":2,"name":"تصميم مسارات القيمة والعروض التجارية في علاقات B2B","kicker":"الوحدة الثانية"},{"n":3,"name":"إدارة الحسابات والشركاء كمحرك للنمو","kicker":"الوحدة الثالثة"},{"n":4,"name":"التفاوض وإدارة القرار داخل الحساب المؤسسي","kicker":"الوحدة الرابعة"},{"n":5,"name":"إدارة أداء الحسابات المؤسسية والتحسين المستمر","kicker":"الوحدة الخامسة"}],"axes":[{"id":"a1","title":"الحساب ليس شخصًا… الحساب فريق كامل","desc":"<p>الحساب المؤسسي في بيئات B2B لا يُفهم باعتباره «عميلًا واحدًا»، بل منظومة من الطبقات الإدارية والوظيفية، لكل منها دور في تشكيل القرار النهائي. هنا نتعلم كيف نقرأ هذا التعقيد بدل أن نصطدم به.</p>","duration":"90 دقيقة","unit":1,"ex":12,"icon":"users","color":"#3A8697"},{"id":"a2","title":"خريطة التأثير: من يحرّك القرار؟","desc":"<p>لا يكفي أن نعرف من هم أصحاب المصلحة؛ المهم أن نقرأ العلاقات بينهم: من يؤثر على من؟ ومن يملك القرار؟ ومن يملك حق الاعتراض؟ ثم نحوّل ذلك إلى خريطة تأثير تقودنا.</p>","duration":"90 دقيقة","unit":1,"ex":9,"icon":"route","color":"#2F7385"},{"id":"a3","title":"من الفهم إلى القرار: أين الفجوة؟","desc":"<p>كثيرون يملكون فهمًا ممتازًا للحساب، لكن التحليل يبقى «وصفًا» ولا يصير «توجيهًا». في هذا المحور نتعلم كيف نحدد الأولوية: أين نبدأ؟ وماذا نؤجل؟ وما الذي نثبّته أولًا؟</p>","duration":"90 دقيقة","unit":1,"ex":7,"icon":"alert","color":"#4A9DB0"},{"id":"a4","title":"من «مشكلة» إلى «قيمة» تُباع","desc":"<p>الاحتياج يصف الوضع الحالي، والقيمة توضّح التغيير المتوقع. كثير من الحلول القوية تفشل لأنها تُقدَّم كميزات لا كقيمة. هنا نتعلم كيف نترجم الاحتياج إلى مسار قيمة تفهمه كل الأطراف.</p>","duration":"90 دقيقة","unit":2,"ex":10,"icon":"target","color":"#D99A00"},{"id":"a5","title":"العرض الذي يقود… لا العرض الذي يشرح","desc":"<p>العرض الاحترافي لا يكتفي بالإجابة عن الأسئلة، بل يسبقها، ويعيد ترتيب النقاش، ويُظهر القيمة بطريقة تقود الجهة إلى تبني القرار. هنا نبني هيكل العرض المتكامل ونوائمه مع تعدد الأطراف.</p>","duration":"90 دقيقة","unit":2,"ex":8,"icon":"file","color":"#C58A00"},{"id":"a6","title":"من «أعجبني» إلى «طبّقناه»","desc":"<p>القبول النظري يعني أن الحل مفهوم ومناسب، بينما التبني الفعلي يعني أن الجهة قادرة على تطبيقه ضمن واقعها. كثير من العروض تنجح في الإقناع وتفشل في الاستمرار. هنا نصمم عروضًا قابلة للتنفيذ.</p>","duration":"90 دقيقة","unit":2,"ex":8,"icon":"check","color":"#E6A800"},{"id":"a7","title":"من إغلاق الصفقة إلى إدارة الحساب","desc":"<p>العلاقة التي تبدأ بقوة قد تنتهي بهدوء إذا لم تُدَر بعد التعاقد. هذا المحور ينقلنا من منطق «إغلاق الصفقة» إلى منطق «إدارة الحساب»، ويُعلّمنا أن نتابع بعين المحلل لا بعين المراسل.</p>","duration":"90 دقيقة","unit":3,"ex":10,"icon":"loop","color":"#434A71"},{"id":"a8","title":"الشريك لا يُدار بالرسائل فقط","desc":"<p>في الحسابات الكبيرة لا يخدم الحساب شخص واحد، بل فرق متعددة من الجهتين: مبيعات ودعم وتنفيذ وإدارة. التنسيق بين هذه الفرق هو ما يجعل العلاقة تبدو للعميل «جهة واحدة». هذا المحور يبني مهارة إدارة الشركاء والتنسيق الداخلي.</p>","duration":"90 دقيقة","unit":3,"ex":9,"icon":"swap","color":"#545C8C"},{"id":"a9","title":"الحساب الهادئ لا يعني الحساب الناجح","desc":"<p>كثير من الحسابات تبقى في مرحلة «الإدارة» ولا تنتقل إلى «التطوير»، فتستقر دون أن تنمو. هنا نتعلم قراءة إشارات النمو وبناء مسارات التوسع، وصولًا إلى الشراكة الاستراتيجية.</p>","duration":"90 دقيقة","unit":3,"ex":8,"icon":"compass","color":"#343B5E"},{"id":"a10","title":"القرار المؤسسي: لماذا يتأخر؟","desc":"<p>القرار المؤسسي عملية متعددة العوامل: قناعة فنية، واعتماد مالي، وموافقة إدارية، وتوافق إجرائي. وقد تتفق الأطراف على القيمة ثم يتعثر القرار. نتعلم هنا قراءة ديناميكية القرار وإشاراته.</p>","duration":"90 دقيقة","unit":4,"ex":8,"icon":"shield","color":"#4A4F5C"},{"id":"a11","title":"التفاوض: إدارة قيمة لا مناقشة شروط","desc":"<p>التفاوض الناجح ليس مساومة على السعر، بل إدارة للقيمة: لكل تنازل مقابل، ولكل بند أثر على التنفيذ بعد التوقيع. وفي الحسابات المؤسسية يتعدد الأطراف وتتنوع الضغوط. هنا نتدرّب على تفاوض متوازن.</p>","duration":"90 دقيقة","unit":4,"ex":8,"icon":"swap","color":"#6B6F7B"},{"id":"a12","title":"الاعتراض: هديّة وليس عقبة","desc":"<p>الاعتراض ليس نهاية الحوار، بل إشارة إلى قلق أو غموض أو اختلاف أولويات. التعامل الصحيح معه يحوّله إلى فرصة لدعم القرار، ويقود إلى اتفاق مستدام بدل اتفاق سريع هشّ.</p>","duration":"90 دقيقة","unit":4,"ex":7,"icon":"check","color":"#2F333D"},{"id":"a13","title":"الانطباع يخدعنا… الأرقام تكشفنا","desc":"<p>قد تبدو العلاقة ناجحة ومستقرة بينما يخفي الأداء الفعلي نقاط ضعف. القياس يحوّل الانطباع إلى بيانات قابلة للتحليل. هنا نحدد مؤشرات أداء الحساب ونقرأها لاكتشاف الفجوات مبكرًا.</p>","duration":"90 دقيقة","unit":5,"ex":8,"icon":"chart","color":"#2E8B83"},{"id":"a14","title":"من اكتشاف الفجوة إلى إغلاقها","desc":"<p>قد نكتشف فجوات واضحة في أداء الحساب ومع ذلك لا يتحقق أي تحسن. يتعثر التحسين حين نعرف المشكلة دون علاجها، أو نطبق تحسينات عامة. هنا نربط الفجوة بالسبب الجذري ونصيغ قرارات تحسين قابلة للتنفيذ والمتابعة.</p>","duration":"90 دقيقة","unit":5,"ex":8,"icon":"radar","color":"#1F7A72"},{"id":"a15","title":"التحسين عادة وليس مشروعًا","desc":"<p>التحسين المستمر ليس إجراءً مؤقتًا بل منهجية: مراجعة منتظمة، تحليل مستمر، قرارات متتابعة، ومتابعة للأثر. هنا نصمم دورة تحسين متكاملة ونوثّق المعرفة لتتحول التجارب إلى تميز.</p>","duration":"90 دقيقة","unit":5,"ex":10,"icon":"loop","color":"#3F8F66"}],"objectives":["قراءة الحساب المؤسسي كمنظومة متعددة الأطراف، وتحديد أصحاب المصلحة وبناء خريطة تأثير.","تحويل الاحتياج إلى مسار قيمة، وتصميم عرض تجاري متكامل يقود إلى القرار ويتواءم مع التبني والتنفيذ.","إدارة الحسابات والشركاء كمسار مستمر، وتنسيق الفرق، واكتشاف فرص النمو والتوسع.","فهم ديناميكية القرار المؤسسي، وإدارة التفاوض والاعتراضات للوصول إلى اتفاق مستدام.","قياس أداء الحسابات وتحليل الفجوات وبناء منهجية تحسين مستمر."],"outcomes":[["🗺️","خريطة تأثير","لحساب حقيقي تعرفه"],["💎","جملة قيمة وهيكل عرض","جاهز للاستخدام"],["🛤️","خطة تبنٍّ 90 يومًا","بمسؤولين ومؤشرات"],["📄","خطة عمل شخصية PDF","تلخّص ما التزمت به"]]},"phone":{"title":"التحول التجاري عبر الهاتف المحمول","short":"التجارة عبر الهاتف","kicker":"برنامج تدريبي تفاعلي","desc":"رحلة من خمس وحدات في بناء تجربة شراء فعّالة على الجوال: فهم سلوك المستخدم، وإدارة التسويق داخل التطبيقات، وتحسين الدفع والثقة، وقياس الأداء، مع الذكاء الاصطناعي، بشرائح تفاعلية وتمارين حية ومختبر ختامي تشارك فيه من جوالك.","icon":"phone","color":"#0093A8","sessionsText":"5 وحدات","hoursText":"25 ساعة","order":3,"no":"03","id":"phone","v":"4d1fd50e","units":[{"n":1,"name":"فهم سلوك المستخدم وبناء تجربة شراء فعّالة","kicker":"الوحدة الأولى"},{"n":2,"name":"إدارة التسويق داخل تطبيقات التجارة عبر الهاتف المحمول وربطه بسلوك المستخدم","kicker":"الوحدة الثانية"},{"n":3,"name":"تصميم بنية التطبيق وتنظيم المحتوى لرفع كفاءة التحويل","kicker":"الوحدة الثالثة"},{"n":4,"name":"تحسين تجربة الدفع وتعزيز الثقة لرفع معدل الإتمام","kicker":"الوحدة الرابعة"},{"n":5,"name":"إدارة وتحسين أداء تطبيقات التجارة عبر الهاتف المحمول بشكل مستمر","kicker":"الوحدة الخامسة"}],"axes":[{"id":"a1","title":"عقل المستخدم في راحة يده","desc":"<p>المستخدم داخل التطبيق سريع وحساس تجاه التعقيد، وقد يغادر خلال لحظات رغم اهتمامه بالمنتج. هنا نفهم لماذا يحدث ذلك، وكيف نقرأ الجهد الذهني والعملي الذي تفرضه التجربة عليه.</p>","duration":"90 دقيقة","unit":1,"ex":10,"icon":"eye","color":"#0093A8"},{"id":"a2","title":"الفجوة بين «أعجبني» و«اشتريت»","desc":"<p>كل مرحلة في رحلة الشراء يشغلها سؤال مختلف، وإذا لم تجب التجربة عنه في اللحظة المناسبة ظهر الاحتكاك. نتتبع هنا الانتقال من الاهتمام إلى الإتمام والفجوة بين التوقع والواقع.</p>","duration":"60 دقيقة","unit":1,"ex":5,"icon":"route","color":"#00827F"},{"id":"a3","title":"صيّاد الاحتكاك","desc":"<p>نقطة الاحتكاك هي اللحظة التي يصبح فيها استمرار المستخدم أصعب مما ينبغي. نتعلم هنا اكتشافها وتصنيفها وتقييم التجربة من منظور المستخدم، ثم ربطها مباشرة بمعدل الإتمام.</p>","duration":"120 دقيقة","unit":1,"ex":9,"icon":"alert","color":"#1F7E9E"},{"id":"a4","title":"رسالة في اللحظة المناسبة","desc":"<p>التسويق داخل التطبيق ليس إعلانًا تقليديًا، بل تدخلات تظهر أثناء الاستخدام للتأثير في السلوك: عروض، إشعارات، رسائل، توصيات. نجاحها يرتبط بالسياق والتوقيت والمحتوى، لا بمجرد وجودها.</p>","duration":"90 دقيقة","unit":2,"ex":5,"icon":"megaphone","color":"#F58220"},{"id":"a5","title":"التخصيص أعمق من «مرحبًا يا أحمد»","desc":"<p>الرسائل العامة تُعرض للجميع بالشكل نفسه، أما المخصصة فتُبنى على السلوك والاهتمام والمرحلة والتفاعل السابق. نتعلم هنا مصادر التخصيص، والفرق بين التخصيص والإزعاج، وكيف نبني تدخلًا يربط أربعة عناصر.</p>","duration":"75 دقيقة","unit":2,"ex":7,"icon":"target","color":"#D9670B"},{"id":"a6","title":"ما بعد «تمت المشاهدة»","desc":"<p>لا يكفي أن نقول «المستخدم شاهد الرسالة». نتعلم هنا التمييز بين الوصول والتفاعل والتحويل، وتشخيص ضعف التفاعل، وتجنّب الأخطاء الشائعة، وبناء إطار متكامل لإدارة التسويق داخل التطبيق.</p>","duration":"90 دقيقة","unit":2,"ex":7,"icon":"gauge","color":"#E8960C"},{"id":"a7","title":"الجميل ليس دائمًا سهلًا","desc":"<p>تصميم التطبيق لا يُقاس بالشكل الجمالي فقط، بل بقدرة بنيته على مساعدة المستخدم في الوصول للمعلومة واتخاذ القرار والانتقال للخطوة التالية. الشكل يجذب الانتباه، والبنية تساعد على الاستمرار.</p>","duration":"90 دقيقة","unit":3,"ex":11,"icon":"layers","color":"#3B4677"},{"id":"a8","title":"المعلومة في وقتها","desc":"<p>تنظيم المحتوى يعني ترتيب المعلومات بطريقة تساعد المستخدم على فهم ما أمامه واتخاذ القرار في الوقت المناسب. لا يكفي وجود المعلومة؛ السؤال الأهم: هل ظهرت عندما يحتاجها المستخدم؟</p>","duration":"90 دقيقة","unit":3,"ex":11,"icon":"file","color":"#56639E"},{"id":"a9","title":"أقصر طريق منطقي إلى الشراء","desc":"<p>مسار التنقل هو الطريق الذي يسلكه المستخدم من نقطة الدخول حتى الإتمام. المسار الجيد واضح ومباشر وخالٍ من التعقيد، ويتناسب مع نية المستخدم. نتعلم هنا إزالة الخطوات غير الضرورية ودمج المتشابه وقراءة نقاط التوقف.</p>","duration":"120 دقيقة","unit":3,"ex":11,"icon":"compass","color":"#2B3360"},{"id":"a10","title":"وصل إلى الدفع... ثم اختفى","desc":"<p>قد يصل المستخدم إلى الدفع بعد أن اكتشف المنتج وقارن وأضاف للسلة، ومع ذلك لا يكتمل الشراء. هنا ننظر إلى الدفع كتجربة مستقلة: مراحلها، ونقاط التعقيد فيها، ومفاجآت اللحظة الأخيرة.</p>","duration":"90 دقيقة","unit":4,"ex":11,"icon":"card","color":"#00A653"},{"id":"a11","title":"سهل... لكن هل هو مطمئن؟","desc":"<p>الثقة شعور المستخدم بأن العملية آمنة ويمكن الاعتماد عليها. وهي تختلف عن سهولة الاستخدام: الأولى تتعلق بالأمان تجاه النتيجة، والثانية بوضوح الإجراء وسرعته. التجربة المثالية تجمع الاثنين.</p>","duration":"90 دقيقة","unit":4,"ex":11,"icon":"shield","color":"#008C45"},{"id":"a12","title":"آخر عشر ثوانٍ","desc":"<p>المرحلة النهائية نقطة اتخاذ القرار؛ فيها ترتفع الحساسية ويقل التحمل للأخطاء. نتعلم هنا أسباب الانسحاب في اللحظة الأخيرة، وتقليل المفاجآت، وتعزيز التحكم، وتصميم ما بعد الدفع، وقياس الإتمام.</p>","duration":"120 دقيقة","unit":4,"ex":11,"icon":"check","color":"#2E9E6B"},{"id":"a13","title":"ماذا تقول الأرقام؟","desc":"<p>الانتقال من «التطبيق يعمل» إلى «نعرف كيف يعمل وأين المشكلة». نفرّق هنا بين البيانات والمعلومة، ونحدد أنواع البيانات المهمة، ونربط الأرقام بسلوك المستخدم داخل رحلة الشراء.</p>","duration":"90 دقيقة","unit":5,"ex":11,"icon":"chart","color":"#C98A00"},{"id":"a14","title":"رادار الانحرافات","desc":"<p>الانحراف فرق بين الأداء المتوقع والأداء الفعلي. نتعلم هنا متى يستحق الانحراف التحقيق، وكيف نحدد نقطته، ولماذا لا نخلط بينه وبين السبب، وكيف تكشف المقارنة والتقسيم ما يخفيه المتوسط.</p>","duration":"90 دقيقة","unit":5,"ex":11,"icon":"radar","color":"#0B7A8C"},{"id":"a15","title":"دورة لا تتوقف","desc":"<p>التطبيق التجاري يتغير باستمرار؛ المستخدم والسلوك والمنتجات والعروض والمنافسة والتقنية. لذلك لا يكفي تحسين واحد ثم التوقف. نبني هنا منهجية: فرضية، خطة تحسين، أولويات، قرار بعد الاختبار، وتعلّم مستمر.</p>","duration":"120 دقيقة","unit":5,"ex":12,"icon":"loop","color":"#1F9E8F"},{"id":"a16","title":"الذكاء الاصطناعي في جيب المتجر","desc":"<p>كيف يساعد الذكاء الاصطناعي في فهم المستخدم، وتخصيص الرسائل، وتحسين البحث والتوصيات، وقراءة البيانات؟ وما الأدوات والمنصات المتاحة؟ ومتى لا يصح الاعتماد الكلي عليه، ومتى يأتي دور المتخصص البشري؟</p>","duration":"75 دقيقة","unit":6,"ex":5,"icon":"sparkles","color":"#F5A300"}],"objectives":["فهم سلوك المستخدم داخل تطبيقات التجارة عبر الهاتف المحمول، وتمييز الاحتكاك الذي يحول الاهتمام إلى مغادرة.","إدارة التسويق داخل التطبيق بربط الرسالة بسلوك المستخدم وتوقيتها المناسب، وقياس أثرها بعد الوصول.","تحسين بنية التطبيق وتنظيم المحتوى ومسار التنقل لتقصير الطريق المنطقي إلى الشراء.","تحليل تجربة الدفع وإزالة مفاجآت اللحظة الأخيرة وبناء الثقة التي تسبق قرار الإتمام.","قراءة بيانات الأداء في سياقها، وكشف الانحرافات، وبناء خطة تحسين مستمر قائمة على فرضيات قابلة للقياس.","توظيف الذكاء الاصطناعي في رحلة المستخدم بوعي، مع إبقاء القرار والمراجعة للمتخصص البشري."],"outcomes":[["🗺️","قرار منصة مدروس","مصفوفة موزونة وتكلفة تشغيل إجمالية لمشروعك"],["💳","بوابة دفع مناسبة","مقارنة فعلية للرسوم ومدة التسوية ووسائل الدفع المحلية"],["🚚","خطة تنفيذ وشحن","نقطة إعادة الطلب ومسار المرتجعات والتكلفة الواصلة للعميل الدولي"],["📣","خطة تسويق بالأرقام","توزيع ميزانية يُحكم عليه بالعائد وقيمة العميل الدائمة"],["⚙️","إجراءات وأتمتة","إجراء تشغيل قياسي وأول أتمتة لمتجرك"],["📄","خطة عمل شخصية PDF","خطة نمو من خمس ركائز مع برنامج الدعم المناسب"]]},"project-management":{"title":"إدارة المشاريع التفاعلية","short":"إدارة المشاريع","kicker":"ورشة تفاعلية","desc":"ورشة ساعة واحدة بعنوان «من فكرة إلى واقع»: خمس محطات نتعلم فيها ما هو المشروع، ولماذا يفشل، وكيف نبدأ ونخطط ونتوقع المخاطر ونقود الفريق، بالتصويت والمحاكاة والألعاب الجماعية من جوالك.","icon":"target","color":"#B8860B","sessionsText":"5 محطات","hoursText":"ساعة واحدة","order":4,"no":"04","id":"project-management","v":"523b2ae4","units":[{"n":1,"name":"الشرارة","kicker":"المحطة الأولى"},{"n":2,"name":"المفهوم","kicker":"المحطة الثانية"},{"n":3,"name":"الرحلة","kicker":"المحطة الثالثة"},{"n":4,"name":"العاصفة","kicker":"المحطة الرابعة"},{"n":5,"name":"الخاتمة","kicker":"المحطة الخامسة"}],"axes":[{"id":"a1","title":"الشرارة","desc":"<p>نبدأ بقياس نقطة البداية: أين أنت الآن من إدارة المشاريع؟ ثم نجمع تصوراتنا الأولى بكلمة واحدة، ونتفق على فكرة مشروع واحدة نطبّق عليها كل مفهوم خلال الساعة.</p>","duration":"7 دقائق","unit":1,"ex":3,"icon":"bolt","color":"#8A6508"},{"id":"a2","title":"المفهوم","desc":"<p>نضع الأساس: ليس كل عمل مشروعًا، والمشروع له ثلاث علامات. نسأل لماذا تفشل المشاريع، ونحرّك أضلاع مثلث القيود لنرى كيف تتأثر الجودة، ثم نتعرف على دور مدير المشروع كمايسترو.</p>","duration":"10 دقائق","unit":2,"ex":12,"icon":"bulb","color":"#2A7A76"},{"id":"a3","title":"الرحلة","desc":"<p>رحلة المشروع من البدء إلى الإغلاق في خمس مراحل. نبدأ بسؤال «لماذا؟»، ونكتب هدفًا SMART، ونرسم خريطة أصحاب المصلحة، ونفكّك المشروع إلى حزم ومهام، ونقدّر الوقت بالتقدير الثلاثي، ونقيّم المخاطر بالاحتمال والأثر، ونوزّع الأدوار.</p>","duration":"21 دقيقة","unit":3,"ex":25,"icon":"route","color":"#9A6B00"},{"id":"a4","title":"العاصفة","desc":"<p>الخطة تلتقي بالواقع. نقيس التقدّم بالمنجز مقابل المخطط ونتعلّم أن الصمت هو العيب لا اللون الأحمر، ثم نلعب محاكي مدير المشروع بستة مواقف وخمسة مؤشرات، ونختبر الحسم أمام طلب تغيير متأخر.</p>","duration":"12 دقيقة","unit":4,"ex":12,"icon":"alert","color":"#B5432E"},{"id":"a5","title":"الخاتمة","desc":"<p>الإغلاق ليس النهاية. المشروع الناجح يسلّم، ويحتفل، ويتعلّم. نكتب وعدًا لأنفسنا (ابدأ، توقّف، استمر)، ونعيد التقييم نفسه لنرى ما تغيّر خلال الساعة، ونخرج بخمس جمل نأخذها معنا.</p>","duration":"10 دقائق","unit":5,"ex":11,"icon":"trophy","color":"#4F5C75"}],"objectives":["التمييز بين المشروع والعمل الروتيني، وفهم أسباب فشل المشاريع ومثلث القيود (النطاق والوقت والتكلفة).","كتابة جملة «لماذا؟» (وثيقة التعريف) وهدف SMART، وفهم دورة حياة المشروع في خمس مراحل.","تحليل أصحاب المصلحة بالقوة والاهتمام، وتفكيك المشروع إلى حزم ومهام (WBS)، وتقدير الوقت بالتقدير الثلاثي.","تقييم المخاطر بالاحتمال × الأثر واختيار الرد (تجنّب، خفّف، انقل، اقبل)، وتوزيع الأدوار في الفريق.","متابعة التقدّم، واتخاذ قرارات بثمن واعٍ، وإدارة طلبات التغيير (قيّم، ناقش، قرّر، وثّق)، واستخلاص الدروس."],"outcomes":[["🧭","جملة «لماذا؟»","وثيقة تعريف لمشروعك"],["🎯","هدف SMART","محدد وقابل للقياس وبزمن"],["🗺️","خريطة أصحاب المصلحة","ورادار مخاطر"],["🐘","هيكل WBS وتقدير ثلاثي","لمشروعك الأول"],["🔄","وعد ابدأ، توقف، استمر","تلتزم به بعد الورشة"]]},"sales-intelligence":{"title":"ذكاء المبيعات في قطاع التجزئة","short":"ذكاء المبيعات","kicker":"برنامج تدريبي تفاعلي","desc":"من قراءة إشارات الطلب إلى تصميم منظومة مبيعات ذكية: نفهم سلوك العميل والبيانات، ونبني توصيات مؤثرة وتسعيرًا واعيًا، ونتحكم في الأداء استباقيًا قبل أن تظهر النتائج، بشرائح تفاعلية وألعاب ومحاكيات من قطاع التجزئة تشارك فيها من جوالك.","icon":"chart","color":"#E2531F","sessionsText":"3 أيام","hoursText":"9 ساعات","order":5,"no":"05","id":"sales-intelligence","v":"7b64c6d1","units":[{"n":1,"name":"قراءة الطلب: من الإشارة إلى القرار","kicker":"اليوم الأول"},{"n":2,"name":"التأثير: التوصيات الذكية والتسعير الديناميكي","kicker":"اليوم الثاني"},{"n":3,"name":"الأداء والمنظومة: من نمط الأداء إلى منظومة المبيعات المتكاملة","kicker":"اليوم الثالث"}],"axes":[{"id":"a1","title":"ما هو ذكاء المبيعات؟","desc":"<p>نفتتح البرنامج بسؤال يحدد اتجاهنا: ماذا لو توقفنا عن النظر إلى المبيعات كأرقام تُراجَع بعد انتهاء الشهر، وبدأنا نقرؤها كإشارات تقودنا إلى القرار قبل أن تتحول إلى نتيجة؟ في هذا المحور نرسم خريطة الأيام الثلاثة والوحدات الخمس ونتفق على قواعد العمل.</p>","duration":"20 دقيقة","unit":1,"ex":5,"icon":"compass","color":"#E2531F"},{"id":"a2","title":"هندسة إشارات الطلب","desc":"<p>القراءة البيعية في البيئة الذكية ليست رقمًا ثابتًا، بل سلوكًا ديناميكيًا يتأثر بالتفاعل والسياق والتوصية والتسعير والتوقيت. هنا نتعلم أن نلتقط التغير المبكر قبل أن يتحول إلى نتيجة، وأن نميّز الإشارة من الضجيج.</p>","duration":"30 دقيقة","unit":1,"ex":11,"icon":"radar","color":"#C9440F"},{"id":"a3","title":"جودة البيانات ودقة التنبؤ","desc":"<p>التنبؤ لا يتجاوز جودة البيانات التي بُني عليها. في هذا المحور نفهم كيف تؤثر البيانات الناقصة والمتأخرة والمتضاربة في القراءة، ونتعلم قياس دقة التنبؤ بفرق بسيط بين المتوقع والفعلي، ونحدد متى نثق بالتوقع الذكي ومتى نراجعه.</p>","duration":"30 دقيقة","unit":1,"ex":5,"icon":"gauge","color":"#F07A4B"},{"id":"a4","title":"مواءمة التحليل مع قرار البيع","desc":"<p>قوة النظام التحليلي لا تُقاس بإنتاج التقارير أو التوقعات، بل بقدرته على دعم قرار بيعي فعّال. قد تمتلك المؤسسة بيانات غنية ونماذج متقدمة ولوحات دقيقة ثم لا يتحسن القرار. هنا نتعلم أين ينكسر الخط بين التحليل والتنفيذ وكيف نصلحه.</p>","duration":"30 دقيقة","unit":1,"ex":8,"icon":"target","color":"#13AE9C"},{"id":"a5","title":"من المتابعة إلى الضبط الاستباقي","desc":"<p>في كثير من البيئات البيعية تُفهم المتابعة على أنها مراقبة الأداء: قراءة التقارير ومتابعة المؤشرات وتسجيل الملاحظات. لكن هذا المستوى لا يكفي حين تتغير الأمور بسرعة. القيمة لا تتحقق بمعرفة ما حدث بل بفهمه قبل أن يتحول إلى نتيجة. هنا يبدأ التحول من متابعة الأداء إلى التحكم في الطلب.</p>","duration":"30 دقيقة","unit":1,"ex":6,"icon":"bell","color":"#0E8F80"},{"id":"a6","title":"التوصية الذكية كبنية تأثير","desc":"<p>التوصية الذكية لا تُقاس بمدى ارتباطها بتاريخ العميل فقط، بل بقدرتها على التأثير في لحظة الاختيار. التوصية المبنية على التشابه وحده لا تضمن الأثر، لأن القرار الشرائي يتأثر بسياق العميل ودرجة تردده ومرحلة رحلته.</p>","duration":"25 دقيقة","unit":2,"ex":9,"icon":"target","color":"#3CC4B3"},{"id":"a7","title":"مواءمة التوصية مع القيمة البيعية","desc":"<p>كثير من المؤسسات تبني محركات توصية لأنها متقدمة تقنيًا أو لأنها أفضل ممارسة في السوق. لكن السؤال الحقيقي ليس هل نمتلك محرك توصية، بل هل يحل هذا المحرك مشكلة بيعية حقيقية؟</p>","duration":"25 دقيقة","unit":2,"ex":8,"icon":"layers","color":"#20263D"},{"id":"a8","title":"استدامة التوصيات والتوسع","desc":"<p>تبدأ التوصيات الذكية في كثير من الحالات بنتائج واعدة: تحسن في التفاعل وزيادة أولية في قيمة السلة. ومع الوقت يتراجع الأثر، ليس لأن التوصية لم تعد صحيحة، بل لأن البيئة تغيّرت: سلوك العميل والعروض والسياق. القيمة الحقيقية لا تتحقق عند الإطلاق، بل عند الحفاظ على الأثر مع تغير السياق البيعي.</p>","duration":"25 دقيقة","unit":2,"ex":7,"icon":"loop","color":"#3B4469"},{"id":"a9","title":"السعر كمتغير قرار","desc":"<p>في البيئات البيعية الذكية لا يُفهم السعر بوصفه قيمة مالية فقط، بل بوصفه إشارة قرار تؤثر مباشرة في إدراك العميل وسلوكه. فالعميل لا يتفاعل مع السعر لأنه منخفض أو مرتفع فقط، بل لأنه يراه مناسبًا لقيمته المتوقعة، ويتماشى مع توقيت حاجته، وينسجم مع البدائل المتاحة.</p>","duration":"25 دقيقة","unit":2,"ex":6,"icon":"wallet","color":"#536DFE"},{"id":"a10","title":"التسعير الديناميكي: الربحية والاستجابة","desc":"<p>التسعير الديناميكي لا يعني تغيير السعر باستمرار، بل إدارة العلاقة بين الاستجابة والربحية عبر الزمن. في البيئات الذكية يتأثر السعر بتوقيت السوق وسلوك المنافسين وحساسية العميل والطلب الفعلي والمتوقع. التحدي ليس في إدخال هذه العوامل، بل في موازنتها داخل قرار واحد.</p>","duration":"25 دقيقة","unit":2,"ex":6,"icon":"gauge","color":"#8458DB"},{"id":"a11","title":"التسعير كأداة ضبط واعية","desc":"<p>في كثير من البيئات البيعية يُستخدم التسعير الديناميكي كأداة سريعة للتعديل: انخفاض في التحويل فنخفض السعر، تباطؤ في الطلب فنعرض خصمًا، منافسة قوية فنعدّل فورًا. هذا قد يعطي نتائج مؤقتة لكنه لا يبني أداءً مستقرًا، لأن السعر هنا يُدار كرد فعل وليس كأداة ضبط. التحول الحقيقي يحدث حين يصبح التسعير جزءًا من منظومة تحكم مستمرة.</p>","duration":"25 دقيقة","unit":2,"ex":8,"icon":"bolt","color":"#6B45C0"},{"id":"a12","title":"قراءة الأداء كنمط متغير","desc":"<p>يُقيَّم الأداء في كثير من البيئات بنتائج أسبوعية أو شهرية، ومتوسطات عامة، ومقارنات مع أهداف محددة. هذا يعطي صورة مطمئنة في الظاهر، لكن الأداء الحقيقي لا يُفهم من الرقم، بل عبر حركته عبر الزمن. قد يكون الرقم ثابتًا بينما خلفه تذبذب مستمر واختلاف بين الفترات وتغير في سرعة الاستجابة.</p>","duration":"20 دقيقة","unit":3,"ex":5,"icon":"chart","color":"#A783E8"},{"id":"a13","title":"الانحراف إشارة نظامية","desc":"<p>حين نتعامل مع كل انحراف على أنه خطأ تشغيلي نبحث عمن أخطأ ونصلح الحالة ونمضي. لكن الانحراف المتكرر في المكان نفسه والشكل نفسه ليس خطأً بل رسالة من النظام: هنا نقطة ضعف، أو خلل في التوقيت، أو عدم اتساق في التطبيق.</p>","duration":"20 دقيقة","unit":3,"ex":6,"icon":"search","color":"#FFBD35"},{"id":"a14","title":"تصميم التدخلات الوقائية","desc":"<p>التدخل التقليدي يأتي بعد أن يظهر الأثر. أما التدخل الوقائي فيُبنى على فهم نمط الأداء وتوقع مسار التغير وتحديد نقطة التحول قبل حدوثها وتعديل المسار مسبقًا.</p>","duration":"20 دقيقة","unit":3,"ex":6,"icon":"shield","color":"#E0A010"},{"id":"a15","title":"المبيعات كمنظومة قرار مترابطة","desc":"<p>إذا كانت الوحدات السابقة بنت قدرات مستقلة (قراءة الإشارة، والتوصية، والتسعير، والضبط)، فهذه الوحدة تربطها. المسار الذي يتحرك فيه القرار البيعي من لحظة الانتباه إلى لحظة الشراء يجب أن يعمل بلا انقطاع أو تضارب.</p>","duration":"20 دقيقة","unit":3,"ex":5,"icon":"link","color":"#EC5B77"},{"id":"a16","title":"بناء منطق تشغيلي موحّد للقرار","desc":"<p>وجود منطق موحّد يوضح أولوية الأهداف، وتوقيت القرار، وتسلسل الإجراءات، وحدود التغيير المقبولة. بدونه يتخذ كل فريق قراره بطريقته، فتتكرر القرارات المتضاربة ويتأخر التنفيذ.</p>","duration":"20 دقيقة","unit":3,"ex":5,"icon":"gear","color":"#C63F5D"},{"id":"a17","title":"تشغيل المنظومة وضمان استمراريتها","desc":"<p>المنظومة التي صُمّمت جيدًا قد تفقد فاعليتها إن لم تُدَر بوصفها نظامًا متغيرًا. في هذا المحور نختم الرحلة: ما الذي يهدد الاستمرارية، وكيف نراجع المنظومة دوريًا، وما مؤشرات التشغيل المستدام، ثم نربط الأيام الثلاثة في صورة واحدة.</p>","duration":"20 دقيقة","unit":3,"ex":7,"icon":"trophy","color":"#2B7A8C"}],"objectives":["تفسير المبيعات كمنظومة قرار متكاملة تربط الإشارة بالتأثير والسلوك والنتيجة.","تحليل سلوك الطلب والعملاء وقراءة الإشارات المبكرة، وتقييم جودة البيانات ودقة التنبؤ البيعي.","توظيف الذكاء الاصطناعي والتوصيات الذكية في التأثير على قرار الشراء وربطها بالقيمة البيعية واستدامتها.","قراءة السعر كمتغير قرار وإدارة التسعير الديناميكي بتوازن بين الاستجابة والربحية وبضبط واعٍ لا رد فعل.","ضبط الأداء استباقيًا: قراءة النمط، وتفسير الانحراف كإشارة نظامية، وتصميم تدخلات وقائية، وبناء منطق تشغيلي موحد يحافظ على استمرارية المنظومة."],"outcomes":[["📋","أسئلة اكتشاف","ورقة جاهزة للاستخدام مع العملاء"],["🛡️","بطاقة رد على الاعتراض","تعاطف وسؤال ودليل"],["🚦","لوحة إنذار مبكر","مؤشرات وحدود وخطوات وقائية"],["📜","قواعد قرار موحدة","ثلاث قواعد تبدأ بها فريقك"]]},"trainer-journey":{"title":"رحلتك نحو التأثير: حقيبة المدرب البارع","short":"حقيبة المدرب البارع","kicker":"برنامج تدريبي تفاعلي","desc":"كيف تصبح مدربًا متميزًا قادرًا على نقل المعرفة بكل ثقة واحترافية: نبني الحقيبة ركيزة ركيزة، من المعرفة الحقيقية وفهم المتدربين وكتابة الأهداف وتصميم الدورة، إلى الإلقاء وقيادة القاعة والتدريب عن بعد والتقييم، ثم تقدّم جلستك المصغرة الأولى بشرائح حية وأسئلة تجيب عنها من جوالك.","icon":"megaphone","color":"#118A93","sessionsText":"يومان","hoursText":"8 ساعات","order":6,"no":"06","id":"trainer-journey","v":"8180964d","units":[{"n":1,"name":"أنت والمتدرب: أساس الحقيبة","kicker":"اليوم الأول"},{"n":2,"name":"من الحقيبة إلى القاعة: التصميم والتقديم والتقييم","kicker":"اليوم الثاني"}],"axes":[{"id":"a1","title":"ابدأ رحلتك نحو التأثير","desc":"<p>نبدأ بسؤال بسيط يغيّر زاوية النظر: لو طُلب منك غدًا أن تدرّب الناس على شيء واحد تتقنه، ماذا سيكون؟ ثم نتأمل سؤال المدرب الأفضل في الملاعب لنكتشف أن الحكم على أي مدرب يحتاج معايير واضحة، وهي المعايير نفسها التي سنبني بها حقيبتنا في يومين.</p>","duration":"20 دقيقة","unit":1,"ex":3,"icon":"compass","color":"#118A93"},{"id":"a2","title":"حقيبة المدرب البارع","desc":"<p>الحقيبة صورة مجازية لما يحمله المدرب معه إلى كل قاعة. فيها مهارات شخصية تخص طبعه وسلوكه، ومهارات تدريبية تُكتسب بالتعلم والممارسة. نتعرف هنا على الركائز الخمس التي تقوم عليها الحقيبة ونقيس أين نقف منها.</p>","duration":"30 دقيقة","unit":1,"ex":3,"icon":"target","color":"#0D737B"},{"id":"a3","title":"المعرفة الحقيقية والتطبيق الفعلي","desc":"<p>لا يتعلم الناس ممن لا يصدقونه، ولا يصدقون من لم يجرب ما يقوله. المعرفة الحقيقية تعني أن تكون قد طبّقت وأخطأت وتعلمت. لكن المعرفة وحدها لا تكفي: الخبير الذي ينسى كيف كانت البداية قد يشرح بما لا يفهمه المبتدئ. نتعلم هنا كيف ننتقل من الخبير إلى المدرب.</p>","duration":"25 دقيقة","unit":1,"ex":4,"icon":"bulb","color":"#2BB8BF"},{"id":"a4","title":"فهم المتدربين: تعلّم الكبار وتحليل الاحتياج","desc":"<p>المتدرب البالغ لا يشبه الطالب الصغير: يأتي بخبرة ووقت محدود وسؤال دائم عن الفائدة. ومن لا يعرف جمهوره يبني دورة لشخص غير موجود. في هذا المحور نتعرف على مبادئ تعلّم الكبار، ونتدرب على تحليل الاحتياج وعلى الأسئلة التي نطرحها قبل أن نصمم أي دورة.</p>","duration":"35 دقيقة","unit":1,"ex":4,"icon":"users","color":"#E27412"},{"id":"a5","title":"الأهداف التعليمية: ماذا سيفعل المتدرب بعد الدورة؟","desc":"<p>الهدف الجيد هو بوصلة الدورة: يحدد المحتوى والأنشطة وأدوات التقييم. لكن كثيرًا من الأهداف تصف ما سيقدمه المدرب لا ما سيفعله المتدرب، وتستخدم أفعالًا غامضة مثل «يفهم» و«يعرف». هنا نتعلم صياغة الهدف بنموذج ABCD ونختار فعله من مستويات بلوم.</p>","duration":"30 دقيقة","unit":1,"ex":4,"icon":"target","color":"#C25F0A"},{"id":"a6","title":"تصميم الدورة: من الفكرة إلى الخطة الزمنية","desc":"<p>الدورة لا تُبنى بجمع الشرائح، بل بقرارات مرتبة: موضوع وجمهور وهدف، ثم خطة زمنية، ثم ثلاثة محاور للمحتوى، ثم أنشطة، ثم تنفيذ وتقييم. نتعلم هنا التصميم العكسي، وتوزيع الوقت، وكيف نضع خطة جلسة قابلة للتنفيذ.</p>","duration":"35 دقيقة","unit":1,"ex":5,"icon":"route","color":"#F58A1F"},{"id":"a7","title":"المحتوى والحقيبة التدريبية والأنشطة","desc":"<p>الحقيبة التدريبية أكثر من عرض تقديمي: دليل للمدرب ودليل للمتدرب وأوراق عمل وأدوات تقييم. والنشاط الجيد ليس لعبة للتسلية بل خبرة مخططة لها هدف ومدة وتعليمات وتلخيص. نتعلم هنا كيف نصمم محتوى متدرجًا ونشاطًا يعلّم.</p>","duration":"25 دقيقة","unit":2,"ex":5,"icon":"layers","color":"#D4A017"},{"id":"a8","title":"التواصل والإلقاء","desc":"<p>الفكرة الممتازة تضيع حين تُقدَّم بصوت رتيب أو بشريحة مزدحمة أو بارتباك. الإلقاء مهارة يمكن تفكيكها: افتتاح يجذب، وبنية تشرح، وقصة تقرّب، وصوت وجسد منسجمان، وشريحة تخدم الفكرة. نتدرب هنا على كل عنصر.</p>","duration":"30 دقيقة","unit":2,"ex":5,"icon":"megaphone","color":"#B88A0C"},{"id":"a9","title":"قيادة القاعة والجمهور","desc":"<p>القاعة كائن حيّ: تتغير طاقتها، وتتنوع شخصياتها، وتفاجئك أسئلتها. قيادة القاعة هي المهارة التي تجمع كل ما سبق: تقرأ الجمهور، وتختار الإيقاع، وتتعامل مع المتحدث الكثير والصامت والمشكك، وتجيب عن الأسئلة التي لا تعرفها بثقة.</p>","duration":"30 دقيقة","unit":2,"ex":6,"icon":"users","color":"#1D2B4F"},{"id":"a10","title":"التدريب عن بعد والهجين","desc":"<p>التدريب عن بعد ليس نقل القاعة إلى شاشة، فالانتباه أقصر والتشتت أقرب والتفاعل يحتاج تصميمًا مقصودًا. وفي النمط الهجين يجب ألا يتحول المتدرب البعيد إلى متفرج. نتعلم هنا الأساسيات.</p>","duration":"15 دقيقة","unit":2,"ex":3,"icon":"globe","color":"#34457A"},{"id":"a11","title":"التقييم والتحسين","desc":"<p>الدورة التي تنتهي بتصفيق لم تنتهِ بعد. السؤال الحقيقي: هل تعلّم المتدربون؟ وهل غيّروا ما يفعلونه؟ وهل تحقق أثر في العمل؟ نموذج كيركباتريك ذو المستويات الأربعة يعطيك خريطة للأسئلة، ونتعلم كيف نصمم تقييمًا بسيطًا يخدم التحسين.</p>","duration":"20 دقيقة","unit":2,"ex":3,"icon":"chart","color":"#4B5F9E"},{"id":"a12","title":"علامتك كمدرب وأول دورة","desc":"<p>بعد الحقيبة والمهارات تأتي الخطوة التالية: أن تُعرف بما تتقنه، وأن يكون لك ملف أعمال، وأن تلتزم بأخلاق المهنة. نختم المحور ببناء خطة تسعين يومًا لأول دورة، ثم ننتقل إلى الورشة العملية: والآن يلا ندرّب.</p>","duration":"15 دقيقة","unit":2,"ex":3,"icon":"rocket","color":"#0F9AA5"}],"objectives":["التمييز بين أدوار المدرب والمحاضر والميسّر والكوتش، واختيار الدور الأنسب لحاجة المجموعة.","تطبيق الأمانة المعرفية وتبسيط الفكرة لتجنّب لعنة المعرفة.","تحليل احتياج المتدربين وتطبيق مبادئ تعلّم الكبار في تصميم الجلسة.","كتابة أهداف تعليمية قابلة للقياس بنموذج ABCD وأفعال بلوم، وبناء دورة بالتصميم العكسي وخطة زمنية.","تصميم أنشطة تدريبية بأهداف وتلخيص وإعداد حقيبة تدريبية متكاملة.","تقديم فكرة بوضوح بالصوت والجسد والقصة والشريحة، وإدارة طاقة القاعة والمتدرب الصعب والأسئلة.","تكييف التدريب للجلسات عن بعد والهجينة، وتقييم الأثر بنموذج كيركباتريك.","بناء علامة مهنية وخطة تسعين يومًا لأول دورة، وتقديم جلسة مصغرة بثقة."],"outcomes":[["🗺️","لوحة تصميم الدورة","من الموضوع إلى التقييم في صفحة"],["⏱️","خطة جلسة","توزيع الوقت والأنشطة والتلخيص"],["🧩","بطاقة نشاط","هدف ومدة وتعليمات وتلخيص"],["📆","خطة تسعين يومًا","لأول دورة تقدمها"]]},"empowered-leader":{"title":"قائد تحت التمكين: رحلتك نحو القيادة الفاعلة","short":"قائد تحت التمكين","kicker":"برنامج قيادي تفاعلي في ثلاثة أيام","desc":"عيّنك مجلس الإدارة في موقع قيادي، فكيف تنجح؟ نبدأ بقيادة نفسك، ثم قيادة الآخرين بالتأثير والثقة والتواصل والتفويض وإدارة النزاع، ثم قيادة التغيير وإدارة المدير والتقدير والدافعية، وتبني علامتك القيادية وخطة تسعين يومًا، وتعرض مشروعك القيادي، بشرائح بأسئلة حية ومحاكيات وتمارين تشارك فيها من جوالك.","icon":"compass","color":"#129AA3","sessionsText":"ثلاثة أيام","hoursText":"16 ساعة","order":7,"no":"07","id":"empowered-leader","v":"26548e30","units":[{"n":1,"name":"أقود نفسي أولًا","kicker":"اليوم الأول"},{"n":2,"name":"أقود الآخرين","kicker":"اليوم الثاني"},{"n":3,"name":"أقود التغيير","kicker":"اليوم الثالث"}],"axes":[{"id":"a1","title":"لماذا أنت؟ بداية الرحلة","desc":"<p>قرر مجلس الإدارة تعيينك في موقع قيادي. نبدأ بسؤال صريح: لماذا أنت؟ ثم نتعلم الدرس الأول: لا تتردد في بيان نقاط قوتك الواثق منها بدليل. ونفهم لماذا تستثمر الشركة في تدريبك، وما الأصول التي أصبحت مسؤولًا عنها منذ اليوم.</p>","duration":"25 دقيقة","unit":1,"ex":4,"icon":"compass","color":"#129AA3"},{"id":"a2","title":"في معنى القيادة ودور القائد","desc":"<p>نبدأ بسؤال بسيط: ما معنى قيادة السيارة؟ ثم نكتشف الفرق بين القائد والمدير، ولماذا لا تكون القيادة منصبًا أو مسمى دائمًا، وكيف تعني رؤية بعيدة وتأثيرًا يمارسه صاحبه على الآخرين في أي مستوى. وننتهي بمصادر التأثير الأربعة التي تجعل الناس يتبعون القائد.</p>","duration":"35 دقيقة","unit":1,"ex":4,"icon":"target","color":"#0D7F87"},{"id":"a3","title":"قيادة الذات: من موظف إلى قائد","desc":"<p>القائد الجديد يقود نفسه قبل فريقه: قراراته ومشاعره ووقته وردود أفعاله ونظرته لنفسه وللآخرين. نتعلم هنا كيف ينجح القائد الجديد في الانتقال من عقلية الموظف إلى عقلية القائد، وما الحقائق التي تفاجئ كل من يقود لأول مرة، ثم نخطط لأول يوم.</p>","duration":"35 دقيقة","unit":1,"ex":4,"icon":"user","color":"#2BB8BF"},{"id":"a4","title":"الوعي الذاتي والذكاء العاطفي","desc":"<p>الوعي الذاتي هو القدرة على فهم نقاط قوتك وضعفك وقيمك وأهدافك وتأثيرك على الآخرين، وهو أساس القيادة الفعالة. نتأمل أسئلة المرآة الاثنتي عشرة، ونتعرف على نافذة جوهاري لاكتشاف النقاط العمياء، ثم نبني على ذلك مهارة الذكاء العاطفي ووقفة الاستجابة بدل ردة الفعل.</p>","duration":"35 دقيقة","unit":1,"ex":5,"icon":"eye","color":"#E27412"},{"id":"a5","title":"النمط القيادي","desc":"<p>لا يوجد أسلوب قيادي واحد يناسب جميع المواقف. نقرأ مواقف قصيرة ونسمّي النمط في كل منها: استبدادي وديمقراطي وتوجيهي وتبادلي وخدمي وكاريزمي وداعم، ثم نقف عند القيادة الانهزامية وآثارها، ونتعلم أسئلة نختار بها الأسلوب الأنسب لكل موقف.</p>","duration":"45 دقيقة","unit":1,"ex":4,"icon":"layers","color":"#C25F0A"},{"id":"a6","title":"عدسة القيادة: كيف تدرس أبعاد أي قرار؟","desc":"<p>القرار القيادي لا يُقاس بنتيجته المالية وحدها. نتعلم النظر إلى أي قرار من أربع عدسات: الأشخاص والنتائج والقيم والمخاطر. ثم نطبق ذلك على قرار صعب: من يستحق الترقية إلى قائد من بين ستة موظفين لكل منهم قوة وخطر؟</p>","duration":"30 دقيقة","unit":1,"ex":4,"icon":"radar","color":"#F58A1D"},{"id":"a7","title":"مشروعك القيادي: من الفكرة إلى المبادرة","desc":"<p>طوال الأيام الثلاثة تعمل على مشروع قيادي واحد تعرضه في اليوم الثالث. نختار هنا المسار والمبادرة، ونتعرف على ورقة المبادرة بأقسامها العشرة، وكتابة الهدف بصيغة SMART، وتحديد أصحاب المصلحة بخريطة القوة والاهتمام.</p>","duration":"25 دقيقة","unit":1,"ex":5,"icon":"rocket","color":"#D4A017"},{"id":"a8","title":"مزاد المزايا ومحكمة القائد","desc":"<p>نبدأ اليوم الثاني بثلاثة أنشطة تفتح باب قيادة الآخرين: مزاد يكشف ما يراه كل قائد أهم مزاياه، ومحكمة تناقش قائدًا نسب إنجاز الفريق لنفسه، وحقيبة القائد التي نضع فيها ما نحمله وما نتركه عندما ننتقل من دور الموظف إلى دور القائد.</p>","duration":"40 دقيقة","unit":2,"ex":5,"icon":"trophy","color":"#B88A0C"},{"id":"a9","title":"السلطة والتأثير: ما الذي يجعل الفريق فريقًا؟","desc":"<p>ما الذي يجعل مجموعة من الأفراد فريقًا؟ نقارن السلطة بالتأثير: الأولى تعتمد على السيطرة والصلاحيات وتتوقف بغياب القائد، والثانية تقوم على الثقة والرؤية وتعمل في غيابه. ثم نحلل سيناريوهين لفريقين مختلفين في الاعتراض ونتعلم أركان التأثير.</p>","duration":"35 دقيقة","unit":2,"ex":5,"icon":"users","color":"#1D4E5F"},{"id":"a10","title":"توقعات الفريق: بنك الثقة ورادار الفريق","desc":"<p>ماذا ينتظر فريقك منك؟ سبع توقعات: التمكين والتأهيل والتحفيز والتكريم والتطوير والدعم والتقدير. نتعلم بعد ذلك فكرة بنك الثقة: كل سلوك إيداع أو سحب، ونستخدم رادار الفريق بأبعاده الخمسة لتشخيص حالة كل عضو قبل أن نقرر كيف نقوده.</p>","duration":"40 دقيقة","unit":2,"ex":5,"icon":"shield","color":"#2C6E83"},{"id":"a11","title":"تواصل القائد المؤثر: CLEAR","desc":"<p>التواصل هو أداة القائد اليومية. نتعلم نموذج CLEAR لمحادثات واضحة: وضّح، استمع، استكشف، اتفق، عزّز. ثم نضيف أدوات عملية معروفة: الاستماع للفهم، والتغذية الراجعة بنموذج الموقف والسلوك والأثر، وأسئلة التدريب الفردي بنموذج GROW، وهيكل لاجتماع فردي منتظم مع كل عضو.</p>","duration":"45 دقيقة","unit":2,"ex":5,"icon":"megaphone","color":"#3E8FA3"},{"id":"a12","title":"اتخاذ القرار: نموذج ACIP","desc":"<p>القائد يقرر كل يوم، وكثير من القرارات تُتخذ على عجل. نتعلم نموذج ACIP: المعلومات والبدائل والعواقب والخطة، ونطبقه على حالة موظف انخفض أداؤه. ثم نميز بين القرار القابل للتراجع وغير القابل، ونرتب الأولويات تحت الضغط، ونختم بسجل يوثق قراراتنا ويحمينا من النسيان.</p>","duration":"35 دقيقة","unit":2,"ex":5,"icon":"bolt","color":"#0F9AA5"},{"id":"a13","title":"التفويض والتمكين","desc":"<p>التفويض أصعب ما يتعلمه القائد الجديد لأنه يتعارض مع عادة الإنجاز بنفسه. نفرق بين توزيع المهمة وتفويض المسؤولية وتمكين القدرة، ونفهم لماذا لا يفوض القادة، ونتعلم سلّم التفويض بخمسة مستويات، ونطبق نموذج TEAM على رسالة تفويض واضحة.</p>","duration":"40 دقيقة","unit":2,"ex":5,"icon":"layers","color":"#E8861A"},{"id":"a14","title":"إدارة النزاع وحل المشكلات","desc":"<p>النزاع جزء طبيعي من العمل الجماعي، وإدارته مهارة قيادية. نتعرف على الأنماط الخمسة للتعامل مع النزاع، ونفرق بين المواقف والمصالح، ونتعلم أسلوب خمسة لماذا للوصول إلى جذور المشكلة، ونموذجًا من خمس خطوات لحلها، ثم نراجع مشروعنا القيادي قبل نهاية اليوم.</p>","duration":"45 دقيقة","unit":2,"ex":6,"icon":"alert","color":"#B8570B"},{"id":"a15","title":"سوق المواهب: بناء الفريق المتوازن","desc":"<p>نبدأ اليوم الثالث بسؤال عن بناء الفريق: لو كانت لديك فرصة اكتساب عضو واحد فقط، من تختار؟ نكتشف أن لكل شخصية قوة وخطرًا، وأن الفريق الجيد يوازن بين أدوار التفكير والعمل والعلاقات، ثم نتعلم كيف نتعامل مع ستة أنماط شائعة من الأعضاء الصعبين.</p>","duration":"35 دقيقة","unit":3,"ex":4,"icon":"users","color":"#0B6E76"},{"id":"a16","title":"الداعم والحازم: متى تلين ومتى تحزم؟","desc":"<p>ليس المهم أن تكون لطيفًا أو صارمًا، بل أن تكون مناسبًا للموقف. نتعلم أسلوب القائد الداعم (Good Cap) والقائد الحازم (Bad Cap) ومتى نستخدم كلًا منهما، ونربطه بالقيادة الموقفية والعصا والجزرة والذكاء العاطفي، ثم نحل ستة مواقف واقعية.</p>","duration":"45 دقيقة","unit":3,"ex":5,"icon":"gauge","color":"#CF8F0E"},{"id":"a17","title":"إدارة المدير: Managing Up","desc":"<p>القيادة لا تتجه إلى الأسفل فقط. إدارة المدير هي أن تتحمل مسؤولية علاقتك بمديرك لتحقق نتيجة أفضل للجميع. نتعلم ما يقدّره المدراء، ومتى يجب التصعيد ومتى يعالج القائد الأمر بنفسه، ونتدرب على لعبة ممنوع كلمة لكن لنقدّم المشكلات بلغة الحلول.</p>","duration":"40 دقيقة","unit":3,"ex":5,"icon":"route","color":"#1F5C73"},{"id":"a18","title":"لغات التقدير وإعادة إشعال الدافعية","desc":"<p>التقدير الصادق أقوى أدوات القائد، لكنه لا يصل إلا إذا قيل بلغة يفهمها صاحبه. نتعرف على خمس لغات للتقدير في بيئة العمل، ثم نسأل: لماذا يتحول الموظف المتحمس إلى موظف يؤدي الحد الأدنى؟ ونستخدم نموذج STOP لتشخيص السبب قبل اختيار أسلوب إعادة إشعال دافعيته.</p>","duration":"45 دقيقة","unit":3,"ex":5,"icon":"heart","color":"#EE9A33"},{"id":"a19","title":"قيادة التغيير","desc":"<p>اسم اليوم الثالث أقود التغيير. التغيير يفشل عادة عند الناس لا عند الخطة. نتعلم ثلاثة أطر معروفة: نموذج لوين البسيط، وخطوات كوتر الثماني للتغيير المؤسسي، ونموذج ADKAR لتغيّر الفرد، ثم نفهم المقاومة وكيف نتعامل معها ونصمم تواصل التغيير ونبدأ بتغيير أنفسنا.</p>","duration":"45 دقيقة","unit":3,"ex":5,"icon":"loop","color":"#0E8A92"},{"id":"a20","title":"علامتك القيادية وخطتك لتسعين يومًا","desc":"<p>نختم الرحلة بسؤال: ماذا سيقول الناس عنك حين تغادر الغرفة؟ نبني علامتنا القيادية في بيان قصير، ونحوّل ما تعلمناه إلى خطة تسعين يومًا بخطوات محددة وتواريخ وشريك مساءلة، ونستعد لعرض المشاريع القيادية، ثم نعود إلى السؤال الأول: لماذا أنت؟</p>","duration":"35 دقيقة","unit":3,"ex":5,"icon":"trophy","color":"#A9740A"}],"objectives":["التمييز بين القيادة والإدارة، وتحديد مصادر التأثير الأربعة، وبيان نقاط القوة بدليل.","قيادة الذات: بناء الوعي الذاتي بأدوات مثل نافذة جوهاري، وتطبيق الذكاء العاطفي في الاستجابة الواعية.","قراءة الأنماط القيادية واختيار الأسلوب الأنسب للموقف، وتجنب القيادة الانهزامية.","دراسة القرارات بعدسات القيادة الأربع ونموذج ACIP، وتوثيق القرارات وترتيب الأولويات.","بناء ثقة الفريق وتشخيص أعضائه برادار الفريق، والتواصل بنماذج CLEAR وSBI وGROW.","التفويض والتمكين بنموذج TEAM وسلّم التفويض، وإدارة النزاع بخمسة لماذا ونموذج SOLVE.","الموازنة بين الدعم والحزم، وإدارة المدير، وتطبيق لغات التقدير وإعادة إشعال الدافعية.","قيادة التغيير بأطر لوين وكوتر وADKAR، وبناء العلامة القيادية وخطة أول تسعين يومًا، وعرض مشروع قيادي."],"outcomes":[["🚀","ورقة مشروعك القيادي","مبادرة بعشرة أقسام جاهزة للعرض"],["🔑","بطاقة تفويض","نموذج TEAM لرسالة واضحة"],["🗣️","دليل ملاحظة SBI","الموقف والسلوك والأثر"],["📆","خطة تسعين يومًا","بتواريخ وشريك مساءلة"]]}});
+/* ===== 10-hub.js ===== */
+// ---------------------------------------------------------------------
+// الصفحة الرئيسية «برامج المدرب» + صفحة الدورة التعريفية/البوابة + إدارة الدورات + إقلاع المنصة
+// حالة كل دورة (hub/courses/<id>/status): hidden مخفية · info تعريفية فقط · active نشطة (تسجيل ومحتوى)
+// القفل الشامل (hub/global/lock) يحوّل كل الدورات النشطة إلى تعريفية فقط
+// ---------------------------------------------------------------------
+const HUB_STATUS = { hidden: 'مخفية', info: 'تعريفية فقط', active: 'نشطة' };
+const HUB_BADGE = { hidden: 'مخفية عن الزوار', info: 'نبذة فقط', active: 'مفتوحة' };
+
+// ---------- صفحة الدورة قبل فتحها: نبذة ومحاور ومخرجات، بلا تسجيل ولا محتوى ----------
+Views.gate = {
+  html() {
+    const st = Course.stage; const r = Course.reg || {}; const eff = Course.effective();
+    const back = '<button class="btn btn-ghost" data-act="hub-home">' + iconSvg('grid', 16) + ' برامج المدرب</button>';
+    const hero = '<section class="gate-hero"><div class="gate-ico">' + iconSvg(r.icon || 'sparkles', 34, '#fff', 2) + '</div><div class="grow"><span class="sec-kicker">' + h(r.kicker || 'برنامج تدريبي') + '</span><h1>' + h(r.title || '') + '</h1><p>' + h(r.desc || '') + '</p>' +
+      '<div class="gate-chips">' + (r.sessionsText ? '<span>🗓️ ' + h(r.sessionsText) + '</span>' : '') + (r.hoursText ? '<span>⏱️ ' + h(r.hoursText) + '</span>' : '') + (r.axes ? '<span>🧩 ' + r.axes.length + ' محورًا</span>' : '') + '</div></div></section>';
+    if (st === 'loading' || st === 'boot') return hero + '<div class="gate-msg"><div class="gate-spin"></div><b>جارٍ تجهيز محتوى الدورة</b><span>لحظات ويبدأ العرض</span></div>';
+    if (st === 'error') {
+      const msg = Course.err === 'nokey' ? 'لم يُنشر مفتاح محتوى هذه الدورة بعد. افتح «برامج المدرب» ثم زر «مفتاح المحتوى» في بطاقة الدورة والصق المفتاح.' : Course.err === 'badkey' ? 'المفتاح المحفوظ لا يطابق ملف المحتوى. أعد لصق المفتاح الصحيح من بطاقة الدورة في «برامج المدرب».' : 'تعذر تجهيز المحتوى: ' + h(Course.err);
+      return hero + '<div class="gate-msg err"><b>⚠️ تعذر فتح المحتوى</b><span>' + msg + '</span><div class="row">' + back + '<button class="btn btn-soft" onclick="location.reload()">إعادة المحاولة</button></div></div>';
+    }
+    // تعريفية أو مغلقة أو مخفية
+    const hidden = (Course.status || (DEMO_MODE ? 'active' : 'hidden')) === 'hidden';
+    if (hidden) return hero.replace(/<p>.*?<\/p>/, '') + '<div class="gate-msg"><b>هذه الدورة غير متاحة حاليًا</b><span>سيتم الإعلان عنها عند تقديم البرنامج.</span><div class="row">' + back + '</div></div>' + Views.gate.door();
+    const closedMsg = Course.lock ? 'فُتحت الصفحة للتعريف فقط في الوقت الحالي.' : 'التسجيل والمحتوى غير متاحين حاليًا. سيفتحهما المدرب في موعد البرنامج، ويمكنك الاطلاع على نبذة الدورة أدناه.';
+    const units = (r.units || []).filter(u => (r.axes || []).some(a => a.unit === u.n));
+    const axesHtml = (units.length ? units : [{ n: 0, name: '', kicker: '' }]).map(u => '<div class="gate-unit">' + (u.name ? '<div class="gate-unit-h"><span>' + h(u.kicker || '') + '</span><b>' + h(u.name) + '</b></div>' : '') + '<div class="gate-axes">' + (r.axes || []).filter(a => !u.n || a.unit === u.n).map((a, k) =>
+      '<div class="gate-axis">' + (a.ex != null ? '<span class="ga-count" title="' + h(a.ex + ' ' + (a.ex === 1 ? 'تمرين' : 'تمارين') + ' في هذا المحور') + '" aria-label="' + h(a.ex + ' تمارين') + '">' + iconSvg('target', 15, 'currentColor', 2) + '<b class="num">' + h(a.ex) + '</b></span>' : '') + '<span class="ga-ico" style="background:' + h(a.color || '#5B45E0') + '">' + iconSvg(a.icon || 'star', 18, '#fff', 2) + '</span><div><b>' + h(a.title) + '</b>' + (a.desc ? '<p>' + h(stripHtml(a.desc)) + '</p>' : '') + (a.duration ? '<small>⏱️ ' + h(a.duration) + '</small>' : '') + '</div></div>').join('') + '</div></div>').join('');
+    const obj = (r.objectives || []).length ? '<section class="gate-sec"><h2>ماذا ستتقن؟</h2><ul class="gate-list">' + r.objectives.map(o => '<li>' + h(o) + '</li>').join('') + '</ul></section>' : '';
+    const out = (r.outcomes || []).length ? '<section class="gate-sec"><h2>مخرجات الدورة</h2><div class="gate-outs">' + r.outcomes.map(o => '<div><span>' + h(o[0]) + '</span><b>' + h(o[1]) + '</b><small>' + h(o[2] || '') + '</small></div>').join('') + '</div></section>' : '';
+    return hero + '<div class="gate-msg soft"><b>🔒 ' + (eff === 'info' ? 'الدورة للتعريف فقط الآن' : 'الدورة غير مفتوحة') + '</b><span>' + closedMsg + '</span><div class="row">' + back + '</div></div>' +
+      '<section class="gate-sec"><h2>محاور الدورة</h2>' + axesHtml + '</section>' + obj + out + Views.gate.door();
+  },
+  door() { return '<div class="trainer-door"><button class="trainer-btn" data-act="admin-enter" title="دخول المدرب" aria-label="دخول المدرب">' + iconSvg('lock', 14) + '</button></div>'; }
+};
+
+// ---------- الصفحة الرئيسية ----------
+// يحوّل روابط Google Drive (ملف أو مشاركة) إلى رابط صورة مباشر؛ ويقبل أي رابط https آخر لصورة. يشترط أن يكون الملف مشاركًا لكل من لديه الرابط
+function photoSrc(u) {
+  u = String(u || '').trim(); if (!u) return '';
+  const m = u.match(/drive\.google\.com\/file\/d\/([\w-]+)/) || u.match(/drive\.google\.com\/(?:open|uc|thumbnail)\?(?:[^#]*&)?id=([\w-]+)/) || u.match(/lh3\.googleusercontent\.com\/d\/([\w-]+)/);
+  if (m) return 'https://lh3.googleusercontent.com/d/' + m[1] + '=w480';
+  return /^https:\/\//i.test(u) ? u : '';
+}
+// ---------- قسم «كيف تعمل هذه البرامج؟» ----------
+const HOW_STEPS = [
+  { k: 'before', ico: 'compass', t: 'قبل البداية', h: 'تدخل في دقيقة وتعرف نقطة انطلاقك', body: 'تسجّل باسمك ومسمّاك دون كلمات مرور معقدة، فتحصل على رقم عضوية ورمز شخصي تدخل بهما من أي جهاز. ثم تبدأ بتقييم قبلي قصير يقيس ما تعرفه الآن، ليكون لرحلتك خط بداية واضح.', tags: ['رقم عضوية', 'رمز شخصي', 'تقييم قبلي'] },
+  { k: 'room', ico: 'layers', t: 'داخل القاعة', h: 'شرائح يقودها المدرب وتمارين تشارك فيها حيًا', body: 'تُعرض الشرائح بملء الشاشة ويتنقل بينها المدرب بجهاز المؤشر، وبين الشرائح تمارين حية: تصويت، وجدار أفكار، وسحابة كلمات، ومحاكيات قرار. كل إجابة تظهر على الشاشة لحظة إرسالها، فترى القاعة كلها تفكر معك.', tags: ['عرض بملء الشاشة', 'نتائج حية', 'محاكيات'] },
+  { k: 'break', ico: 'bolt', t: 'بين الجلسات', h: 'نشاط قصير يعيد الحماس', body: 'أنشطة طاقة لا صلة لها بمحتوى الدورة: ألغاز وتحديات وتصويتات مرحة وتعارف سريع بين الزملاء. هدفها كسر الجمود وتجديد النشاط، فتعود إلى الجلسة التالية بتركيز أعلى.', tags: ['كسر الجمود', 'ألغاز', 'تحديات'] },
+  { k: 'after', ico: 'trophy', t: 'ختام الدورة', h: 'مختبر جماعي وقياس أثر وخطة تبقى معك', body: 'وفي أغلب البرامج مختبر ختامي تعمل عليه الفرق بمؤقت لكل مرحلة، ثم تأخذ التقييم البعدي لترى كم تقدمت، وتحصل على خطة تحسين شخصية بصيغة PDF، مع متابعة اختيارية بعد 30 و60 و90 يومًا لقياس ما طبّقته فعلًا.', tags: ['عمل الفرق', 'تقييم بعدي', 'خطة PDF', 'متابعة 30/60/90'] }
+];
+const HOW_FEATS = [
+  { ico: 'target', t: 'تعلّم بالممارسة', b: 'كل محور ينتهي بتمرين تطبقه فورًا على موقف واقعي من عملك، فتخرج بمهارة جربتها لا بمعلومة سمعتها.' },
+  { ico: 'radar', t: 'نتائج حية أمام الجميع', b: 'إجابات القاعة تتجمع على الشاشة لحظيًا، فتقارن تفكيرك بتفكير زملائك وتتعلم من اختلافاتكم.' },
+  { ico: 'route', t: 'محاكيات وألعاب قرار', b: 'مواقف بخيارات تتفرع، وأدوات تحاكي التسعير والتفاوض وترتيب الأولويات، مع تغذية راجعة فورية بعد كل قرار.' },
+  { ico: 'gauge', t: 'قياس أثر حقيقي', b: 'تقييم قبلي وبعدي من الأسئلة نفسها، وتقييم للبرنامج في ختامه، فترى ما تغيّر فعلًا بدل الانطباع العام.' },
+  { ico: 'file', t: 'صندوق أدوات يبقى معك', b: 'حاسبات وقوالب جاهزة بصيغة Word وPDF تستخدمها في عملك بعد انتهاء الدورة، وكتيب بمحتوى الدورة تستخرجه كملف.' },
+  { ico: 'shield', t: 'خصوصية وتجربة فردية', b: 'بياناتك داخل دورتك وحدها، لا يراها أحد من دورة أخرى، وتُمسح عند نهاية الدفعة، ولك طلب حذف بياناتك في أي وقت.' }
+];
+const HOW_CMP = [
+  ['تستمع غالب الوقت', 'تشارك في كل محور'],
+  ['يُقاس التعلم في النهاية فقط', 'قياس قبلي وبعدي ومتابعة لاحقة'],
+  ['ينتهي أثر الدورة بخروجك من القاعة', 'أدوات وخطة وكتيب يبقون معك'],
+  ['كسر الجمود ارتجال', 'أنشطة طاقة مصممة بين الجلسات'],
+  ['الإجابات تضيع على ورقة', 'إجابات حية ترى فيها القاعة كلها']
+];
+const HOW_DEMO = ['المحاضرة الطويلة بلا تطبيق', 'غياب الأمثلة من الواقع', 'الجلوس دون مشاركة'];
+// ---------- حسابات التواصل (تظهر أيقونات في الواجهة والتذييل، وتُعدَّل من وضع المدرب) ----------
+const SOCIALS = [
+  { k: 'linkedin', label: 'لينكد إن', ph: 'https://linkedin.com/in/...', svg: '<path d="M6.94 8.5H3.56V20h3.38V8.5zM5.25 3a1.97 1.97 0 100 3.94 1.97 1.97 0 000-3.94zM20.44 20h-3.37v-5.6c0-1.33-.03-3.05-1.86-3.05-1.86 0-2.14 1.45-2.14 2.95V20H9.7V8.5h3.24v1.57h.05c.45-.85 1.55-1.75 3.19-1.75 3.42 0 4.05 2.25 4.05 5.18V20z" fill="currentColor" stroke="none"/>' },
+  { k: 'x', label: 'إكس', ph: 'https://x.com/...', svg: '<path d="M17.53 3h3.07l-6.7 7.66L21.8 21h-6.17l-4.83-6.32L5.27 21H2.2l7.17-8.19L1.9 3h6.33l4.37 5.78L17.53 3zm-1.08 16.17h1.7L7.33 4.73H5.5l10.95 14.44z" fill="currentColor" stroke="none"/>' },
+  { k: 'whatsapp', label: 'واتساب', ph: 'https://wa.me/9665xxxxxxxx', svg: '<path d="M12 2.5a9.5 9.5 0 00-8.1 14.46L2.5 21.5l4.66-1.37A9.5 9.5 0 1012 2.5zm0 1.8a7.7 7.7 0 11-3.93 14.33l-.28-.17-2.76.81.83-2.7-.18-.29A7.7 7.7 0 0112 4.3zm-3.1 3.5c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.22 3.08c.15.2 2.06 3.3 5.1 4.5 2.52 1 3.03.8 3.58.75.55-.05 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.12-.27-.2-.57-.35-.3-.15-1.77-.87-2.04-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.67-2.08-.17-.3-.02-.46.13-.6.13-.14.3-.35.45-.52.15-.18.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.2-.24-.58-.49-.5-.67-.51h-.57z" fill="currentColor" stroke="none"/>' },
+  { k: 'email', label: 'البريد الإلكتروني', ph: 'name@example.com', svg: '<rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="m4 7.5 8 6 8-6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>' }
+];
+// يقبل رابط https أو mailto أو tel أو بريدًا مجردًا أو رقم جوال؛ وما سوى ذلك يُهمَل (منع روابط javascript)
+function socialHref(k, v) {
+  v = String(v || '').trim(); if (!v) return '';
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(v)) return v;
+  if (k === 'email' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? 'mailto:' + v : '';
+  if (k === 'whatsapp' && /^\+?[\d\s-]{7,}$/.test(v)) return 'https://wa.me/' + v.replace(/\D/g, '');
+  if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(v)) return 'https://' + v;
+  return '';
+}
+function socialRow(p, cls) {
+  const items = SOCIALS.map(s => { const u = socialHref(s.k, p[s.k]); return u ? '<a class="soc-btn" href="' + h(u) + '" target="_blank" rel="noopener" title="' + h(s.label) + '" aria-label="' + h(s.label) + '"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' + s.svg + '</svg></a>' : ''; }).join('');
+  return items ? '<div class="soc-row ' + (cls || '') + '">' + items + '</div>' : '';
+}
+
+const Hub = {
+  profile: null, courses: {}, glob: {}, seen: new Set(), keys: {}, joins: {},
+  how: { tab: 0, flip: {}, cmp: false, vote: -1, seen: false },
+  howHtml() {
+    const w = Hub.how; const ids = Object.keys(COURSE_REGISTRY); const axesN = ids.reduce((n, id) => n + ((COURSE_REGISTRY[id].axes || []).length), 0);
+    const st = HOW_STEPS[w.tab];
+    const tabs = HOW_STEPS.map((x, i) => '<button class="how-tab ' + (i === w.tab ? 'on' : '') + '" data-hub="how-tab" data-i="' + i + '"><span class="how-n">' + (i + 1) + '</span><span class="how-ti">' + iconSvg(x.ico, 18) + '<b>' + h(x.t) + '</b></span></button>').join('');
+    const panel = '<div class="how-panel" key="' + w.tab + '"><div class="how-art" style="--hc:' + ['#5B45E0', '#E2531F', '#13AE9C', '#C98A00'][w.tab] + '"><span class="how-orb o1"></span><span class="how-orb o2"></span><span class="how-orb o3"></span><div class="how-ico">' + iconSvg(st.ico, 54, '#fff', 1.7) + '</div></div><div class="how-txt"><h4>' + h(st.h) + '</h4><p>' + h(st.body) + '</p><div class="how-tags">' + st.tags.map(x => '<span>' + h(x) + '</span>').join('') + '</div></div></div>';
+    const feats = HOW_FEATS.map((f, i) => '<button class="flipc ' + (w.flip[i] ? 'on' : '') + '" data-hub="how-flip" data-i="' + i + '" aria-pressed="' + (w.flip[i] ? 'true' : 'false') + '"><span class="flipc-in"><span class="fr"><span class="fico">' + iconSvg(f.ico, 28, '#fff', 1.8) + '</span><b>' + h(f.t) + '</b><em>اضغط لتعرف المزيد</em></span><span class="bk"><b>' + h(f.t) + '</b><span>' + h(f.b) + '</span></span></span></button>').join('');
+    const cmp = HOW_CMP.map(r => '<div class="cmp-r"><span class="cmp-a">' + h(r[0]) + '</span><span class="cmp-b">' + h(r[1]) + '</span></div>').join('');
+    const base = [14, 9, 6]; const tot = base.reduce((a, b) => a + b, 0) + (w.vote > -1 ? 1 : 0);
+    const demo = HOW_DEMO.map((o, i) => { const c = base[i] + (w.vote === i ? 1 : 0); const pct = Math.round(c / tot * 100); return '<button class="dm-o ' + (w.vote === i ? 'sel' : '') + '" data-hub="how-vote" data-i="' + i + '"><span class="dm-bar" style="width:' + (w.vote > -1 ? pct : 0) + '%"></span><span class="dm-t">' + h(o) + '</span><span class="dm-p">' + (w.vote > -1 ? pct + '%' : '') + '</span></button>'; }).join('');
+    return '<section class="how" id="how"><div class="how-head"><span class="how-kick">خلف الكواليس</span><h2>كيف تعمل هذه البرامج؟</h2><p>ليست محاضرة تُسمع ولا اختبارًا يُحل، بل رحلة تتعلم فيها بيدك وتقيس فيها أثرك. هذه محطاتها وأدواتها.</p></div>' +
+      '<div class="how-stats"><div><b class="num">' + ids.length + '</b><span>برامج متاحة</span></div><div><b class="num">' + axesN + '</b><span>محورًا تدريبيًا</span></div><div><b class="num">4</b><span>محطات في كل رحلة</span></div><div><b>قبلي وبعدي</b><span>قياس لأثر التعلم</span></div></div>' +
+      '<h3 class="how-sub">رحلتك في أربع محطات <span>اضغط على أي محطة</span></h3><div class="how-tabs" role="tablist">' + tabs + '</div>' + panel +
+      '<h3 class="how-sub">ما الذي يميّزها؟ <span>اضغط على أي بطاقة لتنقلب</span></h3><div class="how-feats">' + feats + '</div>' +
+      '<div class="how-cols"><div class="how-cmp"><div class="cmp-head"><b>الفرق بين التجربتين</b><button class="cmp-sw ' + (w.cmp ? 'on' : '') + '" data-hub="how-cmp" role="switch" aria-checked="' + (w.cmp ? 'true' : 'false') + '"><span>تدريب تقليدي</span><i></i><span>هنا</span></button></div><div class="cmp-body ' + (w.cmp ? 'here' : 'trad') + '">' + cmp + '</div></div>' +
+      '<div class="how-demo"><b>جرّب بنفسك</b><p>ما أكثر ما يُضعف الدورات التدريبية في رأيك؟ اختر وشاهد كيف تظهر النتائج حيًا.</p>' + demo + '<small>' + (w.vote > -1 ? 'نتائج توضيحية تُظهر شكل العرض الحي داخل الدورة؛ صوتك أُضيف إليها.' : 'الأرقام هنا عينة توضيحية، أما داخل الدورة فتظهر إجابات المشاركين الحقيقية.') + '</small></div></div></section>';
+  },
+  prof() { return Object.assign({}, HUB_DEFAULT_PROFILE, Hub.profile || {}); },
+  node(id) { return Hub.courses[id] || {}; },
+  status(id) { const s = Hub.node(id).status; return s || (DEMO_MODE ? 'active' : 'hidden'); },
+  eff(id) { const s = Hub.status(id); return s === 'active' && Hub.glob.lock ? 'info' : s; },
+  ids() {
+    const all = Object.keys(COURSE_REGISTRY);
+    return all.map((id, i) => ({ id, o: Hub.node(id).order != null ? +Hub.node(id).order : (COURSE_REGISTRY[id].order != null ? COURSE_REGISTRY[id].order : i + 1) })).sort((a, b) => a.o - b.o).map(x => x.id);
+  },
+  home() { location.href = homeUrl(); },
+  open(id) { location.href = courseUrl(id); },
+  boot() {
+    Course.hubMode = true; STORE_NS = 'aiec:'; DB.setCourse('');
+    App.render = () => Hub.render();
+    DB.onReject = (e, where) => { console.warn('write rejected', where, e); UI.toast('⚠️ تعذّر الحفظ: ' + ((e && e.code === 'PERMISSION_DENIED') ? 'لا تملك صلاحية المدرب' : String((e && e.message) || e))); };
+    Hub.authInit(); if (!AUTH.enabled) Hub.watch();
+    document.addEventListener('click', Hub.onClick);
+    Hub.render(); setTimeout(() => { if (!Hub.ready) { Hub.slow = true; Hub.render(); } }, 8000);
+  },
+  authInit() {
+    const fb = !DEMO_MODE && typeof firebase !== 'undefined' && typeof firebase.auth === 'function' && !!firebaseConfig.apiKey;
+    AUTH.enabled = fb; if (!fb) { AUTH.resolved = true; return; }
+    AUTH.resolved = false;
+    firebase.auth().onAuthStateChanged(async u => {
+      if (!u) { try { await firebase.auth().signInAnonymously(); return; } catch (e) { AUTH.anonError = e; } }
+      AUTH.user = u || null; let ok = false;
+      if (u && !u.isAnonymous) { try { ok = (await DB.get('admins/' + u.uid)) === true; } catch (e) { ok = false; } }
+      AUTH.isAdmin = ok; AUTH.resolved = true; Hub.watch(); Hub.render();
+    });
+  },
+  watch() {
+    if (Hub._w) return; Hub._w = true;
+    const defs = { 'hub/profile': v => { Hub.profile = v; }, 'hub/courses': v => { Hub.courses = v || {}; }, 'hub/global': v => { Hub.glob = v || {}; } };
+    Object.keys(defs).forEach(p => DB.watch(p, v => { defs[p](v); Hub.seen.add(p); if (!Hub.ready && Object.keys(defs).every(x => Hub.seen.has(x))) { Hub.ready = true; DB.markReady(); } Hub.render(); }, e => { console.warn('hub watch', p, e); Hub.err = e; Hub.render(); }));
+  },
+  afterLogin() { UI.toast('🛡️ أهلًا بك، أدوات إدارة البرامج ظاهرة في بطاقات الدورات'); Hub.render(); },
+  async loadKeys() { if (!Admin.ok()) return; for (const id of Object.keys(COURSE_REGISTRY)) { try { Hub.keys[id] = !!(await DB.get('c/' + id + '/key')); } catch (e) { Hub.keys[id] = false; }  } Hub.keysLoaded = true; Hub.render(); },
+  // ---- الرسم ----
+  render() {
+    const root = document.getElementById('app'); if (!root) return;
+    if (!AUTH.resolved || !Hub.ready) { root.innerHTML = '<div class="connect-screen" role="status"><div class="cs-box"><svg class="cs-ring" viewBox="0 0 48 48"><circle class="cs-track" cx="24" cy="24" r="20"/><circle class="cs-fill" cx="24" cy="24" r="20" pathLength="100"/></svg><h2>' + h(Hub.prof().title2) + '</h2>' + (Hub.err ? '<p>تعذر قراءة البيانات: ' + h((Hub.err && Hub.err.message) || Hub.err) + '</p>' : '') + (Hub.slow || Hub.err ? '<button class="btn btn-primary" onclick="location.reload()">🔄 إعادة المحاولة</button>' : '') + '</div></div>'; return; }
+    if (Admin.ok() && !Hub.keysLoaded && !Hub._kl) { Hub._kl = true; Hub.loadKeys(); }
+    const p = Hub.prof(); const admin = Admin.ok();
+    const ids = Hub.ids().filter(id => admin || Hub.status(id) !== 'hidden');
+    const cards = ids.map((id, i) => Hub.card(id, i, ids.length)).join('');
+    const ini = String(p.name || '؟').trim().charAt(0);
+    root.innerHTML = '<header class="topbar"><div class="wrap"><div class="brand brand-hub"><div class="brand-logo">' + iconSvg('sparkles', 22, '#fff', 2.2) + '</div><div class="brand-text"><div class="brand-title">' + h(p.title2) + '</div><div class="brand-sub">' + h(p.sub) + '</div></div></div><div class="top-actions">' + (admin ? '<span class="pill hub-admin-pill">🛡️ وضع المدرب</span><button class="icon-btn" data-hub="logout" title="تسجيل خروج المدرب" aria-label="خروج">' + iconSvg('logout', 18) + '</button>' : '<button class="trainer-btn" data-hub="login" title="دخول المدرب" aria-label="دخول المدرب">' + iconSvg('lock', 14) + '</button>') + '</div></div></header>' +
+      '<main class="wrap hub-main"><section class="hub-hero"><div class="hub-av">' + (photoSrc(p.photo) ? '<img src="' + h(photoSrc(p.photo)) + '" alt="" referrerpolicy="no-referrer" onerror="this.replaceWith(document.createTextNode(\'' + h(ini) + '\'))">' : h(ini)) + '</div><div class="grow"><h1>' + h(p.name) + '</h1><div class="hub-role">' + h(p.title) + '</div><p>' + h(p.bio) + '</p>' + (p.url ? '<a class="hub-url" href="https://' + h(String(p.url).replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">🌐 ' + h(p.url) + '</a>' : '') + socialRow(p, 'soc-hero') + '</div>' +
+      (admin ? '<button class="btn btn-soft btn-sm" data-hub="profile">✏️ تعديل النبذة والتواصل</button>' : '') + '</section>' +
+      (admin ? '<section class="hub-admin-bar"><label class="sim-cb"><input type="checkbox" data-hub="lock" ' + (Hub.glob.lock ? 'checked' : '') + '> 🔒 قفل شامل: كل الدورات النشطة تعرض نبذتها فقط <span class="muted">(يُلغى الدخول والتسجيل مؤقتًا)</span></label></section>' : '') +
+      Hub.howHtml() + '<h2 class="sec-title hub-sec">' + (ids.length ? 'البرامج' : 'لا توجد برامج معروضة حاليًا') + '</h2>' +
+      (Hub.glob.lock && !admin ? '<div class="notice">الصفحات معروضة للتعريف فقط في الوقت الحالي.</div>' : '') +
+      '<div class="hub-grid">' + cards + '</div></main><footer class="footer"><div class="wrap hub-foot"><b>' + h(p.name) + '</b><span>' + h(p.title) + '</span>' + (p.url ? '<a class="hub-furl" href="https://' + h(String(p.url).replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' + h(p.url) + '</a>' : '') + socialRow(p, 'soc-foot') + (p.footer ? '<span class="hub-ftxt">' + h(p.footer).replace(/\n/g, '<br>') + '</span>' : '') + (admin ? '<button class="btn btn-ghost btn-xs hub-fedit" data-hub="profile" data-f="footer">✏️ تعديل التذييل</button>' : '') + '</div></footer>';
+  },
+  card(id, i, n) {
+    const r = COURSE_REGISTRY[id]; const node = Hub.node(id); const st = Hub.status(id); const eff = Hub.eff(id); const admin = Admin.ok();
+    const col = r.color || '#5B45E0';
+    const cta = eff === 'active' ? '<button class="btn btn-primary" data-hub="open" data-c="' + h(id) + '">ادخل الدورة ‹</button>' : '<button class="btn btn-soft" data-hub="open" data-c="' + h(id) + '">نبذة عن الدورة</button>';
+    const adm = admin ? '<div class="hub-ctl"><div class="hub-seg" role="group" aria-label="حالة الدورة">' + ['hidden', 'info', 'active'].map(s => '<button class="' + (st === s ? 'on ' + s : '') + '" data-hub="status" data-c="' + h(id) + '" data-v="' + s + '">' + HUB_STATUS[s] + '</button>').join('') + '</div>' +
+      '<div class="row hub-ctl-row"><button class="btn btn-ghost btn-xs" data-hub="up" data-c="' + h(id) + '" ' + (i === 0 ? 'disabled' : '') + '>▲</button><button class="btn btn-ghost btn-xs" data-hub="down" data-c="' + h(id) + '" ' + (i === n - 1 ? 'disabled' : '') + '>▼</button>' +
+      '<button class="btn btn-ghost btn-xs" data-hub="key" data-c="' + h(id) + '">🔑 مفتاح المحتوى ' + (Hub.keys[id] ? '<b class="ok-dot">✓</b>' : '<b class="no-dot">لم يُضبط</b>') + '</button>' +
+      '<button class="btn btn-ghost btn-xs" data-hub="enter" data-c="' + h(id) + '">🛠️ إدارة الدورة</button>' +
+      '<button class="btn btn-danger btn-xs" data-hub="reset" data-c="' + h(id) + '">🧹 دفعة جديدة</button></div></div>' : '';
+    return '<article class="hub-card s-' + st + '" style="--c:' + h(col) + '"><div class="hub-card-top"><span class="hub-ico">' + iconSvg(r.icon || 'sparkles', 28, '#fff', 2) + '</span>' + (admin || eff !== 'active' ? '<span class="hub-badge b-' + st + '">' + (eff !== st ? 'مقفلة (قفل شامل)' : HUB_BADGE[st]) + '</span>' : '<span class="hub-badge b-active">' + HUB_BADGE.active + '</span>') + '</div>' +
+      '<h3>' + h(r.title) + '</h3><p class="hub-desc">' + h(r.desc || '') + '</p><div class="hub-meta">' + (r.sessionsText ? '<span>🗓️ ' + h(r.sessionsText) + '</span>' : '') + (r.hoursText ? '<span>⏱️ ' + h(r.hoursText) + '</span>' : '') + (r.axes ? '<span>🧩 ' + r.axes.length + ' محورًا</span>' : '') + '</div><div class="hub-cta">' + cta + '</div>' + adm + '</article>';
+  },
+  // ---- التفاعلات ----
+  async onClick(ev) {
+    const t = ev.target.closest && ev.target.closest('[data-hub]'); if (!t || t.disabled) return;
+    const a = t.getAttribute('data-hub'); const id = t.getAttribute('data-c');
+    if (a === 'open') { Hub.open(id); return; }
+    if (a === 'login') { if (AUTH.enabled) { adminLogin(); return; } const v = await UI.prompt('أدخل الرمز السري للوحة الإدارة', { title: '🔐 دخول المدرب', type: 'password', inputmode: 'numeric', ok: 'دخول' }); if (v == null) return; if (v.trim() === ADMIN_PASS && DEMO_MODE) { SafeSS.set('ec_admin', '1'); Hub.afterLogin(); } else UI.alert('الرمز غير صحيح.'); return; }
+    if (a === 'how-tab') { Hub.how.tab = +t.getAttribute('data-i'); Hub.render(); return; }
+    if (a === 'how-flip') { const i = +t.getAttribute('data-i'); Hub.how.flip[i] = !Hub.how.flip[i]; t.classList.toggle('on', !!Hub.how.flip[i]); t.setAttribute('aria-pressed', Hub.how.flip[i] ? 'true' : 'false'); return; }
+    if (a === 'how-cmp') { Hub.how.cmp = !Hub.how.cmp; Hub.render(); return; }
+    if (a === 'how-vote') { Hub.how.vote = +t.getAttribute('data-i'); Hub.render(); return; }
+    if (!Admin.ok() && a !== 'open') return;
+    const node = Hub.node(id);
+    if (a === 'logout') { SafeSS.del('ec_admin'); if (AUTH.enabled) { AUTH.isAdmin = false; try { await firebase.auth().signOut(); } catch (e) {} } location.reload(); return; }
+    if (a === 'lock') { await DB.set('hub/global/lock', t.checked ? true : null); return; }
+    if (a === 'status') { await DB.set('hub/courses/' + id + '/status', t.getAttribute('data-v')); return; }
+    if (a === 'up' || a === 'down') {
+      const ids = Hub.ids(); const k = ids.indexOf(id); const j = a === 'up' ? k - 1 : k + 1; if (j < 0 || j >= ids.length) return;
+      [ids[k], ids[j]] = [ids[j], ids[k]]; const upd = {}; ids.forEach((x, n) => { upd['hub/courses/' + x + '/order'] = n + 1; }); await DB.update('', upd, { allowTopLevel: true }); return;
+    }
+    if (a === 'profile') { Hub.editProfile(t.getAttribute('data-f')); return; }
+    if (a === 'enter') { Hub.open(id); return; }
+    if (a === 'key') {
+      const v = await UI.prompt('الصق مفتاح المحتوى الذي ظهر عند بناء الدورة (يبقى سريًا، ولا يقرؤه إلا المسجَّلون عند فتح الدورة). اترك الحقل فارغًا لحذف المفتاح.', { title: '🔑 مفتاح محتوى «' + COURSE_REGISTRY[id].short + '»', placeholder: 'مفتاح من 44 حرفًا', value: '' });
+      if (v == null) return; const k = v.replace(/[^A-Za-z0-9+/=]/g, ''); // يُزال أي مسافة أو علامة اتجاه خفية أو اقتباس لصقته معه
+      if (k && !/^[A-Za-z0-9+/]{43}=$/.test(k)) { UI.alert('صيغة المفتاح غير صحيحة بعد التنظيف (' + k.length + ' حرفًا؛ المطلوب 44 ينتهي بعلامة =). انسخ المفتاح كاملًا دون زيادة أو نقص.'); return; }
+      await DB.set('c/' + id + '/key', k || null); Hub.keys[id] = !!k; UI.toast(k ? '🔑 حُفظ المفتاح' : 'حُذف المفتاح'); Hub.render(); return;
+    }
+    if (a === 'reset') { Hub.resetCohort(id); return; }
+  },
+  editProfile(focus) {
+    const p = Hub.prof();
+    const f = (k, l, rows, ph) => '<div class="field"><label>' + l + '</label>' + (rows ? '<textarea id="hp_' + k + '" rows="' + rows + '">' + h(p[k] || '') + '</textarea>' : '<input id="hp_' + k + '" value="' + h(p[k] || '') + '"' + (ph ? ' dir="ltr" placeholder="' + h(ph) + '"' : '') + '>') + '</div>';
+    const soc = SOCIALS.map(s => f(s.k, s.label, 0, s.ph)).join('');
+    const m = UI.modal('<h3>✏️ بيانات الصفحة الرئيسية</h3><h4>النبذة والعناوين</h4>' + f('name', 'الاسم') + f('title', 'المسمى') + f('bio', 'النبذة', 4) + f('url', 'الموقع أو الرابط') + f('photo', 'رابط الصورة الشخصية (اختياري؛ يقبل رابط Google Drive بشرط مشاركة الملف لكل من لديه الرابط)') + f('title2', 'عنوان الصفحة الرئيسية') + f('sub', 'العنوان الفرعي') +
+      '<h4>حسابات التواصل <span class="muted">(تظهر أيقونات في الواجهة والتذييل؛ اترك الحقل فارغًا لإخفاء الأيقونة)</span></h4>' + soc +
+      '<h4 id="hp_footer_h">التذييل</h4>' + f('footer', 'نص إضافي أسفل الصفحة (اختياري)', 3) +
+      '<div class="actions"><button class="btn btn-primary" data-ok>حفظ</button><button class="btn btn-ghost" data-x>إلغاء</button></div>', { wide: true });
+    $('[data-x]', m.el).onclick = () => m.close();
+    if (focus === 'footer') setTimeout(() => { const el = $('#hp_footer', m.el); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } }, 50);
+    $('[data-ok]', m.el).onclick = async () => {
+      const keys = ['name', 'title', 'bio', 'url', 'photo', 'title2', 'sub', 'footer'].concat(SOCIALS.map(s => s.k)); const o = {};
+      keys.forEach(k => { o[k] = ($('#hp_' + k, m.el).value || '').trim(); });
+      const bad = SOCIALS.filter(s => o[s.k] && !socialHref(s.k, o[s.k])); if (bad.length) { UI.alert('صيغة غير صحيحة في: ' + bad.map(s => s.label).join('، ') + '. اكتب رابطًا يبدأ بـ https:// أو بريدًا أو رقم جوال.'); return; }
+      await DB.set('hub/profile', o); m.close(); UI.toast('✅ حُفظت بيانات الصفحة');
+    };
+  },
+  // بدء دفعة جديدة: يمسح كل ما أدخله المتدربون في الدورة (وسجلات العضوية)، ويُبقي المحتوى والإعدادات والمفتاح
+  async resetCohort(id) {
+    const r = COURSE_REGISTRY[id];
+    const m = UI.modal('<h3>🧹 بدء دفعة جديدة: «' + h(r.short) + '»</h3><p style="line-height:1.9">سيُمسح نهائيًا كل ما أدخله المتدربون في هذه الدورة: التسجيل والحسابات والإجابات والنتائج والتقييمات والحضور والاهتمامات والمتابعات والمختبر. ويُلغى انضمام الجميع فيحتاجون للتسجيل من جديد.<br><b>يبقى:</b> المحتوى وتعديلاتك عليه، والإعدادات، ومفتاح المحتوى.</p><div class="actions"><button class="btn btn-soft" data-bk>📥 تنزيل نسخة احتياطية أولًا</button><button class="btn btn-danger" data-go>مسح الآن</button><button class="btn btn-ghost" data-x>إلغاء</button></div>');
+    $('[data-x]', m.el).onclick = () => m.close();
+    $('[data-bk]', m.el).onclick = async () => {
+      try { const d = await DB.get('c/' + id); if (d) { delete d.key; if (d.secure) delete d.secure; downloadBlob(new Blob([JSON.stringify(d, null, 1)], { type: 'application/json' }), id + '-' + new Date().toISOString().slice(0, 10) + '.json'); UI.toast('📥 نُزّلت النسخة'); } else UI.toast('لا توجد بيانات'); } catch (e) { UI.alert('تعذر التنزيل: ' + h(e.message || e)); }
+    };
+    $('[data-go]', m.el).onclick = async () => {
+      const p = ['users', 'private', 'secrets', 'devices', 'members', 'mno', 'posts', 'assess', 'attendance', 'checkins', 'followups', 'leads', 'lab', 'presence', 'react', 'storyLikes', 'assign', 'reveal', 'invite', 'broadcast', 'stats', 'monitorData'];
+      const upd = {}; p.forEach(k => { upd['c/' + id + '/' + k] = null; }); upd['c/' + id + '/meta/memberCounter'] = null; upd['c/' + id + '/meta/resetStamp'] = DB.now();
+      try { await DB.update('', upd, { allowTopLevel: true }); m.close(); UI.toast('🧹 بدأت دفعة جديدة نظيفة'); } catch (e) { UI.alert('تعذر المسح: ' + h(e.message || e)); }
+    };
+  }
+};
+
+// ---------- إقلاع المنصة: الصفحة الرئيسية أو دورة محددة ----------
+function bootAll() {
+  const hp = getHashParams(); let cid = (window.__CID || hp.c || '').trim();
+  // رابط قديم بصيغة #c=<id> على الصفحة الرئيسية يُحوَّل إلى صفحة الدورة المرقّمة
+  if (!window.__CID && cid && COURSE_REGISTRY[cid]) { delete hp.c; const rest = Object.keys(hp).map(k => k + '=' + encodeURIComponent(hp[k])).join('&'); location.replace(courseUrl(cid) + (rest ? '#' + rest : '')); return; }
+  if (cid && COURSE_CFGS[cid] && COURSE_REGISTRY[cid]) { Course.setup(cid); Deck.initBC(); boot(); }
+  else Hub.boot();
+}
+bootAll();
