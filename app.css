@@ -2083,12 +2083,12 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .slide.mn .dz-ed{border:2.5px solid var(--mn);border-radius:22px;background:#fff;box-shadow:none}
 .slide.mn .dz-ed-bar{background:var(--mn);color:#fff}.slide.mn .dz-ed-body,.slide.mn .dz-ln span{color:#1f2d33}.slide.mn .dz-ln em{color:var(--mn3);font-style:normal;font-weight:700}.slide.mn .dz-ln i{color:#8aa}
 .slide.mn .dz-phone{border-color:var(--mn)!important;box-shadow:none}.slide.mn .dz-phone-top{background:var(--mn);color:#fff}
-.slide.mn .dz-msg.me{background:var(--mnbg)}.slide.mn .dz-msg.ai{background:var(--mn);color:#fff}
+.slide.mn .dz-msg.me{background:var(--mnbg);color:#1f2d33}.slide.mn .dz-msg.me small{color:#5b7a85}.slide.mn .dz-msg.ai{background:var(--mn);color:#fff}
 /* الجداول */
 .slide.mn .dz-tbl table{border:0}.slide.mn .dz-tbl th{background:var(--mn);color:#fff;border:0}
 .slide.mn .dz-tbl td{border:0;border-bottom:1px solid #d6dee2;background:#fff;color:#2b2b2b}.slide.mn .dz-tbl tr:nth-child(even) td{background:#E7EEF1}
 /* صندوق الفكرة: شريط فاتح مع شخصية المصباح */
-.slide.mn .dz-rule{background:var(--mnbg);border:0;border-radius:14px;color:var(--mnd);font-weight:700;position:relative;padding-inline-start:112px;min-height:68px;overflow:visible!important;margin-top:18px}
+.slide.mn .dz-rule{background:var(--mnbg);border:0;border-radius:14px;color:var(--mnd);font-weight:700;position:relative;padding-left:112px;padding-right:18px;min-height:68px;overflow:visible!important;margin-top:18px}
 .slide.mn .dz-rule::after{content:"";position:absolute;left:14px;bottom:-4px;width:92px;height:112px;background:url(assets/monshaat/man-idea.webp) center bottom/contain no-repeat}
 /* السؤال الحي بهوية منشآت */
 .slide.mn .lv-box{background:var(--mnbg);border:2.5px solid var(--mn);border-radius:26px;box-shadow:none;--ac:var(--mn);--brand:var(--mn)}
@@ -2115,3 +2115,20 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .axis-brand-row{margin-top:10px}
 .axis-brand{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #007297;background:#fff;color:#007297;border-radius:99px;padding:5px 14px;font-family:var(--f-ui);font-weight:800;font-size:12.5px;cursor:pointer}
 .axis-brand.on{background:#007297;color:#fff}
+
+/* جوال وشاشات ضيقة (وضع الانسياب): هوامش أصغر وعناوين تلتف وبلا فراغات زائدة */
+@media (max-width:899px){
+  .slide.mn{padding:62px 14px 46px!important}
+  .mn-tab{left:4%;height:52px;clip-path:polygon(0 0,100% 0,100% 100%,30px 100%,0 calc(100% - 30px));padding-inline-start:26px}
+  .mn-tab span{font-size:16px;white-space:normal;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .slide.mn .dz-statement,.slide.mn.lay-statement .dz-statement{min-height:0!important;padding:4px 0 8px!important}
+  .slide.mn .dz-st-big{font-size:clamp(20px,6vw,28px)!important;line-height:1.5}
+  .slide.mn .dz-chatwrap{flex-direction:column;gap:14px}
+  .slide.mn .dz-phone{width:100%;max-width:none}
+  .slide.mn .dz-rule{padding-left:84px;min-height:60px;font-size:14.5px}
+  .slide.mn .dz-rule::after{width:68px;height:84px;left:8px}
+  .mn-foot{left:10px;bottom:6px}.mn-foot img{height:22px}
+  .slide.mn .lv-box{margin-top:10px}
+  .slide.mn .dz-bento{grid-template-columns:1fr 1fr!important;gap:22px 10px}.slide.mn .dz-bento .dz-bx.big{grid-column:1/-1}
+  .slide.mn .dz-bx{padding:30px 12px 12px}.slide.mn .dz-bx b{font-size:15px}.slide.mn .dz-bx p{font-size:12.5px}
+}
