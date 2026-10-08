@@ -2132,3 +2132,13 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
   .slide.mn .dz-bento{grid-template-columns:1fr 1fr!important;gap:22px 10px}.slide.mn .dz-bento .dz-bx.big{grid-column:1/-1}
   .slide.mn .dz-bx{padding:30px 12px 12px}.slide.mn .dz-bx b{font-size:15px}.slide.mn .dz-bx p{font-size:12.5px}
 }
+/* الغلاف على الجوال: ارتفاع صريح (الغلاف بلا محتوى انسيابي) ونص بعرض الشريحة */
+@media (max-width:899px){
+  .slide.mn.mn-cover{min-height:min(500px,128vw);padding:0!important}
+  .mn-cv{right:7%;left:7%;width:auto;bottom:25%}
+  .mn-cv-k{font-size:12px}.mn-cv-t{font-size:clamp(20px,6.4vw,28px);margin-bottom:10px}
+  .mn-cv-s{font-size:clamp(11.5px,3.4vw,14px);line-height:1.65}
+  .mn-cv::after{content:"";display:block;height:1px;background:rgba(255,255,255,.8);margin-top:0}
+}
+.slide.mn.mn-cover .slide-in{position:static!important}
+@media (max-width:899px){.slide.mn.mn-cover{background-position:100% 50%!important}}
