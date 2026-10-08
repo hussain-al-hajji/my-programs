@@ -2122,7 +2122,7 @@ html[data-th="mx"] #app{position:relative;z-index:1}
 /* الشريط العلوي: شعار الهوية وخط بألوانها */
 html[data-th="mx"] .topbar{position:sticky}
 html[data-th="mx"] .topbar::after{content:"";position:absolute;inset-inline:0;bottom:-5px;height:5px;background:linear-gradient(90deg,#1FA9B0 0 34%,#F58A1F 34% 67%,#F2C641 67% 100%)}
-html[data-th="mx"] .brand-hub .brand-logo{background:#fff url(assets/mx/mark.webp) center/74% no-repeat;border-radius:50%;box-shadow:none;border:0;transform:none}
+html[data-th="mx"] .brand-hub .brand-logo{background:#fff url(assets/mx/mark-official.webp) center/76% no-repeat;border-radius:50%;box-shadow:none;border:0;transform:none}
 html[data-th="mx"] .brand-hub .brand-logo svg{display:none}
 html[data-th="mx"] .brand-hub .brand-logo::after{display:none}
 /* ترويسة المدرب */
@@ -2132,7 +2132,7 @@ html[data-th="mx"] .hub-hero::after{content:"";position:absolute;right:-50px;bot
 html[data-th="mx"] .hub-hero h1{color:#fff}
 html[data-th="mx"] .hub-hero .hub-role{color:var(--mx-yl)}
 html[data-th="mx"] .hub-hero p,html[data-th="mx"] .hub-hero .hub-bio{color:#effafb}
-html[data-th="mx"] .hub-av{background:#fff;border:4px solid var(--mx-y);border-radius:50%;box-shadow:0 8px 20px -10px rgba(0,0,0,.4)}
+html[data-th="mx"] .hub-av{background:#fff;border:4px solid var(--mx-y);box-shadow:0 8px 20px -10px rgba(0,0,0,.4)}
 html[data-th="mx"] .hub-av .hub-me{object-fit:contain;padding:10px;background:#fff;border-radius:50%}
 html[data-th="mx"] .hub-av:has(.hub-me){background:#fff;border:4px solid var(--mx-y)}
 html[data-th="mx"] .hub-hero .btn,html[data-th="mx"] .hub-hero .hub-fedit{border-radius:99px}
@@ -2196,6 +2196,11 @@ html[data-th="mx"] .how-tab.on,html[data-th="mx"] .how-tab.on *{color:#fff!impor
 html[data-th="mx"] .how-art{background:linear-gradient(135deg,#1FA9B0,#127A80)!important}
 html[data-th="mx"] .how-tags span{background:var(--mx-tl)!important;color:var(--mx-td)!important}
 html[data-th="mx"] .how-stats b{color:var(--mx-t)}
+/* شعار الهوية الطولي (بالاسم العربي والإنجليزي) بجانب اسم المدرب */
+.hub-av:has(.hub-logo){width:150px;height:auto;min-height:0;border-radius:26px;background:#fff;border:3px solid #F2C641;padding:12px 10px;box-shadow:0 10px 24px -12px rgba(0,0,0,.35)}
+.hub-av .hub-logo{width:100%;height:auto;display:block}
+html[data-th="mx"] .hub-av:has(.hub-logo){border-radius:26px}
+@media (max-width:640px){.hub-av:has(.hub-logo){width:130px}}
 
 /* ===== theme-sketch.css ===== */
 /* =====================================================================
