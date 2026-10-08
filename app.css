@@ -2018,6 +2018,8 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .hub-av:has(.hub-me){background:#fff;border:2.4px solid rgba(255,255,255,.9);padding:0}
 
 /* ===== brand-monshaat.css ===== */
+@font-face{font-family:'29LT Azer';src:url(assets/monshaat/azer-regular.woff2) format('woff2');font-weight:400 600;font-style:normal;font-display:swap}
+@font-face{font-family:'29LT Azer';src:url(assets/monshaat/azer-bold.woff2) format('woff2');font-weight:700 900;font-style:normal;font-display:swap}
 /* هوية منشآت لشرائح محور ورشة الساعة (تُفعَّل من بطاقة المحور للمدرب): الغلاف والإطار والخط والألوان وعناصر الهوية
    الألوان: 007297 الأساسي · 00A6CF سماوي · 7FBC42 أخضر · 4472C4 أزرق · 65ABC2 سماوي فاتح · 05575F داكن */
 .slide.mn{--mn:#007297;--mn2:#00A6CF;--mn3:#7FBC42;--mn4:#4472C4;--mn5:#65ABC2;--mnd:#05575F;--mnbg:#EEF5F8;
@@ -2085,9 +2087,9 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .slide.mn .lv-card{background:#fff;border:2px solid var(--mn5)}.slide.mn .lv-card:nth-child(4n+2){background:#fff;border-color:var(--mn3)}.slide.mn .lv-card:nth-child(4n+3){background:#fff;border-color:var(--mn2)}.slide.mn .lv-card:nth-child(4n+4){background:#fff;border-color:var(--mn4)}
 .slide.mn .lv-fill{background:var(--mn5)}
 .slide.mn .lv-opt.right .lv-fill{background:var(--mn3)}
-/* زر هوية منشآت في بطاقة المحور (للمدرب) */
-.axis-cardw{position:relative;display:flex}.axis-cardw>.axis-card{flex:1;width:100%}
-.axis-brand{position:absolute;top:10px;left:10px;z-index:3;border:1.5px solid #007297;background:#fff;color:#007297;border-radius:99px;padding:5px 12px;font-family:var(--f-ui);font-weight:800;font-size:12.5px;cursor:pointer}
+/* زر هوية منشآت في نهاية بطاقة المحور (للمدرب) */
+.axis-brand-row{margin-top:10px}
+.axis-brand{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #007297;background:#fff;color:#007297;border-radius:99px;padding:5px 14px;font-family:var(--f-ui);font-weight:800;font-size:12.5px;cursor:pointer}
 .axis-brand.on{background:#007297;color:#fff}
 
 /* ===== theme-sketch.css ===== */
