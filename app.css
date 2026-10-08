@@ -1296,12 +1296,21 @@ html[data-motion="reduce"] .slide.cur *{animation:none!important}
 .deck.fixed .sk-vs-row{padding:9px 16px}
 .deck.fixed .sk-fw{margin:8px 0 10px}.deck.fixed .sk-fw-col{padding:14px 12px 12px}.deck.fixed .sk-fw-l{width:50px;height:50px;font-size:22px;margin-bottom:8px}
 .deck.fixed .sk-chart{max-width:none;display:flex;justify-content:center}
+.deck.fixed .sk-chart svg{width:100%}
 .deck.fixed .sk-split{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.85fr);gap:24px;align-items:center}
 .deck.fixed .sk-split .sk-chart{margin-top:0}
 .deck.fixed .sk-split .sk-nums{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .deck.fixed .slide-hook .sk-split .sk-hook{grid-template-columns:1fr 1.3fr}
 .deck.fixed .sk-split .sk-opts{grid-template-columns:1fr}
 .deck.fixed .slide-hook .sk-split .sk-chart svg{max-height:var(--vh-max,56vh)}
+/* افتتاحية مع رسم: الحلقة والنص في عمود، والرسم في عمود أوسع بدل ثلاثة أعمدة ضيقة */
+.deck.fixed .slide-hook.vis-chart .sk-split{grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:22px}
+.deck.fixed .slide-hook.vis-chart .sk-split .sk-hook{grid-template-columns:minmax(0,1fr);gap:10px}
+.deck.fixed .slide-hook.vis-chart .sk-hook-num{display:flex;align-items:center;gap:16px;padding:8px 12px;text-align:start}
+.deck.fixed .slide-hook.vis-chart .sk-hook-num .sk-ring{width:min(112px,15vh);flex:none}
+.deck.fixed .slide-hook.vis-chart .sk-hook-lbl{margin-top:0;font-size:16px}
+.deck.fixed .slide-hook.vis-chart .sk-split .sk-chart{width:100%}
+.deck.fixed .vis-chart .pair.tool{min-height:0}
 .deck.fixed .slide{display:flex;flex-direction:column;justify-content:center}.deck.fixed .slide.tight{justify-content:flex-start}
 /* شاشة الاتصال وشريط الانقطاع */
 .connect-screen{min-height:100vh;display:grid;place-items:center;padding:20px;background:var(--bg)}
