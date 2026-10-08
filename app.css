@@ -1897,6 +1897,11 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .lv-cta{margin-top:.6em;display:flex;align-items:center;justify-content:center;gap:.6em;flex-wrap:wrap;padding:.55em .8em;border-radius:12px;background:rgba(255,255,255,.8);border:1.5px dashed var(--line);font-weight:600;color:var(--ink-2)}
 /* جدار الإجابات */
 .lv-wall{margin-top:.6em;height:var(--lvbh);overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(12em,1fr));gap:.55em;align-content:start;padding:3px;scrollbar-width:thin}
+.lv-qrow{display:flex;align-items:flex-start;gap:1em}.lv-qcol{flex:1;min-width:0}
+.lv-qrin{flex:none;width:7.4em;text-align:center;font-size:.78em;font-weight:700;color:var(--ink-2)}.lv-qrin .lv-qr-big{width:100%;aspect-ratio:1;background:#fff;border-radius:10px;padding:4px;border:1.5px solid var(--line)}.lv-qrin svg{width:100%;height:100%;display:block}
+/* الإجابات النصية: صف أفقي يُسحب يمينًا ويسارًا ليظهر كل ما كُتب */
+.lv-k-text .lv-wall{display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;align-items:stretch;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.lv-k-text .lv-wall .lv-card{flex:0 0 min(17em,78%);max-height:100%;overflow-y:auto;scroll-snap-align:start}.lv-k-text .lv-wall .lv-empty{flex:1}
 .lv-empty{grid-column:1/-1;color:var(--ink-3);text-align:center;padding:1.1em 0;font-weight:600}
 .lv-card{position:relative;padding:.5em .8em;border-radius:14px;background:#FFF5C9;border:1px solid rgba(0,0,0,.06);box-shadow:0 6px 14px -9px rgba(40,30,120,.5);word-break:break-word}
 .lv-card:nth-child(4n+2){background:#FFE1EA}.lv-card:nth-child(4n+3){background:#DDF6EA}.lv-card:nth-child(4n+4){background:#E7E1FF}
@@ -1945,7 +1950,7 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
   .lv-form{flex-direction:column;align-items:stretch}.lv-form-r{justify-content:space-between}
   .lv-words .lv-in{flex:1 1 40%}
   .lv-pres{margin-inline-start:0;width:100%}
-  .lv-wall{--lvbh:220px;grid-template-columns:1fr 1fr}.lv-cloud{--lvbh:270px}
+  .lv-wall{--lvbh:220px;grid-template-columns:1fr 1fr}.lv-k-text .lv-wall{display:flex}.lv-cloud{--lvbh:270px}
   .lv-q{font-size:1.3em}
 }
 
