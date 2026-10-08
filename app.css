@@ -2110,6 +2110,82 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .axis-brand{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #007297;background:#fff;color:#007297;border-radius:99px;padding:5px 14px;font-family:var(--f-ui);font-weight:800;font-size:12.5px;cursor:pointer}
 .axis-brand.on{background:#007297;color:#fff}
 
+/* ===== brand-mx-course.css ===== */
+
+/* ===== هوية مايل إكس لصفحات دورة الذكاء الاصطناعي: خلفيات وقوالب الشرائح بالألوان والخطوط المتموجة، وشعار الهوية الأفقي في الزاوية اليسرى ===== */
+html[data-th="mx"] .slide{--mxl:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 1280 720%22 preserveAspectRatio=%22none%22%3E%0A%3Cpath d=%22M0 0H1280V28C1040 62 820 44 600 38C380 32 170 54 0 76Z%22 fill=%22%231FA9B0%22/%3E%0A%3Cpath d=%22M0 90C190 66 390 48 610 54C830 60 1050 80 1280 36%22 fill=%22none%22 stroke=%22%23F58A1F%22 stroke-width=%224%22 stroke-linecap=%22round%22/%3E%0A%3Cpath d=%22M0 696C200 660 420 640 650 650C880 660 1080 658 1280 616%22 fill=%22none%22 stroke=%22%23F2C641%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%0A%3Cpath d=%22M0 716C210 684 430 666 660 676C890 686 1090 682 1280 642%22 fill=%22none%22 stroke=%22%231FA9B0%22 stroke-width=%223%22 stroke-linecap=%22round%22/%3E%3C/svg%3E");--mxc:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 1280 720%22 preserveAspectRatio=%22none%22%3E%3Crect width=%221280%22 height=%22720%22 fill=%22%231FA9B0%22/%3E%0A%3Cpath d=%22M0 0H1280V130C1040 190 820 160 600 140C380 120 170 170 0 218Z%22 fill=%22%23fff%22/%3E%0A%3Cpath d=%22M0 232C190 186 390 150 610 168C830 186 1050 222 1280 140%22 fill=%22none%22 stroke=%22%23F58A1F%22 stroke-width=%225%22 stroke-linecap=%22round%22/%3E%0A%3Cpath d=%22M0 640C200 590 430 566 660 582C890 598 1090 596 1280 540%22 fill=%22none%22 stroke=%22%23F2C641%22 stroke-width=%227%22 stroke-linecap=%22round%22/%3E%0A%3Cpath d=%22M0 676C210 630 440 606 670 622C900 638 1100 636 1280 584%22 fill=%22none%22 stroke=%22%23fff%22 stroke-width=%224%22 stroke-linecap=%22round%22/%3E%0A%3Ccircle cx=%221120%22 cy=%22470%22 r=%2234%22 fill=%22none%22 stroke=%22%23F2C641%22 stroke-width=%227%22/%3E%3Ccircle cx=%221182%22 cy=%22446%22 r=%2215%22 fill=%22none%22 stroke=%22%23F2C641%22 stroke-width=%225%22/%3E%3C/svg%3E");--mxs:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 1280 720%22 preserveAspectRatio=%22none%22%3E%3Crect width=%221280%22 height=%22720%22 fill=%22%231FA9B0%22/%3E%0A%3Cpath d=%22M0 650C200 606 430 584 660 598C890 612 1090 610 1280 556%22 fill=%22none%22 stroke=%22%23F2C641%22 stroke-width=%227%22 stroke-linecap=%22round%22/%3E%0A%3Cpath d=%22M0 684C210 642 440 620 670 634C900 648 1100 646 1280 596%22 fill=%22none%22 stroke=%22%23fff%22 stroke-width=%224%22 stroke-linecap=%22round%22/%3E%0A%3Cpath d=%22M0 70C220 40 420 24 640 32C860 40 1060 60 1280 20%22 fill=%22none%22 stroke=%22%23F58A1F%22 stroke-width=%225%22 stroke-linecap=%22round%22/%3E%3C/svg%3E");--mxy:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 1280 720%22 preserveAspectRatio=%22none%22%3E%3Crect width=%221280%22 height=%22720%22 fill=%22%23fff%22/%3E%0A%3Cpath d=%22M0 0H250C300 120 214 230 260 360C300 490 220 600 250 720H0Z%22 fill=%22%23F2C641%22/%3E%0A%3Cpath d=%22M0 690C200 650 420 628 650 640C880 652 1080 650 1280 600%22 fill=%22none%22 stroke=%22%231FA9B0%22 stroke-width=%224%22 stroke-linecap=%22round%22/%3E%3C/svg%3E")}
+html[data-th="mx"] .slide:not(.mn){background:#fff var(--mxl) center/100% 100% no-repeat;position:relative;overflow:hidden}
+html[data-th="mx"] .slide:not(.mn).slide-design{background:#fff var(--mxl) center/100% 100% no-repeat}
+html[data-th="mx"] .slide:not(.mn)::after{content:"";display:block;position:absolute;inset:auto auto 11px 18px;right:auto;top:auto;width:104px;height:38px;background:url(assets/mx/logo-h.webp) left bottom/contain no-repeat;opacity:.95;pointer-events:none;z-index:3}
+html[data-th="mx"] .slide:not(.mn){padding-bottom:54px!important}
+html[data-th="mx"] .deck.is-fs .slide:not(.mn){padding-bottom:78px!important}
+html[data-th="mx"] .slide:not(.mn) .slide-in{padding-top:max(56px,7.4%);padding-bottom:6px}
+html[data-th="mx"] .deck.is-fs .slide:not(.mn)::after{width:120px;height:44px;left:26px;bottom:16px}
+@media (max-width:640px){html[data-th="mx"] .slide:not(.mn)::after{width:64px;height:24px;left:12px;bottom:8px}}
+/* الغلاف: خلفية فيروزية بموجة بيضاء، والشعار على شارة بيضاء ليظهر على الفيروزي */
+html[data-th="mx"] .slide.lay-cover:not(.mn){background:#1FA9B0 var(--mxc) center/100% 100% no-repeat;color:#14393d}
+html[data-th="mx"] .slide.lay-cover:not(.mn)::after{background-color:#fff;border-radius:99px;padding:5px 12px;box-sizing:content-box;width:76px;height:26px}
+html[data-th="mx"] .lay-cover .dz-cover-t{color:#fff}
+html[data-th="mx"] .lay-cover .dz-cover-sub{color:#fff}
+html[data-th="mx"] .lay-cover .dz-pill{background:#F2C641;color:#14393d}
+html[data-th="mx"] .lay-cover .dz-chips span{background:#fff;color:#127A80}
+html[data-th="mx"] .lay-cover .dz-cover-t mark{background:none;color:#F2C641}
+html[data-th="mx"] .lay-cover .dz-blob{background:#fff!important;opacity:.18}
+html[data-th="mx"] .lay-cover .dz-top .dz-axis{background:rgba(255,255,255,.2);color:#fff}
+/* العبارة الكبيرة والاقتباس: فيروزي كامل */
+html[data-th="mx"] .slide.lay-statement:not(.mn),html[data-th="mx"] .slide.lay-quote:not(.mn){background:#1FA9B0 var(--mxs) center/100% 100% no-repeat}
+html[data-th="mx"] .lay-statement .dz-st-big,html[data-th="mx"] .lay-statement .dz-st-label,html[data-th="mx"] .lay-quote blockquote{color:#fff}
+html[data-th="mx"] .lay-statement .dz-st-big mark,html[data-th="mx"] .lay-quote mark{background:none;color:#F2C641}
+html[data-th="mx"] .lay-statement .dz-kicker,html[data-th="mx"] .lay-quote .dz-kicker{color:#F2C641}
+html[data-th="mx"] .lay-statement .dz-st-cap,html[data-th="mx"] .lay-quote cite{color:#e8fafb}
+html[data-th="mx"] .lay-statement .slide-no,html[data-th="mx"] .lay-statement .slide-no small,html[data-th="mx"] .lay-statement .dz-axis{color:#fff}
+html[data-th="mx"] .lay-statement .slide-prog{background:rgba(255,255,255,.25)}html[data-th="mx"] .lay-statement .slide-prog i{background:#F2C641}
+html[data-th="mx"] .slide.lay-statement:not(.mn)::after,html[data-th="mx"] .slide.lay-quote:not(.mn)::after{background-color:#fff;border-radius:99px;padding:5px 12px;box-sizing:content-box;width:76px;height:26px}
+/* بقية العناصر: ألوان الهوية */
+html[data-th="mx"] .slide-design .dz-title{color:#127A80}
+html[data-th="mx"] .slide-design .dz-kicker{color:#F58A1F}
+html[data-th="mx"] .slide-design .dz-title mark,html[data-th="mx"] .slide-design mark{background:none;color:#F58A1F}
+html[data-th="mx"] .slide-design .dz-axis{background:#E4F5F6;color:#127A80}
+html[data-th="mx"] .slide-design .slide-prog i{background:#F58A1F}
+html[data-th="mx"] .slide-design .slide-no{color:#127A80}
+html[data-th="mx"] .slide-design .dz-rule{background:#127A80;color:#fff;border-radius:18px}
+html[data-th="mx"] .slide-design .dz-bx.big{background:linear-gradient(135deg,#1FA9B0,#127A80);color:#fff}
+html[data-th="mx"] .slide-design .dz-bx,html[data-th="mx"] .slide-design .dz-ic,html[data-th="mx"] .slide-design .dz-q,html[data-th="mx"] .slide-design .dz-stat,html[data-th="mx"] .slide-design .dz-st{border-radius:24px}
+html[data-th="mx"] .slide-design .dz-st-n em,html[data-th="mx"] .slide-design .dz-dtag{border-radius:99px}
+html[data-th="mx"] .slide:not(.mn) .lv-box{background:#fff;border:2.5px solid #1FA9B0;border-radius:24px;--ac:#1FA9B0;box-shadow:0 12px 26px -18px rgba(18,122,128,.6)}
+html[data-th="mx"] .slide:not(.mn) .lv-tag{background:#1FA9B0;color:#fff}
+html[data-th="mx"] .slide:not(.mn) .lv-opt .lv-fill{background:#BFE6E9}
+html[data-th="mx"] .slide:not(.mn) .lv-opt.right .lv-fill{background:#F2C641}
+html[data-th="mx"] .slide:not(.mn) .lv-card{background:#fff;border:2px solid #BFE6E9}
+html[data-th="mx"] .slide:not(.mn) .lv-card:nth-child(3n+2){border-color:#F58A1F}
+html[data-th="mx"] .slide:not(.mn) .lv-card:nth-child(3n+3){border-color:#F2C641}
+/* ===== صفحات الدورة (الرئيسية والمحاور والتمارين) بهوية مايل إكس ===== */
+html[data-th="mx"] .brand .brand-logo{background:#fff url(assets/mx/mark-official.webp) center/64% no-repeat;border-radius:50%;box-shadow:none;border:0;transform:none}
+html[data-th="mx"] .brand .brand-logo svg{display:none}
+html[data-th="mx"] .hero-cover{background:linear-gradient(135deg,#E4F5F6,#FFF3DC 60%,#FFE9C9)}
+html[data-th="mx"] .hero h1{background:none;color:#127A80;-webkit-text-fill-color:#127A80}
+html[data-th="mx"] .axis-hero{border-radius:28px;background:linear-gradient(120deg,var(--ac,#1FA9B0),#127A80)!important;position:relative}
+html[data-th="mx"] .ex-block.task{background:#127A80;color:#fff;border:0;border-radius:22px}
+html[data-th="mx"] .ex-block.task .lbl{color:#F2C641}
+html[data-th="mx"] .ex-block.scenario{background:#FFF6E6;border:2px solid #F2C641;border-radius:22px}
+html[data-th="mx"] .ex-block.extract,html[data-th="mx"] .ex-block.principle{background:#E4F5F6;border:2px solid #BFE6E9;border-radius:22px}
+html[data-th="mx"] .answer-box{border:2.5px solid #1FA9B0;border-radius:24px}
+html[data-th="mx"] .btn-primary{background:#F58A1F;border-color:#F58A1F;color:#fff;box-shadow:0 10px 20px -10px rgba(245,138,31,.85)}
+html[data-th="mx"] .btn-soft{background:#E4F5F6;color:#127A80}
+html[data-th="mx"] .btn-mint{background:#F2C641;color:#14393d}
+html[data-th="mx"] .pill{background:#E4F5F6;color:#127A80}
+html[data-th="mx"] .axis-card,html[data-th="mx"] .act-card{border:2.5px solid #BFE6E9;border-radius:26px;background:#fff}
+html[data-th="mx"] .axis-card:hover,html[data-th="mx"] .act-card:hover{border-color:#1FA9B0}
+html[data-th="mx"] .unit-head h3{color:#127A80}
+html[data-th="mx"] .unit-no{color:#F58A1F}
+html[data-th="mx"] .nav-link.on,html[data-th="mx"] .side-nav .on{background:#E4F5F6;color:#127A80}
+html[data-th="mx"] .deck{border-radius:26px;border:2px solid #BFE6E9}
+html[data-th="mx"] .deck-bar{background:#F3FAFB}
+html[data-th="mx"] .deck-dot.on{background:#F58A1F}
+html[data-th="mx"] .deck-arrow{background:#1FA9B0;color:#fff}
+html[data-th="mx"] .deck-tool{border-radius:99px}
+html[data-th="mx"] .foot-s{background:linear-gradient(135deg,#127A80,#1FA9B0);border-top:6px solid #F58A1F;color:#fff}
+
 /* ===== brand-mx.css ===== */
 /* هوية «مايل إكس أكاديمي» للصفحة الرئيسية: ألوان الهوية (فيروزي 1FA9B0 · برتقالي F58A1F · أصفر F2C641) وأشكالها (X وحلقات ونجمة) وخط Cairo */
 html[data-th="mx"]{--mx-t:#1FA9B0;--mx-td:#127A80;--mx-o:#F58A1F;--mx-y:#F2C641;--mx-yl:#FFD77A;--mx-tl:#E4F5F6;
