@@ -1772,11 +1772,13 @@ html[data-motion="reduce"] .slide.cur *{animation:none!important}
 .hub-meta{display:flex;flex-wrap:wrap;gap:6px}.hub-meta span{font-family:var(--f-ui);font-size:12.5px;font-weight:700;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:3px 11px}
 .hub-cta .btn{width:100%}
 .hub-ctl{margin-top:6px;padding-top:12px;border-top:1px dashed var(--line);display:grid;gap:8px}
-/* صورة غلاف البطاقة: موجة فنية بلون الدورة تنطلق من اليسار وتتلاشى تدريجيًا نحو اليمين دون إخفاء معالم الصورة */
-.hub-cover.has-img::before,.hub-cover.has-img::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:1;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-size:100% 100%;mask-size:100% 100%}
-.hub-cover.has-img::before{background:linear-gradient(90deg,color-mix(in srgb,var(--c) 52%,transparent) 0%,color-mix(in srgb,var(--c) 22%,transparent) 55%,transparent 92%);-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 400 150%22 preserveAspectRatio=%22none%22%3E%3Cpath d=%22M0 0H345C398 30 300 66 352 98C392 122 326 142 356 150H0Z%22 fill=%22%23000%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 400 150%22 preserveAspectRatio=%22none%22%3E%3Cpath d=%22M0 0H345C398 30 300 66 352 98C392 122 326 142 356 150H0Z%22 fill=%22%23000%22/%3E%3C/svg%3E")}
-.hub-cover.has-img::after{background:linear-gradient(90deg,color-mix(in srgb,var(--c) 92%,transparent) 0%,color-mix(in srgb,var(--c) 58%,transparent) 50%,transparent 96%);-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 400 150%22 preserveAspectRatio=%22none%22%3E%3Cpath d=%22M0 0H255C310 24 205 58 262 88C312 114 238 138 272 150H0Z%22 fill=%22%23000%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 400 150%22 preserveAspectRatio=%22none%22%3E%3Cpath d=%22M0 0H255C310 24 205 58 262 88C312 114 238 138 272 150H0Z%22 fill=%22%23000%22/%3E%3C/svg%3E")}
-.hub-cover.has-img .hub-cover-img{filter:saturate(1.05) contrast(1.02)}
+/* صورة غلاف البطاقة: موجات حريرية شفافة متراكبة بلون الدورة، كثيفة من اليسار وتتلاشى نحو اليمين، ولا تحجب تفاصيل الصورة */
+.hub-cover.has-img{color:var(--c)}
+.hub-cover.has-img::before{content:none}
+.hub-cover.has-img::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:1;background:linear-gradient(90deg,color-mix(in srgb,var(--c) 26%,transparent) 0%,color-mix(in srgb,var(--c) 8%,transparent) 55%,transparent 85%)}
+.hub-cover .cv-wave{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none;color:var(--c);-webkit-mask-image:linear-gradient(90deg,#000 0%,rgba(0,0,0,.7) 45%,transparent 96%);mask-image:linear-gradient(90deg,#000 0%,rgba(0,0,0,.7) 45%,transparent 96%)}
+.hub-cover .cv-wave path{fill:currentColor}
+.hub-cover.has-img .hub-cover-img{filter:saturate(1.05)}
 .hub-cover.has-img .hub-badge{z-index:3}
 
 .hub-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--surface-2);border-radius:14px;padding:4px}
