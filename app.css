@@ -2017,6 +2017,79 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .hub-av .hub-me{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
 .hub-av:has(.hub-me){background:#fff;border:2.4px solid rgba(255,255,255,.9);padding:0}
 
+/* ===== brand-monshaat.css ===== */
+/* هوية منشآت لشرائح محور ورشة الساعة (تُفعَّل من بطاقة المحور للمدرب): الغلاف والإطار والخط والألوان وعناصر الهوية
+   الألوان: 007297 الأساسي · 00A6CF سماوي · 7FBC42 أخضر · 4472C4 أزرق · 65ABC2 سماوي فاتح · 05575F داكن */
+.slide.mn{--mn:#007297;--mn2:#00A6CF;--mn3:#7FBC42;--mn4:#4472C4;--mn5:#65ABC2;--mnd:#05575F;--mnbg:#EEF5F8;
+  font-family:'29LT Azer','Tajawal','IBM Plex Sans Arabic',sans-serif;background:#fff!important;color:#2b2b2b;position:relative;overflow:hidden;
+  padding:72px clamp(22px,4.2%,54px) 44px!important}
+.slide.mn::after{display:none}
+.slide.mn *{font-family:inherit}
+.slide.mn .num{font-family:'Tajawal','IBM Plex Sans Arabic',sans-serif}
+/* الإطار: لسان العنوان الرمادي أعلى الشريحة وشعارا أكاديمية منشآت أسفلها */
+.mn-tab{position:absolute!important;top:0;right:0;left:13.5%;height:58px;background:#EEEEEE;border-radius:0 0 24px 0;clip-path:polygon(0 0,100% 0,100% 100%,40px 100%,0 calc(100% - 40px));display:flex;align-items:center;padding-inline-start:34px;z-index:2}
+.mn-tab span{font-size:clamp(19px,1.9vw,28px);font-weight:700;color:var(--mn);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.mn-foot{position:absolute!important;left:18px;bottom:8px;display:flex;align-items:center;gap:9px;z-index:2;direction:ltr}
+.mn-no{color:#6b6b6b;font-size:15px}.mn-vl{width:1.5px;height:24px;background:var(--mn)}.mn-foot img{height:26px;width:auto;display:block}
+.slide.mn .dz-top{display:none}
+.slide.mn.lay-statement::before{content:"";position:absolute;left:150px;right:0;bottom:0;height:56px;background:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22476%22 height=%2256%22%3E%3Crect x=%220%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%2214%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%2228%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%2242%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%2256%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%2270%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%2284%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%2298%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22112%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22126%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22140%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22168%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22182%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22196%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22210%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22224%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22238%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23eef3f5%22/%3E%3Crect x=%22252%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22266%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22280%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22294%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22308%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22322%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22336%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%22350%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22364%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22392%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22406%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%22420%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%22434%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%22448%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%22462%22 y=%220%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%220%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%2214%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%2228%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23eef3f5%22/%3E%3Crect x=%2242%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%2256%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%2270%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%2284%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22112%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%22140%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23eef3f5%22/%3E%3Crect x=%22154%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23eef3f5%22/%3E%3Crect x=%22182%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23eef3f5%22/%3E%3Crect x=%22210%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22238%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22252%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22266%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%22280%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%22294%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22308%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22322%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22336%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%22392%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22434%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22448%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22462%22 y=%2214%22 width=%229%22 height=%229%22 fill=%22%23eef3f5%22/%3E%3Crect x=%220%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%2228%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%2242%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%2256%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22112%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22154%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23eef3f5%22/%3E%3Crect x=%22182%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22196%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22224%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%22252%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%22266%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%22280%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22294%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%22336%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22364%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%22406%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23cfe3ea%22/%3E%3Crect x=%22448%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23e6efd6%22/%3E%3Crect x=%22462%22 y=%2228%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%220%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%2270%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%2284%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23eef3f5%22/%3E%3Crect x=%22112%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22126%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23eef3f5%22/%3E%3Crect x=%22168%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23bfdbe6%22/%3E%3Crect x=%22196%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22238%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22294%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23e1edf1%22/%3E%3Crect x=%22336%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3Crect x=%22420%22 y=%2242%22 width=%229%22 height=%229%22 fill=%22%23d4e8bb%22/%3E%3C/svg%3E") repeat-x right bottom/auto 56px;opacity:.9;pointer-events:none}
+.slide.mn.lay-statement:not(.has-live)::after{display:block;content:"";position:absolute;left:34px;bottom:46px;width:112px;height:122px;background:url(assets/monshaat/man-think.webp) center/contain no-repeat}
+/* الغلاف */
+.slide.mn.mn-cover{background:#1b8a99 url(assets/monshaat/cover.webp) center/cover no-repeat!important;padding:0!important;color:#fff}
+.slide.mn-cover .slide-in{height:0!important;overflow:visible;padding:0;zoom:1!important}
+.mn-cv{position:absolute;right:5.2%;width:34%;bottom:25.4%;text-align:right;color:#fff}
+.mn-cv-k{font-size:clamp(11px,1.15vw,17px);opacity:.85;margin-bottom:8px}
+.mn-cv-t{margin:0 0 14px;color:#fff;font-size:clamp(20px,2.8vw,42px);font-weight:700;line-height:1.35}
+.mn-cv-s{position:absolute;right:0;left:0;top:calc(100% + 14px);font-size:clamp(11px,1.2vw,18px);color:#fff;line-height:1.7}
+.mn-cv-s p{margin:0}
+/* النصوص والعناوين */
+.slide.mn .dz-kicker{color:var(--mn);font-size:clamp(13px,1.2vw,17px);font-weight:700;background:none;padding:0;letter-spacing:0}
+.slide.mn .dz-lead{color:#3d3d3d}
+.slide.mn mark{background:none;color:var(--mn);font-weight:800}
+.slide.mn .dz-st-label{display:none}
+.slide.mn .dz-st-big{color:var(--mn);font-weight:800}
+.slide.mn .dz-st-big mark{color:var(--mn3)}
+/* البطاقات: إطار ملوّن بحواف دائرية وشارة أيقونة دائرية */
+.slide.mn [style*="--i:0"]{--mc:var(--mn2)}.slide.mn [style*="--i:1"]{--mc:var(--mn3)}.slide.mn [style*="--i:2"]{--mc:var(--mn4)}
+.slide.mn [style*="--i:3"]{--mc:var(--mn)}.slide.mn [style*="--i:4"]{--mc:var(--mn5)}.slide.mn [style*="--i:5"]{--mc:#109AA9}.slide.mn [style*="--i:6"]{--mc:var(--mn3)}
+.slide.mn .dz-bx,.slide.mn .dz-ic,.slide.mn .dz-q,.slide.mn .dz-st,.slide.mn .dz-stat,.slide.mn .dz-dp,.slide.mn .dz-note,.slide.mn .dz-ag{background:#fff!important;border:2.5px solid var(--mc,var(--mn))!important;border-radius:26px!important;box-shadow:none!important;color:#2b2b2b;position:relative}
+.slide.mn .dz-bx.big{background:var(--mn)!important;border-color:var(--mn)!important;color:#fff}
+.slide.mn .dz-bx.big b,.slide.mn .dz-bx.big p{color:#fff}
+.slide.mn .dz-bx b,.slide.mn .dz-ic b,.slide.mn .dz-q b,.slide.mn .dz-st b,.slide.mn .dz-note b,.slide.mn .dz-ag b{color:var(--mnd)}
+.slide.mn .dz-bx.big b{color:#fff}
+.slide.mn .dz-bx p,.slide.mn .dz-ic p,.slide.mn .dz-q p,.slide.mn .dz-st p,.slide.mn .dz-note p{color:#444}
+.slide.mn .dz-bx .dz-e,.slide.mn .dz-ic .dz-e{position:absolute;top:-17px;right:20px;width:40px;height:40px;border-radius:50%;background:#fff;border:2.5px solid var(--mc,var(--mn));display:grid;place-items:center;font-size:19px;line-height:1;box-shadow:none;margin:0}
+.slide.mn .dz-bx.big .dz-e{border-color:#fff}
+.slide.mn .dz-ic{padding-top:24px}.slide.mn .dz-bx{padding-top:26px}
+.slide.mn .dz-dp.weak{border-color:#9aa5ab!important}.slide.mn .dz-dp.good{border-color:var(--mn3)!important}
+.slide.mn .dz-dtag{background:var(--mc,var(--mn));color:#fff;border-radius:99px}.slide.mn .dz-dp.good .dz-dtag{background:var(--mn3)}.slide.mn .dz-dp.weak .dz-dtag{background:#7d8a91}
+.slide.mn .dz-vs{background:var(--mn);color:#fff}
+.slide.mn .dz-st-n em{background:var(--mc,var(--mn));color:#fff;border-radius:99px}
+.slide.mn .dz-st-n .num{color:#fff;background:var(--mc,var(--mn))}
+.slide.mn .dz-stat b{color:var(--mn)}
+.slide.mn .dz-note .num{background:var(--mc,var(--mn));color:#fff}
+.slide.mn .dz-mx-x,.slide.mn .dz-mx-y{color:var(--mn);font-weight:700}
+.slide.mn .dz-ed{border:2.5px solid var(--mn);border-radius:22px;background:#fff;box-shadow:none}
+.slide.mn .dz-ed-bar{background:var(--mn);color:#fff}.slide.mn .dz-ed-body,.slide.mn .dz-ln span{color:#1f2d33}.slide.mn .dz-ln em{color:var(--mn3);font-style:normal;font-weight:700}.slide.mn .dz-ln i{color:#8aa}
+.slide.mn .dz-phone{border-color:var(--mn)!important;box-shadow:none}.slide.mn .dz-phone-top{background:var(--mn);color:#fff}
+.slide.mn .dz-msg.me{background:var(--mnbg)}.slide.mn .dz-msg.ai{background:var(--mn);color:#fff}
+/* الجداول */
+.slide.mn .dz-tbl table{border:0}.slide.mn .dz-tbl th{background:var(--mn);color:#fff;border:0}
+.slide.mn .dz-tbl td{border:0;border-bottom:1px solid #d6dee2;background:#fff;color:#2b2b2b}.slide.mn .dz-tbl tr:nth-child(even) td{background:#E7EEF1}
+/* صندوق الفكرة: شريط فاتح مع شخصية المصباح */
+.slide.mn .dz-rule{background:var(--mnbg);border:0;border-radius:14px;color:var(--mnd);font-weight:700;position:relative;padding-inline-start:112px;min-height:68px;overflow:visible!important;margin-top:18px}
+.slide.mn .dz-rule::after{content:"";position:absolute;left:14px;bottom:-4px;width:92px;height:112px;background:url(assets/monshaat/man-idea.webp) center bottom/contain no-repeat}
+/* السؤال الحي بهوية منشآت */
+.slide.mn .lv-box{background:var(--mnbg);border:2.5px solid var(--mn);border-radius:26px;box-shadow:none;--ac:var(--mn);--brand:var(--mn)}
+.slide.mn .lv-tag{background:var(--mn);color:#fff}.slide.mn .lv-q{color:var(--mnd)}
+.slide.mn .lv-card{background:#fff;border:2px solid var(--mn5)}.slide.mn .lv-card:nth-child(4n+2){background:#fff;border-color:var(--mn3)}.slide.mn .lv-card:nth-child(4n+3){background:#fff;border-color:var(--mn2)}.slide.mn .lv-card:nth-child(4n+4){background:#fff;border-color:var(--mn4)}
+.slide.mn .lv-fill{background:var(--mn5)}
+.slide.mn .lv-opt.right .lv-fill{background:var(--mn3)}
+/* زر هوية منشآت في بطاقة المحور (للمدرب) */
+.axis-cardw{position:relative;display:flex}.axis-cardw>.axis-card{flex:1;width:100%}
+.axis-brand{position:absolute;top:10px;left:10px;z-index:3;border:1.5px solid #007297;background:#fff;color:#007297;border-radius:99px;padding:5px 12px;font-family:var(--f-ui);font-weight:800;font-size:12.5px;cursor:pointer}
+.axis-brand.on{background:#007297;color:#fff}
+
 /* ===== theme-sketch.css ===== */
 /* =====================================================================
    ثيم «رسم البنسل» لدورة كاملة. يُفعَّل بحقل "theme": "sketch" في courses/<id>/meta.json
