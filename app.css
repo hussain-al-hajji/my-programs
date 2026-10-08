@@ -1724,6 +1724,7 @@ html[data-motion="reduce"] .slide.cur *{animation:none!important}
 /* ================= الصفحة الرئيسية «برامج المدرب» وصفحة الدورة التعريفية ================= */
 .hub-main{padding-top:26px;padding-bottom:50px}
 .brand-hub{cursor:default}
+.sx-host .lv-tools,.sx-host .lv-cta,.sx-host .slide-wm,.sx-host .lv-tpl,.sx-host .lv-stat{display:none!important}.sx-host *{animation:none!important;transition:none!important}.sx-host [style*="--i"]{animation:none!important;opacity:1!important}
 .skin-btn.on{background:#F9C80E!important;color:#141210!important;border-color:#F9C80E!important}
 /* black topbar, white text (all pages) */
 .topbar{background:#141210;border-bottom:0;color:#fff;backdrop-filter:none;-webkit-backdrop-filter:none}
