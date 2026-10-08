@@ -2015,9 +2015,9 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 
 /* صورة المدرب بالبنسل: شاشة التحميل والواجهة */
 .cs-me{position:relative;width:112px;height:112px;margin:8px auto 14px}
-.cs-me img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+.cs-me img{width:100%;height:100%;border-radius:50%;object-fit:contain;padding:14px;background:#fff;display:block}
 .cs-me .cs-ring{position:absolute;inset:-9px;width:calc(100% + 18px);height:calc(100% + 18px);margin:0}
-.hub-av .hub-me{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
+.hub-av .hub-me{width:100%;height:100%;object-fit:contain;padding:10px;border-radius:50%;display:block}
 .hub-av:has(.hub-me){background:#fff;border:2.4px solid rgba(255,255,255,.9);padding:0}
 
 /* ===== brand-monshaat.css ===== */
@@ -2109,6 +2109,93 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .axis-brand-row{margin-top:10px}
 .axis-brand{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #007297;background:#fff;color:#007297;border-radius:99px;padding:5px 14px;font-family:var(--f-ui);font-weight:800;font-size:12.5px;cursor:pointer}
 .axis-brand.on{background:#007297;color:#fff}
+
+/* ===== brand-mx.css ===== */
+/* هوية «مايل إكس أكاديمي» للصفحة الرئيسية: ألوان الهوية (فيروزي 1FA9B0 · برتقالي F58A1F · أصفر F2C641) وأشكالها (X وحلقات ونجمة) وخط Cairo */
+html[data-th="mx"]{--mx-t:#1FA9B0;--mx-td:#127A80;--mx-o:#F58A1F;--mx-y:#F2C641;--mx-yl:#FFD77A;--mx-tl:#E4F5F6;
+  --bg:#fff;--bg-dots:transparent;--brand:#1FA9B0;--brand-2:#F58A1F;--brand-3:#F2C641;--ink:#14393d;--ink-2:#3e5559;--ink-3:#6b8286;--line:#d3e7e9;
+  --f-display:'Cairo','IBM Plex Sans Arabic',sans-serif;--f-body:'Cairo','IBM Plex Sans Arabic',sans-serif;--f-ui:'Cairo','IBM Plex Sans Arabic',sans-serif;
+  --grad:linear-gradient(135deg,#1FA9B0,#127A80);--grad-warm:linear-gradient(120deg,#F58A1F,#F2C641)}
+html[data-th="mx"] body{background:#fff;font-family:'Cairo','IBM Plex Sans Arabic',sans-serif}
+html[data-th="mx"] body::before{content:"";position:fixed;inset:0;background:url(assets/mx/pattern.webp) 0 0/460px auto;opacity:.075;pointer-events:none;z-index:0}
+html[data-th="mx"] #app{position:relative;z-index:1}
+/* الشريط العلوي: شعار الهوية وخط بألوانها */
+html[data-th="mx"] .topbar{position:sticky}
+html[data-th="mx"] .topbar::after{content:"";position:absolute;inset-inline:0;bottom:-5px;height:5px;background:linear-gradient(90deg,#1FA9B0 0 34%,#F58A1F 34% 67%,#F2C641 67% 100%)}
+html[data-th="mx"] .brand-hub .brand-logo{background:#fff url(assets/mx/mark.webp) center/74% no-repeat;border-radius:50%;box-shadow:none;border:0;transform:none}
+html[data-th="mx"] .brand-hub .brand-logo svg{display:none}
+html[data-th="mx"] .brand-hub .brand-logo::after{display:none}
+/* ترويسة المدرب */
+html[data-th="mx"] .hub-hero{background:linear-gradient(135deg,#1FA9B0 0%,#16919a 55%,#127A80 100%);border:0;border-radius:32px;color:#fff;box-shadow:0 18px 40px -22px rgba(18,122,128,.7);overflow:hidden;position:relative}
+html[data-th="mx"] .hub-hero::before{content:"";position:absolute;left:-60px;top:-70px;width:340px;height:340px;background:url(assets/mx/burst.webp) center/contain no-repeat;opacity:.16;filter:brightness(8);pointer-events:none}
+html[data-th="mx"] .hub-hero::after{content:"";position:absolute;right:-50px;bottom:-60px;width:220px;height:220px;background:url(assets/mx/x-orange.webp) center/contain no-repeat;opacity:.95;transform:rotate(-14deg);pointer-events:none}
+html[data-th="mx"] .hub-hero h1{color:#fff}
+html[data-th="mx"] .hub-hero .hub-role{color:var(--mx-yl)}
+html[data-th="mx"] .hub-hero p,html[data-th="mx"] .hub-hero .hub-bio{color:#effafb}
+html[data-th="mx"] .hub-av{background:#fff;border:4px solid var(--mx-y);border-radius:50%;box-shadow:0 8px 20px -10px rgba(0,0,0,.4)}
+html[data-th="mx"] .hub-av .hub-me{object-fit:contain;padding:10px;background:#fff;border-radius:50%}
+html[data-th="mx"] .hub-av:has(.hub-me){background:#fff;border:4px solid var(--mx-y)}
+html[data-th="mx"] .hub-hero .btn,html[data-th="mx"] .hub-hero .hub-fedit{border-radius:99px}
+/* أقسام الصفحة */
+html[data-th="mx"] .hub-sec h2,html[data-th="mx"] .section h2{color:var(--mx-td)}
+html[data-th="mx"] .sec-kicker{color:var(--mx-o)}
+/* قسم «كيف تعمل البرامج» */
+html[data-th="mx"] .how-tab.on,html[data-th="mx"] .how-tab[aria-selected="true"]{background:var(--mx-t);color:#fff;border-color:var(--mx-t)}
+html[data-th="mx"] .how-n{background:var(--mx-o);color:#fff}
+html[data-th="mx"] .how-ico{background:var(--mx-tl);color:var(--mx-td)}
+/* بطاقات الدورات */
+html[data-th="mx"] .hub-grid{gap:22px}
+html[data-th="mx"] .hub-card.th-mx{--cc:#1FA9B0;background:#fff;border:2.5px solid var(--cc);border-radius:30px;box-shadow:0 14px 28px -18px rgba(18,122,128,.55);overflow:hidden;transition:transform .2s,box-shadow .2s}
+html[data-th="mx"] .hub-card.th-mx.v1{--cc:#F58A1F}
+html[data-th="mx"] .hub-card.th-mx.v2{--cc:#E3B21E}
+html[data-th="mx"] .hub-card.th-mx:hover{transform:translateY(-4px);box-shadow:0 20px 34px -18px rgba(18,122,128,.6)}
+html[data-th="mx"] .th-mx .hub-cover{height:150px;background:var(--cc);border:0;position:relative;overflow:hidden}
+html[data-th="mx"] .th-mx.v2 .hub-cover{background:#F2C641}
+html[data-th="mx"] .th-mx .hub-cover::after{background:none;content:none}
+html[data-th="mx"] .th-mx .mx-art{position:absolute;inset:0}
+html[data-th="mx"] .th-mx .mx-s{position:absolute;pointer-events:none;display:block}
+html[data-th="mx"] .th-mx.v0 .s1{width:150px;right:-34px;bottom:-46px;transform:rotate(14deg)}
+html[data-th="mx"] .th-mx.v0 .s2{width:64px;left:20px;top:-14px;transform:rotate(-12deg)}
+html[data-th="mx"] .th-mx.v0 .s3{width:40px;left:44%;bottom:16px}
+html[data-th="mx"] .th-mx.v1 .s1{width:170px;right:-40px;top:-50px;opacity:.9}
+html[data-th="mx"] .th-mx.v1 .s2{width:56px;left:22px;bottom:-12px}
+html[data-th="mx"] .th-mx.v1 .s3{width:70px;left:42%;top:-24px;transform:rotate(18deg)}
+html[data-th="mx"] .th-mx.v2 .s1{width:150px;right:-30px;bottom:-44px;transform:rotate(-10deg)}
+html[data-th="mx"] .th-mx.v2 .s2{width:90px;left:16px;top:-26px;opacity:.95}
+html[data-th="mx"] .th-mx.v2 .s3{width:44px;left:46%;bottom:14px;transform:rotate(12deg)}
+html[data-th="mx"] .th-mx .hub-badge{background:#fff;border:0;border-radius:99px;box-shadow:0 4px 10px -4px rgba(0,0,0,.35);transform:none;font-weight:800}
+html[data-th="mx"] .th-mx .hub-badge.b-active{color:#127A80}
+html[data-th="mx"] .th-mx .hub-badge.b-info{color:#b86a00}
+html[data-th="mx"] .th-mx .hub-badge.b-hidden{color:#5b6b6e}
+html[data-th="mx"] .th-mx .hub-ico{background:#fff;border:3px solid var(--cc);box-shadow:0 8px 16px -8px rgba(0,0,0,.4);border-radius:50%}
+html[data-th="mx"] .th-mx .hub-ico svg{stroke:var(--cc)!important}
+html[data-th="mx"] .th-mx.v2 .hub-ico svg{stroke:#c99710!important}
+html[data-th="mx"] .th-mx h3{color:#14393d}
+html[data-th="mx"] .th-mx .hub-desc{color:var(--ink-2)}
+html[data-th="mx"] .th-mx .hub-meta span{background:var(--mx-tl);color:var(--mx-td);border:0;border-radius:99px;font-weight:700}
+html[data-th="mx"] .th-mx .hub-cta .btn{border-radius:99px;font-weight:800}
+html[data-th="mx"] .th-mx .hub-cta .btn-primary{background:var(--mx-o);color:#fff;border:0;box-shadow:0 10px 20px -10px rgba(245,138,31,.9)}
+html[data-th="mx"] .th-mx .hub-cta .btn-primary:hover{background:#e07a12}
+html[data-th="mx"] .th-mx .hub-cta .btn-soft{background:var(--mx-tl);color:var(--mx-td);border:2px solid var(--mx-t)}
+/* التذييل */
+html[data-th="mx"] .foot-s{background:linear-gradient(135deg,#127A80,#1FA9B0);color:#fff;border-top:6px solid var(--mx-o)}
+html[data-th="mx"] .foot-s a,html[data-th="mx"] .foot-s .foot-name{color:#fff}
+html[data-th="mx"] .foot-s .foot-role{color:var(--mx-yl)}
+/* شاشة التحميل بالشعار */
+html[data-th="mx"] .cs-me img{object-fit:contain;padding:14px;background:#fff;border:3px solid var(--mx-y);box-shadow:0 10px 24px -12px rgba(18,122,128,.5)}
+html[data-th="mx"] .cs-track{stroke:#d3eef0}html[data-th="mx"] .cs-fill{stroke:var(--mx-o)}
+/* «كيف تعمل هذه البرامج؟» بألوان الهوية */
+html[data-th="mx"] .how{background:linear-gradient(180deg,#fff,#EAF7F8);border:2px solid #bfe6e9;box-shadow:0 18px 40px -26px rgba(18,122,128,.45)}
+html[data-th="mx"] .how::before{background:radial-gradient(circle,rgba(242,198,65,.28),transparent 70%)}
+html[data-th="mx"] .how-kick{background:rgba(245,138,31,.14);color:#c4640a}
+html[data-th="mx"] .how h2,html[data-th="mx"] .how-ti{color:var(--mx-td)}
+html[data-th="mx"] .how-more{border-color:var(--mx-t);color:var(--mx-td);background:#fff}
+html[data-th="mx"] .how-tab{border-color:#bfe6e9;color:var(--mx-td)}
+html[data-th="mx"] .how-panel,html[data-th="mx"] .how-cmp,html[data-th="mx"] .how-stats>*{border-color:#bfe6e9}
+html[data-th="mx"] .how-tab.on,html[data-th="mx"] .how-tab.on *{color:#fff!important}
+html[data-th="mx"] .how-art{background:linear-gradient(135deg,#1FA9B0,#127A80)!important}
+html[data-th="mx"] .how-tags span{background:var(--mx-tl)!important;color:var(--mx-td)!important}
+html[data-th="mx"] .how-stats b{color:var(--mx-t)}
 
 /* ===== theme-sketch.css ===== */
 /* =====================================================================
