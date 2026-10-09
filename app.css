@@ -2048,6 +2048,200 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .hub-av .hub-me{width:100%;height:100%;object-fit:contain;padding:10px;border-radius:50%;display:block}
 .hub-av:has(.hub-me){background:#fff;border:2.4px solid rgba(255,255,255,.9);padding:0}
 
+/* ===== brand-agentx.css ===== */
+/* ثيم «aqentX» الخاص (brand id: agentx): قشرة تُلبَس لكل شرائح محور يفعّله المدرب من بطاقة المحور (DesignKit.skinBx)
+   الألوان: كحلي 07133B / 19336E · أزرق 0074FE · أخضر نعناعي 6BF183 · رمادي فاتح F6F6F7
+   أنواع الشريحة: bx-cover الغلاف · bx-div الفاصل بصورة · bx-dark عبارة كبيرة على كحلي · bx-light كل ما سواها (بطاقات زجاجية وروبوت) */
+.slide.bx{--ac:#0074FE!important;--acg:#EAF2FF!important;--acd:#07133B!important;--acl:#DCE9FF!important;
+  --bx-n:#07133B;--bx-n2:#19336E;--bx-b:#0074FE;--bx-m:#6BF183;--bx-g:linear-gradient(135deg,#0074FE,#6BF183);
+  --ink:#0B1740;--ink-2:#34406B;--ink-3:#586391;--surface:#fff;--surface-2:#EEF2FA;--line:#D9E1F1;--brand:#0074FE;--brand-2:#19336E;--mint:#12A150;
+  font-family:'IBM Plex Sans Arabic','Tajawal','Noto Sans Arabic',sans-serif;background:#F6F6F7!important;color:var(--ink);
+  position:relative;overflow:hidden;padding:66px clamp(24px,5%,64px) 54px!important}
+.slide.bx::after,.slide.bx>.slide-wm{display:none!important}
+.slide.bx .slide-top,.slide.bx .dz-top{display:none!important}
+.slide.bx h2,.slide.bx .dz-title,.slide.bx .dz-cover-t,.slide.bx .dz-st-big,.slide.bx .dz-quote blockquote{font-family:'Cairo','IBM Plex Sans Arabic',sans-serif}
+.slide.bx h2{color:var(--bx-n);font-weight:900}
+.slide.bx h2::after{width:72px;height:5px;background:var(--bx-g)}
+.slide.bx-cover h2::after,.slide.bx-div h2::after{display:none}
+.slide.bx mark,.slide.bx .dz-title mark,.slide.bx .dz-lead mark{background:none;color:var(--bx-b);font-weight:900;padding:0}
+.slide.bx .num{font-family:'Tajawal','IBM Plex Sans Arabic',sans-serif}
+.slide.bx .dz-kicker{color:var(--bx-b);font-weight:700}
+.slide.bx .dz-title{color:var(--bx-n)}
+.slide.bx .dz-lead,.slide.bx .slide-text{color:var(--ink-2)}
+.slide.bx .slide-text .lede{color:var(--bx-n)}
+/* ---- عناصر الهوية المحقونة ---- */
+.slide.bx>.bx-logo{position:absolute;top:14px;left:28px;width:clamp(88px,8.6vw,128px);height:auto;z-index:3;pointer-events:none}
+.slide.bx>.bx-wmx{position:absolute;top:-8%;right:-4%;height:84%;width:auto;opacity:.55;z-index:0;pointer-events:none}
+.slide.bx>.bx-bigx{position:absolute;left:-3%;bottom:-8%;height:112%;width:auto;z-index:0;pointer-events:none;filter:drop-shadow(0 0 40px rgba(107,241,131,.25))}
+.slide.bx>.bx-foot{position:absolute;left:0;right:0;bottom:0;height:54px;z-index:3;pointer-events:none;direction:ltr;font-family:'IBM Plex Sans Arabic',sans-serif}
+.bx-sp{position:absolute;bottom:7px;display:flex;flex-direction:column;gap:3px}
+.bx-sp small{font-size:9.5px;font-weight:700;line-height:1;color:var(--bx-b);direction:rtl}
+.bx-sp1{left:20px;align-items:flex-start}.bx-sp1 img{height:27px;width:auto;display:block}
+.bx-sp2{right:58px;align-items:flex-end}.bx-sp2 img{height:15px;width:auto;display:block;margin-top:4px}
+.bx-no{position:absolute;right:22px;bottom:10px;font-size:14px;font-weight:700;color:var(--bx-n);line-height:1;padding-left:9px;border-left:1.5px solid var(--bx-b)}
+.slide.bx-dark .bx-sp small,.slide.bx-cover .bx-sp small,.slide.bx-div .bx-sp small{color:#fff}
+.slide.bx-dark .bx-no{color:#fff;border-color:var(--bx-m)}
+.slide.bx-cover .bx-no,.slide.bx-div .bx-no{display:none}
+.slide.bx-cover .bx-sp2,.slide.bx-div .bx-sp2{right:24px}
+/* ---- الغلاف والفاصل: كحلي بتموّجات ضوئية ---- */
+.slide.bx-cover,.slide.bx-div,.slide.bx-dark{--ink:#fff;--ink-2:#DCE5FA;--ink-3:#AFC0E8;--surface:rgba(255,255,255,.08);--surface-2:rgba(255,255,255,.12);--line:rgba(255,255,255,.2);color:#fff}
+.slide.bx-cover{background:#07133B url(assets/agentx/bg-cover.webp) center/cover no-repeat!important}
+.slide.bx-div{background:#07133B url(assets/agentx/ph-man.webp) 30% center/cover no-repeat!important}
+.slide.bx-div.bx-f{background-image:url(assets/agentx/ph-woman.webp)!important;background-position:80% center!important}
+.slide.bx-dark{background:#07133B url(assets/agentx/bg-dark.webp) center/cover no-repeat!important}
+.slide.bx-cover>.bx-logo,.slide.bx-div>.bx-logo{left:auto;right:30px;top:24px;width:clamp(96px,10.5vw,152px)}
+.slide.bx-cover .dz-cover,.slide.bx-div .dz-cover{grid-template-columns:1fr;min-height:0}
+.slide.bx-cover .dz-cover-art,.slide.bx-div .dz-cover-art{display:none}
+.slide.bx-cover .slide-in{width:min(50%,620px);margin-right:0;margin-left:auto;margin-inline:0 auto}
+.slide.bx-div .slide-in{width:min(46%,560px)}
+.slide.bx-div.bx-f .slide-in{width:min(54%,640px)}
+.slide.bx-div.bx-f .slide-in{margin-right:auto;margin-left:0}
+.slide.bx-cover .dz-pill,.slide.bx-div .dz-pill{background:none;box-shadow:none;padding:0;border-radius:0;color:#fff;font-weight:500;font-size:clamp(14px,1.3vw,19px);opacity:.92;margin-bottom:6px}
+.slide.bx-cover .dz-cover-t,.slide.bx-div .dz-cover-t{color:#fff;font-weight:900;font-size:clamp(30px,4vw,54px);line-height:1.3;text-shadow:0 2px 24px rgba(7,19,59,.5)}
+.slide.bx-cover mark,.slide.bx-div mark,.slide.bx-dark mark{color:var(--bx-m);background:none}
+.slide.bx-cover .dz-cover-sub,.slide.bx-div .dz-cover-sub{color:#E6EDFF;font-size:clamp(14px,1.45vw,20px)}
+.slide.bx-cover .dz-chips span,.slide.bx-div .dz-chips span{background:rgba(255,255,255,.1);border:1.5px solid rgba(107,241,131,.55);color:#fff;border-radius:99px}
+.slide.bx-cover .dz-chips span b,.slide.bx-div .dz-chips span b{color:var(--bx-m)}
+/* ---- عبارة كبيرة داخل بطاقة زجاجية على كحلي ---- */
+.slide.bx-dark .dz-statement{position:relative;max-width:880px;padding:clamp(24px,4vw,52px) clamp(22px,4vw,56px);border-radius:36px;border:2px solid transparent;
+  background:linear-gradient(160deg,rgba(25,51,110,.85),rgba(7,19,59,.7)) padding-box,var(--bx-g) border-box;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden}
+.slide.bx-dark .dz-statement::before{content:"";position:absolute;inset:-10% auto -10% -6%;width:46%;background:url(assets/agentx/x-blue.webp) center/contain no-repeat;opacity:.3;pointer-events:none}
+.slide.bx-dark .dz-statement>*{position:relative}
+.slide.bx-dark .dz-st-big{color:#fff;font-weight:900}.slide.bx-dark .dz-st-cap{color:#DCE5FA}
+.slide.bx-dark .dz-st-label{color:var(--bx-m)}.slide.bx-dark .dz-kicker{color:var(--bx-m)}
+/* ---- البطاقات الزجاجية على الخلفية الفاتحة ---- */
+.slide.bx-light .dz-bx,.slide.bx-light .dz-ic,.slide.bx-light .dz-q,.slide.bx-light .dz-stat,.slide.bx-light .dz-dp,.slide.bx-light .dz-note,.slide.bx-light .dz-ag>div,.slide.bx-light .points li,.slide.bx-light .pair,
+.slide.bx-light .sk-num,.slide.bx-light .sk-fw-col,.slide.bx-light .sk-jr-st,.slide.bx-light .sk-chk-it,.slide.bx-light .sk-opt,.slide.bx-light .sk-scn-case,.slide.bx-light .sk-face,.slide.bx-light .sk-vs-row,.slide.bx-light .sk-hook-txt{
+  background:linear-gradient(#fff,#F1F6FF) padding-box,linear-gradient(135deg,rgba(0,116,254,.55),rgba(107,241,131,.7)) border-box!important;border:1.5px solid transparent!important;border-radius:24px!important;box-shadow:0 10px 30px -14px rgba(7,19,59,.28)!important;color:var(--ink)}
+.slide.bx-light .dz-bx b,.slide.bx-light .dz-ic b,.slide.bx-light .dz-q b,.slide.bx-light .dz-note b,.slide.bx-light .dz-st b,.slide.bx-light .dz-ag b,.slide.bx-light .dz-ul b{color:var(--bx-n)}
+.slide.bx-light .dz-bx p,.slide.bx-light .dz-ic p,.slide.bx-light .dz-q p,.slide.bx-light .dz-note p,.slide.bx-light .dz-st p,.slide.bx-light .dz-ag p,.slide.bx-light .dz-ul span{color:var(--ink-2)}
+.slide.bx-light .dz-bento:not(.n4):not(.n2) .dz-bx.big,.slide.bx-light .dz-bx.big{background:linear-gradient(160deg,#19336E,#07133B) padding-box,var(--bx-g) border-box!important;color:#fff}
+.slide.bx-light .dz-bx.big b,.slide.bx-light .dz-bx.big p{color:#fff}
+.slide.bx-light .dz-e{background:#EAF2FF}.slide.bx-light .dz-bx.big .dz-e{background:rgba(255,255,255,.14)}
+.slide.bx-light .dz-q.q0,.slide.bx-light .dz-q.q1,.slide.bx-light .dz-q.q2,.slide.bx-light .dz-q.q3{background:linear-gradient(#fff,#F1F6FF) padding-box,linear-gradient(135deg,rgba(0,116,254,.55),rgba(107,241,131,.7)) border-box!important}
+.slide.bx-light .dz-q.q0{background:linear-gradient(#F0FFF4,#E6FBEC) padding-box,linear-gradient(135deg,#6BF183,#0074FE) border-box!important}
+.slide.bx-light .dz-dp.weak{background:linear-gradient(#F3F5FA,#EDF0F7) padding-box,linear-gradient(135deg,#B8C2DC,#D6DCEB) border-box!important;box-shadow:none!important}
+.slide.bx-light .dz-dp.weak>b,.slide.bx-light .weak .dz-dtag{color:#586391}.slide.bx-light .weak .dz-dtag{background:#E1E6F3}
+.slide.bx-light .dz-dp.good{background:linear-gradient(#fff,#EAF5FF) padding-box,var(--bx-g) border-box!important}
+.slide.bx-light .good .dz-dtag,.slide.bx-light .dz-dtag{background:var(--bx-b);color:#fff}
+.slide.bx-light .dz-vs{background:linear-gradient(135deg,#19336E,#07133B);color:#fff}
+.slide.bx-light .dz-stat b,.slide.bx-light .dz-stat:nth-child(even) b{color:var(--bx-b)}
+.slide.bx-light .dz-stat:nth-child(odd){background:linear-gradient(#fff,#EAF2FF) padding-box,linear-gradient(135deg,rgba(0,116,254,.55),rgba(107,241,131,.7)) border-box!important}
+.slide.bx-light .dz-stat small{color:var(--ink-3)}
+.slide.bx-light .dz-st-n{background:#fff;border:3px solid var(--bx-b);box-shadow:0 10px 22px rgba(0,116,254,.18)}
+.slide.bx-light .dz-st-n .num{background:var(--bx-n);color:#fff}
+.slide.bx-light .dz-path::before{background:var(--bx-g);opacity:.5}
+.slide.bx-light .dz-note>.num,.slide.bx-light .points li .n,.slide.bx-light .pair .pm{background:linear-gradient(135deg,#0074FE,#19336E);color:#fff}
+.slide.bx-light .dz-rule,.slide.bx-light .rule-box{background:linear-gradient(135deg,#19336E,#07133B);color:#fff;border-radius:22px;box-shadow:0 12px 30px -14px rgba(7,19,59,.6);border:0}
+.slide.bx-light .rule-box::before{background:var(--bx-g)}
+.slide.bx-light .dz-rule *,.slide.bx-light .rule-box *{color:#fff}.slide.bx-light .rule-box .lbl{color:var(--bx-m)}
+.slide.bx-light .dz-quote .dz-qmark{color:var(--bx-b);opacity:.18}.slide.bx-light .dz-quote cite{color:var(--bx-b)}
+.slide.bx-light .dz-mx-x,.slide.bx-light .dz-mx-y{color:var(--bx-b)}
+.slide.bx-light .dz-tbl{border:1.5px solid transparent;background:#fff padding-box,var(--bx-g) border-box;border-radius:22px;box-shadow:0 10px 30px -14px rgba(7,19,59,.28)}
+.slide.bx-light .dz-tbl th{background:linear-gradient(135deg,#19336E,#07133B);color:#fff}
+.slide.bx-light .dz-tbl td{background:#fff;color:var(--ink);border-top:1px solid var(--line)}.slide.bx-light .dz-tbl tr:nth-child(even) td{background:#EEF3FC}
+.slide.bx-light .dz-ed{background:#07133B;border:1.5px solid rgba(107,241,131,.5)}.slide.bx-light .dz-ed-bar{background:#19336E}
+.slide.bx-light .dz-ln em{color:var(--bx-m);background:rgba(107,241,131,.14)}
+.slide.bx-light .dz-phone{border-color:#07133B;background:#EAF0FB}.slide.bx-light .dz-phone-top{background:#07133B}
+.slide.bx-light .dz-msg.me{background:var(--bx-b);color:#fff}
+.slide.bx-light .dz-ag-dot{border-color:var(--bx-b)}.slide.bx-light .dz-ag-t{color:var(--bx-b)}
+.slide.bx-light .dz-ul li{border-inline-start:4px solid var(--bx-b);background:#EEF3FC}
+/* ---- الروبوت بدل المشاهد في بطاقة زجاجية (نص + بطاقة الروبوت) ---- */
+.slide.bx-light.vis-scene .slide-visual,.slide.bx-light .dz-split-art{position:relative;min-height:clamp(220px,34vh,420px);border-radius:34px;border:2px solid transparent;
+  background:linear-gradient(160deg,#D9E8FF,#F3F8FF 60%,#E6FBEE) padding-box,var(--bx-g) border-box;box-shadow:0 18px 40px -20px rgba(7,19,59,.4);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.slide.bx-light.vis-scene .slide-visual>*,.slide.bx-light .dz-split-art>*{display:none}
+.slide.bx-light.vis-scene .slide-visual::before,.slide.bx-light .dz-split-art::before{content:"";position:absolute;inset:8% 10%;background:url(assets/agentx/robot.webp) center/contain no-repeat;filter:drop-shadow(0 14px 18px rgba(7,19,59,.25))}
+.slide.bx-light.bx-r1.vis-scene .slide-visual::before,.slide.bx-light.bx-r1 .dz-split-art::before{background-image:url(assets/agentx/robot-hs.webp)}
+.slide.bx-light.bx-r2.vis-scene .slide-visual::before,.slide.bx-light.bx-r2 .dz-split-art::before{background-image:url(assets/agentx/robot-hat.webp)}
+
+/* ---- الأسئلة الحية (تشمل تخطيط التمرين المنفرد lv-solo) ---- */
+.slide.bx .lv-box.lv-solo{min-height:clamp(330px,50vh,760px)}
+.slide.bx .lv-solo .lv-qrin{width:6em}.slide.bx .lv-solo .lv-q{font-size:1.3em}.slide.bx .lv-box{padding:.65em .95em .75em}
+.slide.bx .lv-box{--ac:#0074FE;--brand:#0074FE;background:linear-gradient(#fff,#F1F6FF) padding-box,var(--bx-g) border-box;border:2px solid transparent;border-radius:28px;box-shadow:0 18px 44px -22px rgba(7,19,59,.45);color:var(--bx-n);--ink:#0B1740;--ink-2:#34406B;--ink-3:#586391;--line:#D0DAEE}
+.slide.bx .lv-tag{background:linear-gradient(135deg,#19336E,#07133B);color:#fff}
+.slide.bx .lv-tag .live-dot{background:var(--bx-m);animation:none;box-shadow:0 0 8px var(--bx-m)}
+.slide.bx .lv-q{color:var(--bx-n);font-family:'Cairo','IBM Plex Sans Arabic',sans-serif;font-weight:800}
+.slide.bx .lv-stat{background:#fff;color:var(--ink-2)}.slide.bx .lv-stat b{color:var(--bx-b)}
+.slide.bx .lv-card,.slide.bx .lv-card:nth-child(4n+2),.slide.bx .lv-card:nth-child(4n+3),.slide.bx .lv-card:nth-child(4n+4){background:linear-gradient(#fff,#F4F8FF) padding-box,linear-gradient(135deg,rgba(0,116,254,.5),rgba(107,241,131,.75)) border-box;border:1.5px solid transparent;box-shadow:0 8px 18px -12px rgba(7,19,59,.4);color:var(--bx-n)}
+.slide.bx .lv-card:nth-child(4n+3){background:linear-gradient(#fff,#F0FFF5) padding-box,linear-gradient(135deg,rgba(107,241,131,.9),rgba(0,116,254,.5)) border-box}
+.slide.bx .lv-card p{color:var(--bx-n)}.slide.bx .lv-card small{color:var(--ink-3)}
+.slide.bx .lv-card.mine{outline:2px solid var(--bx-b)}
+.slide.bx .lv-fill{background:rgba(0,116,254,.16)}.slide.bx .lv-opt.right .lv-fill{background:rgba(107,241,131,.45)}
+.slide.bx .lv-opt{background:#fff;border-color:#CBD7EE}.slide.bx .lv-opt.sel{box-shadow:0 0 0 2px var(--bx-b) inset;border-color:var(--bx-b)}.slide.bx .lv-l{border-color:rgba(0,116,254,.4);color:var(--bx-b)}
+.slide.bx .lv-opt.right{border-color:#12A150;background:#EAFBF0;box-shadow:0 0 0 2px #12A150 inset}
+.slide.bx .lv-cloud{background:radial-gradient(ellipse at 50% 45%,#fff 0%,#E8F0FF 100%);border:1.5px dashed rgba(0,116,254,.4)}
+.slide.bx .lv-cta{background:rgba(255,255,255,.9);border-color:#BFD0EE}
+.slide.bx .lv-sc-bar{background:rgba(7,19,59,.05)}.slide.bx .lv-sc-bar em{background:linear-gradient(180deg,#0074FE,#6BF183)}
+.slide.bx .lv-avg{background:linear-gradient(135deg,#19336E,#07133B)}
+.slide.bx .lv-ta,.slide.bx .lv-in{border-color:#BFD0EE;color:var(--bx-n)}.slide.bx .lv-ta:focus,.slide.bx .lv-in:focus{border-color:var(--bx-b);box-shadow:0 0 0 3px rgba(0,116,254,.18)}
+.slide.bx.lv-solo .lv-wall{background:rgba(255,255,255,.85);border:1.5px dashed rgba(0,116,254,.45)}
+.slide.bx.lv-solo .lv-empty,.slide.bx .lv-empty{color:var(--ink-3)}
+.slide.bx .lv-box .btn-primary,.slide.bx .lv-box .btn:not(.btn-ghost):not(.btn-soft){background:linear-gradient(135deg,#0074FE,#19336E);color:#fff;border-color:transparent}
+/* ---- مكوّنات الشرائح غير التصميمية ---- */
+.slide.bx .sk-ring .bg{stroke:#DCE6F8}.slide.bx .sk-ring .fg{stroke:var(--bx-b)}
+.slide.bx .sk-ring b{color:var(--bx-n)}.slide.bx .sk-hook-lbl{color:var(--bx-b)}
+.slide.bx .sk-ask{background:linear-gradient(135deg,#19336E,#07133B);color:#fff;border-radius:20px;border:0}.slide.bx .sk-ask *{color:#fff}.slide.bx .sk-ask>span{color:var(--bx-m)}
+.slide.bx .sk-num b,.slide.bx .sk-fw-name,.slide.bx .sk-fw-l,.slide.bx .sk-jr-dot{color:var(--bx-b)}
+.slide.bx .sk-num span,.slide.bx .sk-fw-col b,.slide.bx .sk-jr-st b,.slide.bx .sk-chk-it b,.slide.bx .sk-opt b,.slide.bx .sk-vs-k{color:var(--bx-n)}
+.slide.bx .sk-flip .front,.slide.bx .sk-face.front{color:var(--bx-n)}
+.slide.bx .sk-face.back{background:linear-gradient(135deg,#19336E,#07133B)!important;color:#fff}.slide.bx .sk-face.back *{color:#fff}.slide.bx .sk-face.back em{color:var(--bx-m)}
+.slide.bx .sk-chk-it.on{background:linear-gradient(#EAFBF0,#E0F8E8) padding-box,linear-gradient(135deg,#6BF183,#0074FE) border-box!important}
+.slide.bx .sk-chk-it .box{border-color:var(--bx-b)}.slide.bx .sk-chk-it input:checked+.box{background:var(--bx-b);border-color:var(--bx-b)}
+.slide.bx .sk-chk-ring{--ac:#0074FE}
+.slide.bx .sk-tag{background:var(--bx-b);color:#fff}
+.slide.bx .sk-vs-sw button.on{background:var(--bx-b);color:#fff}
+.slide.bx .sk-opt .sk-l{background:var(--bx-b);color:#fff}
+.slide.bx .sk-opt.best{background:linear-gradient(#EAFBF0,#E0F8E8) padding-box,linear-gradient(135deg,#6BF183,#0074FE) border-box!important}
+.slide.bx .pair .h{background:#EAF2FF;color:var(--bx-n)}
+.slide.bx .pair.mis .h{background:#FDECEC}
+.slide.bx .pair .pm.ok{background:#12A150}
+.slide.bx .slide-visual svg text{font-family:'IBM Plex Sans Arabic',sans-serif}
+.slide.bx .btn-soft,.slide.bx .btn-ghost{color:var(--bx-b);border-color:rgba(0,116,254,.4)}
+/* ---- بطاقة المحور في الرئيسية وترويسة صفحة المحور ---- */
+.axis-card.bx-card{border:2px solid transparent;border-radius:28px;background:linear-gradient(#fff,#F4F8FF) padding-box,linear-gradient(135deg,#0074FE,#6BF183) border-box;box-shadow:0 18px 40px -22px rgba(7,19,59,.5)}
+.bx-card .axis-art{background:#07133B url(assets/agentx/bg-cover.webp) 60% 40%/cover no-repeat!important}
+.bx-card .axis-art::before{content:"";position:absolute;inset:0;background:url(assets/agentx/x-green.webp) 12% 30%/auto 170% no-repeat;opacity:.9}
+.bx-card .axis-art .decor{display:none}
+.bx-card .axis-art .axis-icon{position:relative;z-index:1;background:rgba(255,255,255,.12);border:1.5px solid rgba(107,241,131,.7);backdrop-filter:blur(4px)}
+.bx-card .axis-no{background:linear-gradient(135deg,#0074FE,#19336E);color:#fff}
+.bx-card .axis-title{color:#07133B}.bx-card .axis-classic{color:#0074FE}
+.bx-card .pill{background:#E7F0FF;color:#19336E}
+.axis-brand.axis-brand-agentx{border-color:#0074FE;color:#0074FE}
+.axis-brand.axis-brand-agentx.on{background:linear-gradient(135deg,#19336E,#07133B);border-color:#6BF183;color:#6BF183}
+.axis-brand-row{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+.axis-hero.bx-hero{background:#07133B url(assets/agentx/bg-div.webp) center/cover no-repeat;border-bottom:3px solid #6BF183;font-family:'Cairo','IBM Plex Sans Arabic',sans-serif}
+.bx-hero .big-ico{background:rgba(255,255,255,.12);border:1.5px solid rgba(107,241,131,.7)}
+.bx-hero h1{color:#fff}.bx-hero .sub{color:#DCE5FA;opacity:1}
+
+/* ---- الاقتباس: بطاقة الروبوت الزجاجية بجانب النص ---- */
+.slide.bx-light.lay-quote .slide-in{display:flex;align-items:center;gap:4%}
+.slide.bx-light.lay-quote .dz-quote{flex:1;margin:0;min-height:0;max-width:none}
+.slide.bx-light.lay-quote .slide-in::after{content:"";flex:none;order:2;width:min(26%,300px);align-self:stretch;max-height:420px;min-height:260px;border-radius:34px;border:2px solid transparent;
+  background:url(assets/agentx/robot.webp) center 50%/auto 86% no-repeat,linear-gradient(160deg,#D9E8FF,#F3F8FF 60%,#E6FBEE) padding-box,var(--bx-g) border-box;box-shadow:0 18px 40px -20px rgba(7,19,59,.4)}
+/* ---- المخططات داخل بطاقة زجاجية ---- */
+.slide.bx-light.vis-chart .slide-visual,.slide.bx-light .sk-chart{padding:14px;border-radius:30px;border:2px solid transparent;background:linear-gradient(160deg,#fff,#EEF4FF 70%,#EAFBF0) padding-box,var(--bx-g) border-box;box-shadow:0 14px 34px -18px rgba(7,19,59,.35)}
+@media (max-width:899px){
+  .slide.bx{padding:70px 14px 58px!important}
+  .slide.bx>.bx-logo{top:14px;left:16px;width:92px}
+  .slide.bx>.bx-foot{height:50px}.bx-sp small{font-size:8px}.bx-sp1{left:12px}.bx-sp1 img{height:24px}.bx-sp2{right:46px}.bx-sp2 img{height:12px}.bx-no{right:14px;font-size:12px}
+  .slide.bx-cover{min-height:min(520px,130vw);padding:0!important}
+  .slide.bx-div{min-height:min(620px,158vw);padding:0!important}
+  .slide.bx-div::before{content:"";position:absolute;inset:0;z-index:0;background:linear-gradient(0deg,rgba(7,19,59,.96) 0%,rgba(7,19,59,.88) 42%,rgba(7,19,59,0) 72%)}
+  .slide.bx-cover .slide-in,.slide.bx-div .slide-in,.slide.bx-div.bx-f .slide-in{width:auto;margin:0;position:absolute;right:7%;left:7%;bottom:15%}
+  .slide.bx-div{background-position:25% center!important}.slide.bx-div.bx-f{background-position:85% center!important}
+  .slide.bx-cover .dz-cover-t,.slide.bx-div .dz-cover-t{font-size:clamp(24px,7.4vw,34px)}
+  .slide.bx-cover .dz-cover-sub,.slide.bx-div .dz-cover-sub{font-size:clamp(13px,3.7vw,16px)}
+  .slide.bx-cover>.bx-bigx{height:80%;left:-12%;bottom:auto;top:12%;opacity:.8}
+  .slide.bx-light.lay-quote .slide-in{display:block}.slide.bx-light.lay-quote .slide-in::after{display:none}
+  .slide.bx-dark .dz-statement{padding:22px 18px;border-radius:26px}
+  .slide.bx>.bx-wmx{height:55%}
+}
+/* وضع الصفحة (لابتوب المدرب) أضيق ارتفاعًا: ضغط الأسئلة الحية التي بجانبها عمود طويل */
+.deck.fixed:not(.is-fs):not(.deck-show) .slide.bx.has-live{padding-top:58px!important;padding-bottom:50px!important}
+.deck.fixed:not(.is-fs):not(.deck-show) .slide.bx .lv-solo .lv-qrin{width:4.8em}
+.deck.fixed:not(.is-fs):not(.deck-show) .slide.bx .lv-solo .lv-cta{margin-top:.2em}
+.deck.fixed:not(.is-fs):not(.deck-show) .slide.bx>.bx-logo{width:96px}
+
 /* ===== brand-monshaat.css ===== */
 @font-face{font-family:'29LT Azer';src:url(assets/monshaat/azer-regular.woff2) format('woff2');font-weight:400 600;font-style:normal;font-display:swap}
 @font-face{font-family:'29LT Azer';src:url(assets/monshaat/azer-bold.woff2) format('woff2');font-weight:700 900;font-style:normal;font-display:swap}
