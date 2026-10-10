@@ -2029,6 +2029,24 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 /* ثيم رسم البنسل (تجريبي) */
 
 /* قسم «كيف تعمل»: يظهر رأسه فقط، ويُفتح بالضغط ويُطوى من جديد */
+
+/* جهات تم التعاون معها: شريط شعارات يتحرك من اليسار إلى اليمين */
+.partners{margin:34px 0 8px}.partners .hub-sec{margin-bottom:14px}
+.pt-view{overflow:hidden;border-radius:20px;background:#fff;border:1px solid var(--line,#e6e3f0);box-shadow:0 10px 30px -22px rgba(40,30,120,.5);padding:14px 0;-webkit-mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
+.pt-track{display:flex;width:max-content;animation:ptmove var(--pt-dur,40s) linear infinite;will-change:transform}
+.pt-view:hover .pt-track{animation-play-state:paused}
+.pt-lane,.pt-dup{display:flex;align-items:center;margin:0;padding:0;list-style:none;flex:none}
+.pt-dup{display:flex}
+.pt-i{flex:none;display:flex;align-items:center;justify-content:center;width:190px;height:84px;margin:0 14px;padding:8px 10px}
+.pt-i img{max-width:100%;max-height:100%;object-fit:contain;display:block;filter:none}
+.pt-n{display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:6px 12px;border-radius:16px;border:1.5px solid #d9d5ea;background:linear-gradient(160deg,#faf9ff,#fff);color:var(--ink,#1c1a26);font-weight:800;font-size:15px;line-height:1.4;text-align:center}
+@keyframes ptmove{from{transform:translateX(-50%)}to{transform:translateX(0)}}
+@media (prefers-reduced-motion:reduce){.pt-track{animation:none;width:auto;flex-wrap:wrap;justify-content:center}.pt-dup{display:none}.pt-lane{flex-wrap:wrap;justify-content:center}.pt-view{-webkit-mask-image:none;mask-image:none}}
+@media (max-width:640px){.pt-i{width:140px;height:64px;margin:0 8px}.pt-n{font-size:13px}}
+.pt-edit{text-align:center;margin-top:10px}
+.pt-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:8px;border:1px solid var(--line,#e6e3f0);border-radius:12px}
+.pt-prev{flex:none;width:92px;height:44px;display:flex;align-items:center;justify-content:center;background:#f6f6fa;border-radius:8px;font-size:11px;color:#8a86a6}.pt-prev img{max-width:100%;max-height:100%;object-fit:contain}
+.pt-name{flex:1 1 150px;min-width:120px}.pt-url{flex:1 1 180px;min-width:140px}
 .how-note{display:flex;gap:10px;align-items:flex-start;max-width:720px;margin:6px auto 14px;padding:12px 16px;border-radius:14px;background:#fff6e6;border:1px solid #f2c641;color:#6b4a06}.how-note p{margin:0;line-height:1.8;font-weight:700;font-size:14.5px}.how-note-i{flex:none;margin-top:3px;color:#f58a1f}.how-edit{text-align:center;margin:0 0 10px}.how-ed{border:1px solid var(--line,#e5e2ee);border-radius:12px;padding:10px 12px;margin-bottom:10px}
 .how-head{cursor:pointer;position:relative;padding-bottom:6px}.how-head:focus-visible{outline:3px solid var(--brand,#5B45E0);outline-offset:4px;border-radius:18px}
 .how-more{display:inline-flex;align-items:center;gap:8px;margin-top:12px;font-family:var(--f-ui);font-weight:800;font-size:13px;color:var(--brand,#5B45E0);padding:6px 16px;border-radius:99px;border:2px dashed currentColor}
