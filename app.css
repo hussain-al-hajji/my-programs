@@ -2035,6 +2035,7 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .pt-view{overflow:hidden;border-radius:20px;background:#fff;border:1px solid var(--line,#e6e3f0);box-shadow:0 10px 30px -22px rgba(40,30,120,.5);padding:20px 0;-webkit-mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
 .pt-track{display:flex;width:max-content;animation:ptmove var(--pt-dur,40s) linear infinite;will-change:transform}
 .pt-view:hover .pt-track{animation-play-state:paused}
+.pt-view.pt-js{touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none}.pt-view.pt-js.pt-drag{cursor:grabbing}.pt-view.pt-js .pt-track{animation:none}.pt-view img{-webkit-user-drag:none;pointer-events:none}
 .pt-lane,.pt-dup{display:flex;align-items:center;margin:0;padding:0;list-style:none;flex:none}
 .pt-dup{display:flex}
 .pt-i{flex:none;display:flex;align-items:center;justify-content:center;width:380px;height:168px;margin:0 24px;padding:14px 18px}
