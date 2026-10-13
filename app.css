@@ -212,6 +212,7 @@ ul,ol{margin:.3em 0;padding-inline-start:1.3em}
 .ex-block.scenario{background:linear-gradient(135deg,#FFF9F6,#FFF7EE);border-color:#F2E4D3}
 .ex-block.extract{background:var(--acg,#E6E3F4);border:none}
 .ex-block.principle{border-inline-start:5px solid var(--ac,var(--brand))}
+.ex-prompts{background:#f6f4ff;border:1.5px dashed #b9b0f0}.pr-card{background:#fff;border:1px solid var(--line,#e6e3f0);border-radius:14px;padding:10px 12px;margin-top:10px}.pr-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.pr-n{font-size:.9em;color:var(--ink-2);margin-top:2px}.pr-pre{white-space:pre-wrap;word-break:break-word;font-family:var(--f-body);font-size:.92em;line-height:1.85;background:#16123A;color:#EDEBFF;border-radius:10px;padding:10px 12px;margin:8px 0 0;max-height:320px;overflow:auto}
 .ex-block.task{background:#201C40;color:#fff;border:none}
 .ex-block.task>.lbl{color:#F34D00}
 .ex-block.task p,.ex-block.task li{color:#E6E3F4}
