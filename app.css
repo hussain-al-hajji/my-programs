@@ -1717,6 +1717,7 @@ html[data-motion="reduce"] .slide.cur *{animation:none!important}
 .dz-tbl{border-radius:20px;overflow:hidden;border:1.5px solid var(--line);box-shadow:var(--sh-1)}.dz-tbl table{width:100%;border-collapse:collapse;font-size:16px}
 .dz-tbl th{background:linear-gradient(135deg,var(--ac),var(--acd));color:#fff;font-family:var(--f-display);padding:12px 14px;text-align:start}
 .dz-tbl td{padding:10px 14px;border-top:1px solid var(--line);line-height:1.6}.dz-tbl tr:nth-child(even) td{background:var(--surface-2)}.dz-tbl td:first-child{font-weight:700}
+.dz-tbl td,.dz-tbl th{overflow-wrap:anywhere}
 /* جدول الجلسة */
 .dz-agenda{display:grid;gap:4px;position:relative}
 .dz-ag{display:grid;grid-template-columns:92px 22px 1fr;gap:12px;align-items:center;padding:6px 0}
