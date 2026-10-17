@@ -2078,6 +2078,8 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .se-ed{outline:2px dashed #F58A1F;outline-offset:3px;cursor:text;border-radius:4px;min-width:16px}.se-ed:focus{outline-style:solid;background:rgba(245,138,31,.1)}
 .slide.sl-off{opacity:.55;filter:grayscale(.55)}
 .sl-badge{position:absolute;top:12px;inset-inline-start:12px;z-index:9;background:#b3261e;color:#fff;padding:4px 12px;border-radius:999px;font:700 13px var(--f-ui)}
+.dz-bento.row .dz-bx{aspect-ratio:1/1.08;display:flex;flex-direction:column;justify-content:flex-start;gap:8px}.dz-bento.row .dz-bx .dz-e{font-size:42px}.dz-bento.row .dz-bx b{font-size:20px}.dz-bento.row .dz-bx p{font-size:15.5px;line-height:1.6}
+@media(max-width:900px){.dz-bento.row{grid-template-columns:1fr!important}.dz-bento.row .dz-bx{aspect-ratio:auto}}
 
 /* ===== brand-agentx.css ===== */
 /* ثيم «aqentX» الخاص (brand id: agentx): قشرة تُلبَس لكل شرائح محور يفعّله المدرب من بطاقة المحور (DesignKit.skinBx)
