@@ -2080,6 +2080,9 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .sl-badge{position:absolute;top:12px;inset-inline-start:12px;z-index:9;background:#b3261e;color:#fff;padding:4px 12px;border-radius:999px;font:700 13px var(--f-ui)}
 .dz-bento.row .dz-bx{aspect-ratio:1/1.08;display:flex;flex-direction:column;justify-content:flex-start;gap:8px}.dz-bento.row .dz-bx .dz-e{font-size:42px}.dz-bento.row .dz-bx b{font-size:20px}.dz-bento.row .dz-bx p{font-size:15.5px;line-height:1.6}
 @media(max-width:900px){.dz-bento.row{grid-template-columns:1fr!important}.dz-bento.row .dz-bx{aspect-ratio:auto}}
+/* ملء الشاشة: لا تظهر أدوات المدرب، ويبقى زر الخروج فقط */
+.deck.is-fs .deck-bar .deck-tool:not(.deck-fs-btn),.deck:fullscreen .deck-bar .deck-tool:not(.deck-fs-btn),.deck.is-fs .se-bar,.deck:fullscreen .se-bar{display:none!important}
+.deck.is-fs .se-ed,.deck:fullscreen .se-ed{outline:none!important;background:none!important;cursor:inherit}
 
 /* ===== brand-agentx.css ===== */
 /* ثيم «aqentX» الخاص (brand id: agentx): قشرة تُلبَس لكل شرائح محور يفعّله المدرب من بطاقة المحور (DesignKit.skinBx)
