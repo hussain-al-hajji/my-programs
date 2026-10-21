@@ -2083,6 +2083,24 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 /* ملء الشاشة: لا تظهر أدوات المدرب، ويبقى زر الخروج فقط */
 .deck.is-fs .deck-bar .deck-tool:not(.deck-fs-btn),.deck:fullscreen .deck-bar .deck-tool:not(.deck-fs-btn),.deck.is-fs .se-bar,.deck:fullscreen .se-bar{display:none!important}
 .deck.is-fs .se-ed,.deck:fullscreen .se-ed{outline:none!important;background:none!important;cursor:inherit}
+/* المختبر بفقرات متتابعة + اللوحات التفاعلية */
+.lp-bar{display:flex;align-items:center;gap:12px;margin:16px 0 8px}.lp-prog{flex:1;height:10px;border-radius:99px;background:var(--surface-2,#eee);overflow:hidden}.lp-prog i{display:block;height:100%;background:linear-gradient(90deg,#1FA9B0,#F58A1F);border-radius:99px;transition:width .5s}
+.lp-steps{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 10px;scrollbar-width:thin}
+.lp-step{flex:0 0 auto;min-width:74px;border:1.5px solid var(--line);background:var(--surface);border-radius:16px;padding:8px 10px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;font-family:var(--f-ui)}
+.lp-step .lp-n{font-weight:800;font-size:13px;color:var(--ink-2)}.lp-step .lp-i{font-size:22px}.lp-step small{font-size:11px;color:var(--ink-3,#777)}
+.lp-step.cur{border-color:var(--ac,#1F0894);box-shadow:0 6px 16px -8px var(--ac,#1F0894)}.lp-step.done{background:#E8F7EE;border-color:#7CC79A}.lp-step.done .lp-n{color:#10573A}.lp-step.lock{opacity:.45;cursor:not-allowed}
+.lp-card{border-radius:22px}.lp-head{display:flex;gap:14px;align-items:center;margin-bottom:8px}.lp-head h2{font-size:22px;margin:0}.lp-no{width:46px;height:46px;border-radius:14px;background:var(--ac,#1F0894);color:#fff;display:grid;place-items:center;font-weight:800;font-size:20px}
+.lp-kicker{font-size:13px;color:var(--ink-3,#777);font-family:var(--f-ui)}
+.lp-beat{background:#FFF6E5;border:1px dashed #F2C641;border-radius:14px;padding:10px 14px;margin:8px 0 12px;font-size:15px;line-height:1.8}
+.lp-sc{margin:8px 0 12px}.lp-next{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:14px;padding:12px 14px;border-radius:16px;background:#E8F7EE}.lp-next.fin{background:#FFF6E5}
+.lp-res{margin:8px 0;border:1px solid var(--line);border-radius:14px;padding:8px 12px;background:var(--surface)}.lp-res summary{cursor:pointer;font-weight:700;font-family:var(--f-ui)}
+.mk-opt{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--line);border-radius:14px;margin:6px 0;cursor:pointer;background:var(--surface)}.mk-opt.sel{border-color:var(--ac,#1F0894);background:var(--acg,#f1efff)}
+.mk-opt input{flex:0 0 auto}.mk-ot{display:flex;flex-direction:column;gap:2px;flex:1}.mk-ot small{color:var(--ink-3,#777);font-size:12.5px;line-height:1.5}.mk-cost{background:#111;color:#fff;border-radius:99px;padding:2px 9px;font-size:12px}
+.mk-cht{font-weight:800;margin:12px 0 4px;font-family:var(--f-display)}
+.mk-doc{border:1.5px solid var(--line);border-radius:14px;background:#fff;padding:12px 14px;margin:10px 0;box-shadow:0 8px 18px -14px rgba(0,0,0,.4)}.mk-doc-h{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:2px solid var(--ac,#1F0894);padding-bottom:6px;margin-bottom:6px}
+.mk-tag{background:#FFF6E5;color:#8a5a00;border-radius:99px;padding:2px 10px;font-size:12px}.mk-doc-lead{color:var(--ink-2);font-size:13.5px;margin-bottom:4px}.mk-doc-l{margin:4px 18px 0;font-size:14px;line-height:1.8}
+.mk-roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:10px 0}.mk-role{border:1.5px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--surface)}.mk-role.block{border-color:#E2837B;background:#FDEEEC}
+.mk-rh{display:flex;align-items:center;gap:8px;margin-bottom:4px}.mk-av{font-size:22px}.mk-face{margin-inline-start:auto;font-size:20px}.mk-say{font-size:13.5px;line-height:1.7;margin-top:4px;color:var(--ink-2)}
 
 /* ===== brand-agentx.css ===== */
 /* ثيم «aqentX» الخاص (brand id: agentx): قشرة تُلبَس لكل شرائح محور يفعّله المدرب من بطاقة المحور (DesignKit.skinBx)
