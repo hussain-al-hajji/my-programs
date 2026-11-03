@@ -2157,6 +2157,8 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .mw-by{font-size:.78em;font-weight:800;color:var(--brand)}
 .mw-none{color:var(--ink-2);font-size:.9em;opacity:.7}
 .present .mw-board{grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}.present .mw-tx{font-size:clamp(16px,1.6vw,24px)}.present .mw-by{font-size:clamp(13px,1.2vw,18px)}
+.mw-card input{width:100%;border:1px solid var(--line,#e6e2f2);border-radius:10px;padding:9px;font:inherit;background:var(--bg,#fff);color:inherit;text-align:center}
+.mw-q{font-size:1.6em;color:var(--brand)}.mw-ans{color:#1b8a5a}
 
 /* ===== brand-agentx.css ===== */
 /* ثيم «aqentX» الخاص (brand id: agentx): قشرة تُلبَس لكل شرائح محور يفعّله المدرب من بطاقة المحور (DesignKit.skinBx)
