@@ -2117,8 +2117,8 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .dz-poster{position:relative;min-height:400px;display:flex;flex-direction:column;justify-content:center;padding:10px 6px;overflow:hidden}
 .pz-band{position:absolute;inset-inline-end:-40px;top:-30px;bottom:-30px;width:38%;background:linear-gradient(160deg,var(--acl,#f4efff),transparent);transform:skewX(-8deg);border-inline-start:6px solid var(--ac)}
 .pz-kick{position:relative;font:700 15px var(--f-ui);color:var(--ac);letter-spacing:.5px;margin-bottom:4px}
-.pz-word{position:relative;font:900 clamp(64px,11vw,132px)/1.05 var(--f-display);color:var(--ac);margin:0 0 6px}.pz-word mark{background:none;color:var(--ink)}
-.pz-text{position:relative;max-width:640px;font-size:22px;line-height:1.9;color:var(--ink-2)}
+.pz-word{position:relative;font:900 clamp(40px,6.2vw,84px)/1.2 var(--f-display);color:var(--ac);margin:0 0 10px;max-width:64%;overflow-wrap:anywhere}.pz-word.pw-s{font-size:clamp(48px,8vw,104px)}.pz-word.pw-m{font-size:clamp(40px,6.2vw,84px)}.pz-word.pw-l{font-size:clamp(32px,4.6vw,62px)}@media(max-width:700px){.pz-word,.pz-text{max-width:100%}.pz-word.pw-s,.pz-word.pw-m,.pz-word.pw-l{font-size:clamp(30px,9vw,44px)}.pz-band,.pz-art{display:none}}.pz-word mark{background:none;color:var(--ink)}
+.pz-text{position:relative;max-width:min(640px,64%);font-size:22px;line-height:1.9;color:var(--ink-2)}
 .pz-chips{position:relative;display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}.pz-chips span{display:inline-flex;align-items:center;gap:8px;background:var(--surface);border:1.5px solid var(--ac);border-radius:99px;padding:6px 16px 6px 12px;font:700 15px var(--f-ui)}.pz-chips i{font-style:normal;font-size:20px}
 .dz-chain{display:flex;align-items:stretch;justify-content:center;flex-wrap:wrap;gap:0;margin:16px 0}
 .ch-node{width:148px;text-align:center;padding:12px 8px;border-radius:18px;background:var(--surface);border:1.5px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:4px}.ch-ic{font-size:30px}.ch-node b{font:800 15px var(--f-display)}.ch-node small{font-size:12.5px;line-height:1.6;color:var(--ink-3,#777)}
@@ -2139,7 +2139,7 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 @media(max-width:900px){.du-h,.du-r{grid-template-columns:1fr}.sp-bar{grid-template-columns:1fr}.dz-orbit{height:auto;display:grid;gap:8px}.ob-core,.ob-sat,.ob-ring{position:static;transform:none;width:auto}.ob-ring{display:none}.ob-core{height:auto;border-radius:18px}.dz-ladder{flex-direction:column;height:auto;align-items:stretch}.ld-step{height:auto}.dz-ribbon{flex-direction:column;min-height:0}.rb-line{display:none}.rb-n{height:auto}.rb-dot{display:none}}
 @keyframes obIn{from{opacity:0;scale:.7}to{opacity:1;scale:1}}
 .dz-orbit .ob-sat{animation:obIn .5s both!important;animation-delay:calc(var(--i)*.12s + .2s)!important;transform:none!important}.dz-orbit .ob-core{animation:none}
-.pz-art{position:absolute;inset-inline-end:7%;top:50%;transform:translateY(-50%);font-size:230px;opacity:.28;filter:saturate(.7)}
+.pz-art{position:absolute;inset-inline-end:9%;top:50%;transform:translateY(-50%);font-size:170px;z-index:0;opacity:.28;filter:saturate(.7)}
 
 .mw-gt{margin:16px 0 8px;font-weight:800;color:var(--ink-2)}
 .mw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
