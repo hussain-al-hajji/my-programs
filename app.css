@@ -2168,6 +2168,27 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .xm-sum{margin:0 0 12px;padding:10px 14px;border-radius:12px;background:rgba(20,50,76,.07);font-family:var(--f-ui);font-size:13.5px}.xm-cnt{margin-top:6px;font-family:var(--f-ui);font-size:12.5px;color:#B4232A;font-weight:600}
 .hx-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:10px 14px;border-radius:12px;background:rgba(18,160,106,.10);font-family:var(--f-ui);font-size:13.5px}.hx-bar.off{background:rgba(242,198,65,.18)}
 
+/* مخطط P3.express */
+.p3-panel{background:#1c1d21;border-radius:20px;padding:10px 14px;margin:8px 0 10px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.p3-svg{display:block;width:100%;height:auto;max-height:52vh;direction:ltr}
+.p3-c{fill:none;stroke:#d9d9dd;stroke-width:7;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:p3draw 1.6s ease forwards;animation-delay:calc(var(--k)*.18s)}
+@keyframes p3draw{to{stroke-dashoffset:0}}
+.p3-svg.has-hi .p3-c{stroke:#8d8e96}.p3-svg.still .p3-c{animation:none;stroke-dashoffset:0}
+.p3-l{fill:#e7e7ea;font:600 21px var(--f-ui,sans-serif);direction:rtl}
+.p3-end{fill:#E5484D}
+.p3-n circle{fill:#1c1d21;stroke:#d9d9dd;stroke-width:2.7;transition:.2s}.p3-n text{fill:#e7e7ea;font:700 12.5px var(--f-ui,sans-serif);text-anchor:middle;pointer-events:none}
+.p3-svg.has-hi .p3-n:not(.on) circle{stroke:#5b5c63}.p3-svg.has-hi .p3-n:not(.on) text{fill:#7d7e86}
+.p3-n.on circle{fill:var(--gc);stroke:#fff}.p3-n.on text{fill:#fff}
+.p3-n.cur circle{stroke:#fff;stroke-width:4;filter:drop-shadow(0 0 7px var(--gc))}
+.p3-n.clk{cursor:pointer}.p3-n.clk:hover circle{stroke:#fff;fill:#35363c}
+.p3-n.ok circle{fill:#2FB36E;stroke:#fff}.p3-n.bad circle{fill:#E5484D;stroke:#fff}.p3-n.ans circle{fill:#2FB36E;stroke:#fff;stroke-width:4;filter:drop-shadow(0 0 8px #2FB36E)}.p3-n.ok text,.p3-n.bad text,.p3-n.ans text{fill:#fff}
+.p3-legend{display:flex;flex-wrap:wrap;gap:8px 12px;margin:2px 0 4px}
+.p3-it{display:flex;gap:9px;align-items:flex-start;background:var(--surface,#fff);border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:7px 11px;animation:obIn .45s both;animation-delay:calc(var(--i)*.1s + .3s);min-width:210px;flex:1 1 230px}
+.p3-it b{display:block;font-size:15px}.p3-it small{display:block;color:var(--ink-2,#666);font-size:13px;margin-top:2px}
+.p3-cd{flex:none;background:#1c1d21;color:#fff;border-radius:999px;padding:3px 10px;font:700 13px var(--f-ui,sans-serif);direction:ltr}
+.p3f-q{font-weight:800;font-size:17px;margin:2px 0 8px}.p3f-fb{margin-top:8px;padding:9px 12px;border-radius:12px;font-size:14px}.p3f-fb.ok{background:rgba(47,179,110,.14)}.p3f-fb.bad{background:rgba(229,72,77,.12)}
+@media(max-width:700px){.p3-svg{max-height:none}.p3-l{font-size:26px}.p3-n text{font-size:14px}}
+
 /* ===== brand-agentx.css ===== */
 /* ثيم «aqentX» الخاص (brand id: agentx): قشرة تُلبَس لكل شرائح محور يفعّله المدرب من بطاقة المحور (DesignKit.skinBx)
    الألوان: كحلي 07133B / 19336E · أزرق 0074FE · أخضر نعناعي 6BF183 · رمادي فاتح F6F6F7
