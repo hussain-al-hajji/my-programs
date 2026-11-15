@@ -2153,6 +2153,7 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 @media(max-width:900px){.du-h,.du-r{grid-template-columns:1fr}.sp-bar{grid-template-columns:1fr}.dz-orbit{height:auto;display:grid;gap:8px}.ob-core,.ob-sat,.ob-ring{position:static;transform:none;width:auto}.ob-ring{display:none}.ob-core{height:auto;border-radius:18px}.dz-ladder{flex-direction:column;height:auto;align-items:stretch}.ld-step{height:auto}.dz-ribbon{flex-direction:column;min-height:0}.rb-line{display:none}.rb-n{height:auto}.rb-dot{display:none}}
 @keyframes obIn{from{opacity:0;scale:.7}to{opacity:1;scale:1}}
 .dz-orbit .ob-sat{animation:obIn .5s both!important;animation-delay:calc(var(--i)*.12s + .2s)!important;transform:none!important}.dz-orbit .ob-core{animation:none}
+.dz-orbit .ob-sat.rv{cursor:pointer;transition:opacity .5s,filter .5s;animation:none!important}.dz-orbit .ob-sat.rv:not(.on){opacity:.1;filter:blur(1.5px);animation:none!important}.dz-orbit .ob-sat.rv.on{opacity:1;filter:none}
 .pz-art{position:absolute;inset-inline-end:9%;top:50%;transform:translateY(-50%);font-size:170px;z-index:0;opacity:.28;filter:saturate(.7)}
 
 .mw-gt{margin:16px 0 8px;font-weight:800;color:var(--ink-2)}
