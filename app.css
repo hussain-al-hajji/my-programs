@@ -2256,6 +2256,9 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .ng-debrief{margin-top:12px;background:#EEF4FB;border:1.5px solid #BFD3EA;border-radius:14px;padding:10px 14px}.ng-debrief ol{margin:6px 0 0;padding-inline-start:22px;line-height:1.9}
 .ng-pn{display:block;font-size:12.5px;line-height:1.6;margin-top:2px}
 @media(max-width:700px){.ng-two{grid-template-columns:1fr}}
+.ng-how{background:#EEF4FB;border:1.5px solid #BFD3EA;border-radius:12px;padding:8px 12px;margin-bottom:10px;font:700 13.5px/1.7 var(--f-ui,inherit)}
+.ng-list{display:grid;gap:8px;margin-bottom:12px}.ng-rr{display:flex;gap:12px;align-items:flex-start;background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:10px 14px}.ng-n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--ac,#E2531F);color:#fff;display:grid;place-items:center;font:800 15px var(--f-display)}
+.ng-rt{font:800 15px var(--f-display)}.ng-do{font-size:14px;line-height:1.7}.ng-hint{font-size:13px;color:#8a6d10;font-weight:700;margin-top:2px}
 .slide-fn{display:none;position:absolute;inset-inline:0;bottom:5px;text-align:center;font:500 10.5px var(--f-body,inherit);color:var(--ink-3,#8a8aa0);opacity:.62;pointer-events:none;padding:0 20px;z-index:1}
 .pp-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:6px 0 2px;font-size:12.5px;color:var(--ink-2)}.pp-legend span{display:inline-flex;align-items:center;gap:6px}.pp-legend b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#E2531F;color:#fff;font:800 11px var(--f-display)}
 @media(max-width:900px){.pp-body{grid-template-columns:1fr}}
