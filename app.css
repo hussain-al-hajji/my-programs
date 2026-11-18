@@ -2351,6 +2351,55 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 body.hl-pseudo-fs #simZone{position:fixed;inset:0;z-index:250;background:var(--bg,#FBF7F2);overflow:auto;padding:16px}body.hl-pseudo-fs{overflow:hidden}#simZone:-webkit-full-screen{background:var(--bg,#FBF7F2);overflow:auto;padding:24px}
 .fly{display:flex;flex-direction:column;align-items:center;gap:2px}.fly i{font-style:normal}.fly-n{font:800 12px/1.3 var(--f-ui,inherit);color:#fff;background:rgba(31,42,68,.82);border-radius:99px;padding:2px 9px;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis;box-shadow:0 3px 8px rgba(0,0,0,.2)}
 .hl-ng{display:inline-flex;align-items:center;gap:4px;font:800 13px var(--f-ui,inherit);background:#F3F6FB;border-radius:99px;padding:2px 6px 2px 10px}.hl-ng b{min-width:20px;text-align:center;font-size:15px}
+#simZone:fullscreen .hl,#simZone:-webkit-full-screen .hl,body.hl-pseudo-fs #simZone .hl{display:grid;grid-template-columns:minmax(150px,14vw) 1fr minmax(150px,13vw);grid-template-rows:auto 1fr;grid-template-areas:"tools tools tools" "groups grid qr";gap:1.6vh 1.2vw;height:calc(100vh - 36px);overflow:visible;max-width:none}
+#simZone:fullscreen .hl-tools,#simZone:-webkit-full-screen .hl-tools,body.hl-pseudo-fs #simZone .hl-tools{grid-area:tools}
+#simZone:fullscreen .hl-groups,#simZone:-webkit-full-screen .hl-groups,body.hl-pseudo-fs #simZone .hl-groups{grid-area:groups;flex-direction:column;flex-wrap:nowrap;justify-content:flex-start;align-items:stretch;gap:1.2vh;overflow:auto}
+#simZone:fullscreen .hl-g,#simZone:-webkit-full-screen .hl-g,body.hl-pseudo-fs #simZone .hl-g{min-width:0;width:100%;padding:1.2vh 0.8vw;border-radius:2vh}
+#simZone:fullscreen .hl-g b,#simZone:-webkit-full-screen .hl-g b,body.hl-pseudo-fs #simZone .hl-g b{font-size:clamp(13px,2.2vh,28px)}
+#simZone:fullscreen .hl-g span,#simZone:-webkit-full-screen .hl-g span,body.hl-pseudo-fs #simZone .hl-g span{font-size:clamp(20px,5vh,64px)}
+#simZone:fullscreen .hl-wrap,#simZone:-webkit-full-screen .hl-wrap,body.hl-pseudo-fs #simZone .hl-wrap{display:contents}
+#simZone:fullscreen .hl-grid,#simZone:-webkit-full-screen .hl-grid,body.hl-pseudo-fs #simZone .hl-grid{grid-area:grid;max-width:none;width:100%;height:100%;grid-template-rows:repeat(4,1fr);gap:1.4vh 0.9vw;margin:0}
+#simZone:fullscreen .hl-cell,#simZone:-webkit-full-screen .hl-cell,body.hl-pseudo-fs #simZone .hl-cell{aspect-ratio:auto;height:100%;border-radius:2.4vh}
+#simZone:fullscreen .hl-cell b,#simZone:-webkit-full-screen .hl-cell b,body.hl-pseudo-fs #simZone .hl-cell b{font-size:clamp(28px,9vh,120px)}
+#simZone:fullscreen .hl-cell small,#simZone:-webkit-full-screen .hl-cell small,body.hl-pseudo-fs #simZone .hl-cell small{font-size:clamp(11px,1.6vh,20px)}
+#simZone:fullscreen .hl-qr,#simZone:-webkit-full-screen .hl-qr,body.hl-pseudo-fs #simZone .hl-qr{grid-area:qr;width:100%;align-self:start;padding:1vh}
+#simZone:fullscreen .hl-qr-box,#simZone:-webkit-full-screen .hl-qr-box,body.hl-pseudo-fs #simZone .hl-qr-box{width:100%;height:auto;aspect-ratio:1}
+#simZone:fullscreen .hl-qr small,#simZone:-webkit-full-screen .hl-qr small,body.hl-pseudo-fs #simZone .hl-qr small{font-size:clamp(12px,1.8vh,22px)}
+#simZone:fullscreen .hl-board,#simZone:-webkit-full-screen .hl-board,body.hl-pseudo-fs #simZone .hl-board{grid-column:1/-1;grid-row:2;max-width:min(1400px,92vw);align-self:start;gap:1.6vh}
+#simZone:fullscreen .hl-board h3,#simZone:-webkit-full-screen .hl-board h3,body.hl-pseudo-fs #simZone .hl-board h3{font-size:clamp(26px,5vh,60px)}
+#simZone:fullscreen .hl-br,#simZone:-webkit-full-screen .hl-br,body.hl-pseudo-fs #simZone .hl-br{grid-template-columns:7vh minmax(140px,22vw) 1fr 12vh;padding:1.4vh 1.6vw}
+#simZone:fullscreen .hl-br b,#simZone:fullscreen .hl-rk,#simZone:-webkit-full-screen .hl-br b,#simZone:-webkit-full-screen .hl-rk,body.hl-pseudo-fs #simZone .hl-br b,body.hl-pseudo-fs #simZone .hl-rk{font-size:clamp(18px,3.4vh,40px)}
+#simZone:fullscreen .hl-sc,#simZone:-webkit-full-screen .hl-sc,body.hl-pseudo-fs #simZone .hl-sc{font-size:clamp(22px,4.4vh,54px)}
+#simZone:fullscreen .hl-bar,#simZone:-webkit-full-screen .hl-bar,body.hl-pseudo-fs #simZone .hl-bar{height:2.4vh}
+#simZone:fullscreen .hl-turn,#simZone:-webkit-full-screen .hl-turn,body.hl-pseudo-fs #simZone .hl-turn{font-size:clamp(15px,2.6vh,30px)}
+#simZone:fullscreen .hl-tools .btn,#simZone:-webkit-full-screen .hl-tools .btn,body.hl-pseudo-fs #simZone .hl-tools .btn{font-size:clamp(12px,1.7vh,20px)}
+#simZone:fullscreen .hl-card,#simZone:-webkit-full-screen .hl-card,body.hl-pseudo-fs #simZone .hl-card{width:min(1500px,94vw);max-height:94vh;padding:3vh 3vw;gap:2vh;border-radius:3.4vh}
+#simZone:fullscreen .hl-big,#simZone:-webkit-full-screen .hl-big,body.hl-pseudo-fs #simZone .hl-big{width:13vh;height:13vh;font-size:8.5vh;border-radius:3vh}
+#simZone:fullscreen .hl-head small,#simZone:-webkit-full-screen .hl-head small,body.hl-pseudo-fs #simZone .hl-head small{font-size:clamp(13px,2vh,24px)}
+#simZone:fullscreen .hl-who,#simZone:-webkit-full-screen .hl-who,body.hl-pseudo-fs #simZone .hl-who{font-size:clamp(17px,3vh,36px)}
+#simZone:fullscreen .hl-lv,#simZone:-webkit-full-screen .hl-lv,body.hl-pseudo-fs #simZone .hl-lv{font-size:clamp(12px,1.9vh,22px)}
+#simZone:fullscreen .hl-tm,#simZone:-webkit-full-screen .hl-tm,body.hl-pseudo-fs #simZone .hl-tm{width:15vh;height:15vh}
+#simZone:fullscreen .hl-tm b,#simZone:-webkit-full-screen .hl-tm b,body.hl-pseudo-fs #simZone .hl-tm b{font-size:6.5vh}
+#simZone:fullscreen .hl-tm small,#simZone:-webkit-full-screen .hl-tm small,body.hl-pseudo-fs #simZone .hl-tm small{font-size:1.8vh}
+#simZone:fullscreen .hl-q,#simZone:-webkit-full-screen .hl-q,body.hl-pseudo-fs #simZone .hl-q{font-size:clamp(22px,4.6vh,58px);line-height:1.5}
+#simZone:fullscreen .hl-hint,#simZone:-webkit-full-screen .hl-hint,body.hl-pseudo-fs #simZone .hl-hint{font-size:clamp(13px,2vh,24px);padding:0.5vh 1.4vw}
+#simZone:fullscreen .hl-opts,#simZone:-webkit-full-screen .hl-opts,body.hl-pseudo-fs #simZone .hl-opts{gap:1.6vh 1.2vw}
+#simZone:fullscreen .hl-opt,#simZone:-webkit-full-screen .hl-opt,body.hl-pseudo-fs #simZone .hl-opt{font-size:clamp(18px,3.6vh,46px);padding:1.8vh 1.4vw;border-radius:2.4vh;border-width:3px}
+#simZone:fullscreen .hl-opt i,#simZone:-webkit-full-screen .hl-opt i,body.hl-pseudo-fs #simZone .hl-opt i{width:5.4vh;height:5.4vh;font-size:3vh;border-radius:1.4vh}
+#simZone:fullscreen .hl-res,#simZone:-webkit-full-screen .hl-res,body.hl-pseudo-fs #simZone .hl-res{font-size:clamp(20px,4vh,50px)}
+#simZone:fullscreen .hl-res div,#simZone:-webkit-full-screen .hl-res div,body.hl-pseudo-fs #simZone .hl-res div{font-size:clamp(16px,3vh,38px)}
+#simZone:fullscreen .hl-why,#simZone:-webkit-full-screen .hl-why,body.hl-pseudo-fs #simZone .hl-why{font-size:clamp(15px,2.6vh,32px)}
+#simZone:fullscreen .hl-pa .btn,#simZone:-webkit-full-screen .hl-pa .btn,body.hl-pseudo-fs #simZone .hl-pa .btn{font-size:clamp(13px,2vh,24px)}
+#simZone:fullscreen .hl-gbox,#simZone:-webkit-full-screen .hl-gbox,body.hl-pseudo-fs #simZone .hl-gbox{font-size:20vh}
+#simZone:fullscreen .hl-gift h2,#simZone:-webkit-full-screen .hl-gift h2,body.hl-pseudo-fs #simZone .hl-gift h2{font-size:7vh}
+#simZone:fullscreen .hl-gpts,#simZone:-webkit-full-screen .hl-gpts,body.hl-pseudo-fs #simZone .hl-gpts{font-size:9vh}
+#simZone:fullscreen .hl-gift p,#simZone:-webkit-full-screen .hl-gift p,body.hl-pseudo-fs #simZone .hl-gift p{font-size:3.2vh}
+#simZone:fullscreen .hl,#simZone:-webkit-full-screen .hl,body.hl-pseudo-fs #simZone .hl{height:calc(100vh - 96px)!important}
+#simZone:fullscreen .hl-groups,#simZone:-webkit-full-screen .hl-groups,body.hl-pseudo-fs #simZone .hl-groups{display:grid!important;grid-auto-rows:minmax(0,1fr);min-height:0}
+#simZone:fullscreen .hl-g,#simZone:-webkit-full-screen .hl-g,body.hl-pseudo-fs #simZone .hl-g{justify-content:center;min-height:0;overflow:hidden}
+#simZone:fullscreen .hl-g span,#simZone:-webkit-full-screen .hl-g span,body.hl-pseudo-fs #simZone .hl-g span{font-size:clamp(18px,4.2vh,56px)!important}
+#simZone:fullscreen .hl-grid,#simZone:-webkit-full-screen .hl-grid,body.hl-pseudo-fs #simZone .hl-grid{min-height:0}
+#simZone:fullscreen,#simZone:-webkit-full-screen,body.hl-pseudo-fs #simZone{padding:10px!important}
 .slide-fn{display:none;position:absolute;inset-inline:0;bottom:5px;text-align:center;font:500 10.5px var(--f-body,inherit);color:var(--ink-3,#8a8aa0);opacity:.62;pointer-events:none;padding:0 20px;z-index:1}
 .pp-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:6px 0 2px;font-size:12.5px;color:var(--ink-2)}.pp-legend span{display:inline-flex;align-items:center;gap:6px}.pp-legend b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#E2531F;color:#fff;font:800 11px var(--f-display)}
 @media(max-width:900px){.pp-body{grid-template-columns:1fr}}
