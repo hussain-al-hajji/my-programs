@@ -2347,6 +2347,7 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .hl-gift{text-align:center;justify-items:center;background:radial-gradient(circle at 50% 30%,#FFF6E0,#fff 70%)}.hl-gbox{font-size:96px;line-height:1;animation:hlGift 1s ease-in-out 2}.hl-gift h2{margin:0;font:900 32px var(--f-display);color:#E2531F}.hl-gpts{font:900 44px var(--f-display);color:#2E9E5B}.hl-gift p{font:700 17px/1.7 var(--f-display);margin:0}
 @keyframes hlGift{0%{transform:scale(.6) rotate(-10deg)}50%{transform:scale(1.25) rotate(8deg)}100%{transform:scale(1) rotate(0)}}
 @media(max-width:800px){.hl-wrap{grid-template-columns:1fr}.hl-qr{justify-self:center}}
+.hl-snd{display:block;width:100%;border:0;border-radius:14px;padding:12px;font:900 16px var(--f-display);color:#fff;background:linear-gradient(135deg,#FFA43A,#E2531F);box-shadow:0 8px 18px -10px #E2531F;cursor:pointer;animation:hlPulse 1.4s infinite}
 .slide-fn{display:none;position:absolute;inset-inline:0;bottom:5px;text-align:center;font:500 10.5px var(--f-body,inherit);color:var(--ink-3,#8a8aa0);opacity:.62;pointer-events:none;padding:0 20px;z-index:1}
 .pp-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:6px 0 2px;font-size:12.5px;color:var(--ink-2)}.pp-legend span{display:inline-flex;align-items:center;gap:6px}.pp-legend b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#E2531F;color:#fff;font:800 11px var(--f-display)}
 @media(max-width:900px){.pp-body{grid-template-columns:1fr}}
