@@ -2400,6 +2400,8 @@ body.hl-pseudo-fs #simZone{position:fixed;inset:0;z-index:250;background:var(--b
 #simZone:fullscreen .hl-g span,#simZone:-webkit-full-screen .hl-g span,body.hl-pseudo-fs #simZone .hl-g span{font-size:clamp(18px,4.2vh,56px)!important}
 #simZone:fullscreen .hl-grid,#simZone:-webkit-full-screen .hl-grid,body.hl-pseudo-fs #simZone .hl-grid{min-height:0}
 #simZone:fullscreen,#simZone:-webkit-full-screen,body.hl-pseudo-fs #simZone{padding:10px!important}
+.dz-agenda:has(.dz-ag:nth-child(9)){grid-template-columns:1fr 1fr;grid-template-rows:repeat(6,auto);grid-auto-flow:column;column-gap:28px}.dz-agenda:has(.dz-ag:nth-child(9)) .dz-ag:nth-child(6n) .dz-ag-dot::after{display:none}
+.dz-agenda:has(.dz-ag:nth-child(9)) .dz-ag{padding:3px 0}.dz-agenda:has(.dz-ag:nth-child(9)) .dz-ag>div{padding:6px 12px}.dz-agenda:has(.dz-ag:nth-child(9)) .dz-ag p{font-size:13px}
 .slide-fn{display:none;position:absolute;inset-inline:0;bottom:5px;text-align:center;font:500 10.5px var(--f-body,inherit);color:var(--ink-3,#8a8aa0);opacity:.62;pointer-events:none;padding:0 20px;z-index:1}
 .pp-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:6px 0 2px;font-size:12.5px;color:var(--ink-2)}.pp-legend span{display:inline-flex;align-items:center;gap:6px}.pp-legend b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#E2531F;color:#fff;font:800 11px var(--f-display)}
 @media(max-width:900px){.pp-body{grid-template-columns:1fr}}
