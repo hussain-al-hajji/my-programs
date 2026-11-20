@@ -2324,6 +2324,13 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .hl-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;max-width:1000px;margin:0 auto;width:100%}
 .hl-cell{aspect-ratio:1.15;border-radius:20px;border:0;cursor:pointer;background:linear-gradient(160deg,#FFB864,#E2531F);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-shadow:0 8px 16px -8px #E2531F,inset 0 -5px 0 rgba(0,0,0,.12);transition:transform .15s}@media(hover:hover){.hl-cell:hover:not(:disabled){transform:translateY(-3px) scale(1.03)}}.hl-cell b{font:900 clamp(26px,4.2vw,48px)/1 var(--f-display)}.hl-cell small{font:800 11px var(--f-ui,inherit);background:rgba(255,255,255,.25);border-radius:99px;padding:1px 6px}
 .hl-cell.ok,.hl-cell.bad{background:var(--gc);box-shadow:none}.hl-cell.bad{opacity:.55;background:repeating-linear-gradient(135deg,var(--gc) 0 10px,#555 10px 20px)}.hl-cell.skip{background:#C8CDD8;box-shadow:none}.hl-cell.none{background:#E5E8EF;color:#aab;box-shadow:none;cursor:default}
+/* شبكة حروف وألوف: خلايا سداسية متلاصقة (سبعة أعمدة بأربع خلايا، والأعمدة المتبادلة مزاحة نصف خلية) */
+.hl-grid{display:flex;gap:0;max-width:1000px;margin:0 auto;width:100%;padding-bottom:8%}
+.hl-col{width:18.18%;flex:none;display:flex;flex-direction:column}.hl-col+.hl-col{margin-inline-start:-4.545%}.hl-col:nth-child(even){padding-top:7.87%}
+.hl-grid .hl-cell{width:100%;aspect-ratio:1/.866;border-radius:0;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);transform:scale(.95);box-shadow:none;padding:0;gap:0;transition:transform .15s,filter .15s}
+@media(hover:hover){.hl-grid .hl-cell:hover:not(:disabled){transform:scale(1.02);filter:brightness(1.08)}}
+.hl-grid .hl-cell b{font-size:clamp(20px,4vw,50px)}.hl-grid .hl-cell small{font-size:clamp(8px,1.1vw,12px);padding:0 5px}
+.hl .hl-grid{gap:0}.hl .hl-grid .hl-cell{border-radius:0}
 .hl-pop{position:fixed;inset:0;z-index:300;background:rgba(15,20,35,.72);display:grid;place-items:center;padding:20px;animation:hlIn .25s}
 @keyframes hlIn{from{opacity:0}to{opacity:1}}
 .hl-card{width:min(860px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:26px;padding:20px 24px;box-shadow:0 30px 60px rgba(0,0,0,.4);display:grid;gap:12px;animation:hlUp .3s}
@@ -2358,7 +2365,7 @@ body.hl-pseudo-fs #simZone{position:fixed;inset:0;z-index:250;background:var(--b
 #simZone:fullscreen .hl-g b,#simZone:-webkit-full-screen .hl-g b,body.hl-pseudo-fs #simZone .hl-g b{font-size:clamp(13px,2.2vh,28px)}
 #simZone:fullscreen .hl-g span,#simZone:-webkit-full-screen .hl-g span,body.hl-pseudo-fs #simZone .hl-g span{font-size:clamp(20px,5vh,64px)}
 #simZone:fullscreen .hl-wrap,#simZone:-webkit-full-screen .hl-wrap,body.hl-pseudo-fs #simZone .hl-wrap{display:contents}
-#simZone:fullscreen .hl-grid,#simZone:-webkit-full-screen .hl-grid,body.hl-pseudo-fs #simZone .hl-grid{grid-area:grid;max-width:none;width:100%;height:100%;grid-template-rows:repeat(4,1fr);gap:1.4vh 0.9vw;margin:0}
+#simZone:fullscreen .hl-grid,#simZone:-webkit-full-screen .hl-grid,body.hl-pseudo-fs #simZone .hl-grid{grid-area:grid;max-width:none;width:min(100%,calc((100vh - 120px)*1.38));height:auto;align-self:center;justify-self:center;gap:0;margin:0}
 #simZone:fullscreen .hl-cell,#simZone:-webkit-full-screen .hl-cell,body.hl-pseudo-fs #simZone .hl-cell{aspect-ratio:auto;height:100%;border-radius:2.4vh}
 #simZone:fullscreen .hl-cell b,#simZone:-webkit-full-screen .hl-cell b,body.hl-pseudo-fs #simZone .hl-cell b{font-size:clamp(28px,9vh,120px)}
 #simZone:fullscreen .hl-cell small,#simZone:-webkit-full-screen .hl-cell small,body.hl-pseudo-fs #simZone .hl-cell small{font-size:clamp(11px,1.6vh,20px)}
