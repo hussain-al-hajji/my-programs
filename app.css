@@ -2179,6 +2179,7 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .mz{display:grid;grid-template-columns:minmax(0,330px) minmax(0,1fr);gap:18px;align-items:start}
 .mz-map{background:linear-gradient(180deg,#EFF3F8,#E4EAF2);border-radius:16px;padding:10px}.mz-map svg{width:100%;height:auto;display:block}
 .mz-h{fill:#C9D1DC;stroke:#8A95A6;stroke-width:2}.mz-h.on{fill:#D9DEE7}.mz-h.ok{fill:#7CCB96;stroke:#2E9E5B}.mz-h.cur{fill:#FFB864;stroke:#E2531F;animation:mzp 1.4s ease-in-out infinite}.mz-h.bad{fill:#F28B82;stroke:#C0392B}.mz-h.exit{fill:#F6D365;stroke:#C99A12}.mz-h.exit.done{fill:#F2B705}
+.mz-h.wall{fill:#EEF1F5;stroke:#DCE1E8;stroke-width:1.5}.mz-dr{fill:#fff;stroke:#8A95A6;stroke-width:1.5;pointer-events:none}.mz-dr.on{fill:#2E9E5B;stroke:#1E7A44}
 .mz-t{text-anchor:middle;font:800 15px var(--f-display);fill:#2B3345;pointer-events:none}
 @keyframes mzp{0%,100%{opacity:1}50%{opacity:.6}}
 .mz-room,.mz-mon,.mz-end{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:14px 16px}
