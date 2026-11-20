@@ -2365,9 +2365,9 @@ body.hl-pseudo-fs #simZone{position:fixed;inset:0;z-index:250;background:var(--b
 #simZone:fullscreen .hl-g b,#simZone:-webkit-full-screen .hl-g b,body.hl-pseudo-fs #simZone .hl-g b{font-size:clamp(13px,2.2vh,28px)}
 #simZone:fullscreen .hl-g span,#simZone:-webkit-full-screen .hl-g span,body.hl-pseudo-fs #simZone .hl-g span{font-size:clamp(20px,5vh,64px)}
 #simZone:fullscreen .hl-wrap,#simZone:-webkit-full-screen .hl-wrap,body.hl-pseudo-fs #simZone .hl-wrap{display:contents}
-#simZone:fullscreen .hl-grid,#simZone:-webkit-full-screen .hl-grid,body.hl-pseudo-fs #simZone .hl-grid{grid-area:grid;max-width:none;width:min(100%,calc((100vh - 120px)*1.38));height:auto;align-self:center;justify-self:center;gap:0;margin:0}
-#simZone:fullscreen .hl-cell,#simZone:-webkit-full-screen .hl-cell,body.hl-pseudo-fs #simZone .hl-cell{aspect-ratio:auto;height:100%;border-radius:2.4vh}
-#simZone:fullscreen .hl-cell b,#simZone:-webkit-full-screen .hl-cell b,body.hl-pseudo-fs #simZone .hl-cell b{font-size:clamp(28px,9vh,120px)}
+#simZone:fullscreen .hl-grid,#simZone:-webkit-full-screen .hl-grid,body.hl-pseudo-fs #simZone .hl-grid{grid-area:grid;max-width:none;width:min(100%,calc((100vh - 180px)*1.24));height:auto;align-self:center;justify-self:center;gap:0;margin:0;padding-bottom:0}
+#simZone:fullscreen .hl-cell,#simZone:-webkit-full-screen .hl-cell,body.hl-pseudo-fs #simZone .hl-cell{aspect-ratio:1/.866;height:auto;border-radius:0}
+#simZone:fullscreen .hl-cell b,#simZone:-webkit-full-screen .hl-cell b,body.hl-pseudo-fs #simZone .hl-cell b{font-size:clamp(24px,7vh,110px)}
 #simZone:fullscreen .hl-cell small,#simZone:-webkit-full-screen .hl-cell small,body.hl-pseudo-fs #simZone .hl-cell small{font-size:clamp(11px,1.6vh,20px)}
 #simZone:fullscreen .hl-qr,#simZone:-webkit-full-screen .hl-qr,body.hl-pseudo-fs #simZone .hl-qr{grid-area:qr;width:100%;align-self:start;padding:1vh}
 #simZone:fullscreen .hl-qr-box,#simZone:-webkit-full-screen .hl-qr-box,body.hl-pseudo-fs #simZone .hl-qr-box{width:100%;height:auto;aspect-ratio:1}
