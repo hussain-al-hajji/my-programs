@@ -2325,6 +2325,10 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 .hl-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;max-width:1000px;margin:0 auto;width:100%}
 .hl-cell{aspect-ratio:1.15;border-radius:20px;border:0;cursor:pointer;background:linear-gradient(160deg,#FFB864,#E2531F);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-shadow:0 8px 16px -8px #E2531F,inset 0 -5px 0 rgba(0,0,0,.12);transition:transform .15s}@media(hover:hover){.hl-cell:hover:not(:disabled){transform:translateY(-3px) scale(1.03)}}.hl-cell b{font:900 clamp(26px,4.2vw,48px)/1 var(--f-display)}.hl-cell small{font:800 11px var(--f-ui,inherit);background:rgba(255,255,255,.25);border-radius:99px;padding:1px 6px}
 .hl-cell.ok,.hl-cell.bad{background:var(--gc);box-shadow:none}.hl-cell.bad{opacity:.55;background:repeating-linear-gradient(135deg,var(--gc) 0 10px,#555 10px 20px)}.hl-cell.skip{background:#C8CDD8;box-shadow:none}.hl-cell.none{background:#E5E8EF;color:#aab;box-shadow:none;cursor:default}
+/* ===== التصويت والنتائج في المربع نفسه (vote مع inline) ===== */
+.vt-inl .vt-opt{position:relative;overflow:hidden}.vt-inl .vt-opt>*{position:relative}.vt-inl .vt-fill{position:absolute;inset:0;inset-inline-end:auto;width:var(--w);background:var(--acg,rgba(226,83,31,.1));transition:width .6s ease}.vt-inl .vt-opt.lead .vt-fill{background:rgba(226,83,31,.18)}
+.vt-inl .vt-tx{flex:1}.vt-inl .vt-tx small{font-weight:700;color:var(--ac,#E2531F)}.vt-pc{display:grid;justify-items:end;line-height:1.15;margin-inline-start:auto}.vt-pc b{font:900 20px var(--f-display)}.vt-pc small{font:700 11px var(--f-ui,inherit);color:#8A93A6}
+.vt-inl-f{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-top:8px;font:700 13px var(--f-ui,inherit);color:#6B7385}
 /* ===== جولة المتجر بالمشاهد (SIMS.store) ===== */
 .sw{display:grid;gap:12px}.sw svg{width:100%;height:auto;display:block}
 .sw-stage{position:relative;border-radius:18px;overflow:hidden;background:#FFF8F0;box-shadow:0 14px 30px -18px rgba(60,35,15,.45);border:1.5px solid #EBDCCB;align-self:start}
