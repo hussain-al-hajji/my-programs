@@ -205,6 +205,11 @@ ul,ol{margin:.3em 0;padding-inline-start:1.3em}
 
 /* ---------- Exercise page ---------- */
 .ex-head{display:flex;gap:16px;align-items:center;margin-top:8px}
+.ex-qr{margin-inline-start:auto;flex:none;display:grid;justify-items:center;gap:3px;background:#fff;border:1.5px solid var(--line);border-radius:16px;padding:7px 7px 5px;box-shadow:0 8px 18px -14px rgba(20,30,60,.45)}
+.ex-qr-box{width:92px;height:92px;display:grid;place-items:center;color:#9AA0AE}.ex-qr-box svg{width:100%;height:100%;display:block}.ex-qr small{font:700 10.5px var(--f-ui,inherit);color:#5C6475;white-space:nowrap}
+html:fullscreen .ex-qr-box,html:-webkit-full-screen .ex-qr-box{width:150px;height:150px}html:fullscreen .ex-qr small{font-size:13px}
+@media(display-mode:fullscreen){.ex-qr-box{width:150px;height:150px}.ex-qr small{font-size:13px}}
+@media(max-width:700px){.ex-qr{display:none}}
 .ex-head .ico{font-size:34px;width:70px;height:70px;border-radius:22px;background:var(--acg,#E6E3F4);display:flex;align-items:center;justify-content:center;flex:none;border:1px solid var(--line)}
 .ex-head h1{font-size:clamp(21px,3vw,30px);font-weight:800}
 .ex-block{margin-top:16px;padding:18px 20px;border-radius:20px;background:var(--surface);border:1px solid var(--line)}
