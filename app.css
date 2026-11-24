@@ -1128,6 +1128,7 @@ html[data-motion="reduce"] .slide.cur *{animation:none!important}
 .slide.cur .sk-ring b{animation:skPop .7s .5s both}
 @keyframes skPop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
 .sk-hook-lbl{font-family:var(--f-display);font-weight:800;font-size:17px;margin-top:10px;color:var(--ink)}
+.dz-src{font-family:var(--f-ui);font-size:12.5px;line-height:1.6;color:var(--ink-3);margin-top:10px;padding-top:6px;border-top:1px dashed var(--line);direction:rtl}.dz-src span{font-size:1.1em}
 .sk-src{font-family:var(--f-ui);font-size:11.5px;color:var(--ink-3);margin-top:8px}
 .sk-ask{margin-top:16px;padding:16px 18px;border-radius:18px;background:linear-gradient(135deg,var(--ac),var(--acd,var(--ac)));color:#fff;font-weight:700;font-size:16.5px;box-shadow:0 14px 30px color-mix(in srgb,var(--ac) 30%,transparent)}
 .sk-ask span{display:block;font-family:var(--f-ui);font-size:12px;opacity:.85;margin-bottom:4px;font-weight:600}
@@ -1993,6 +1994,34 @@ body.guard-hide::after{content:"المحتوى محمي، عُد إلى هذه �
 
 .deck-show .lv-input,.deck-show .lv-tools,.deck-show .lv-cta{display:none}
 .slide.has-live .slide-in{width:100%}
+/* السؤال والخيارات مدموجان في الشريحة: عمود واحد، سؤال كبير، والخيارات بطاقات تُضغط وتمتلئ بنسبة الاختيار */
+.slide.has-live.lv-inline{display:flex!important;flex-direction:column;justify-content:flex-start}
+.slide.lv-inline>.slide-in{flex:none}
+.slide.lv-inline .dz-split-art{display:none}.slide.lv-inline .dz-split{grid-template-columns:1fr}
+.lv-box.lv-inl{margin:.5em 0 0;padding:0;background:none;border:0;box-shadow:none;border-radius:0;backdrop-filter:none}
+.lv-inl .lv-top{display:none}
+.lv-inl .lv-qrow{align-items:center;gap:1em}
+.lv-inl .lv-q{font-size:2.05em;line-height:1.35;margin:0;color:var(--ink)}
+.lv-inl .lv-q::before{content:'';display:inline-block;width:.42em;height:.42em;border-radius:50%;background:var(--ac,var(--brand));margin-inline-end:.35em;vertical-align:.18em;animation:lvPulse 1.6s ease-in-out infinite}
+@keyframes lvPulse{50%{opacity:.35;transform:scale(.8)}}
+.lv-inl .lv-qrin{width:5.6em}
+.lv-inl .lv-opts{gap:.7em;margin-top:.7em;grid-template-columns:repeat(auto-fit,minmax(min(100%,13em),1fr))}
+.lv-inl .lv-opt{padding:.85em 1.1em;font-size:1.25em;border-radius:18px;border-width:2px;min-height:3.2em}
+.lv-inl .lv-opt .lv-l{flex:none}
+.lv-inl .lv-v b{font-size:1.25em}
+.lv-inl .lv-tools{margin-top:.7em}
+.lv-inl.lv-long .lv-opts{grid-template-columns:repeat(auto-fit,minmax(min(100%,19em),1fr))}
+.lv-tiles .lv-opts{grid-template-columns:repeat(auto-fit,minmax(min(100%,10.5em),1fr))}
+.lv-inl .lv-opts.n2{grid-template-columns:repeat(2,1fr)}.lv-inl .lv-opts.n3,.lv-inl .lv-opts.n6{grid-template-columns:repeat(3,1fr)}.lv-inl .lv-opts.n4{grid-template-columns:repeat(4,1fr)}.lv-inl .lv-opts.n5{grid-template-columns:repeat(5,1fr)}.lv-inl.lv-long:not(.x) .lv-opts.n4{grid-template-columns:repeat(2,1fr)}.lv-inl.lv-long .lv-opts.n5,.lv-inl.lv-long .lv-opts.n6{grid-template-columns:repeat(3,1fr)}
+.lv-tiles .lv-opt{flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:.3em;min-height:8.5em;padding:.8em 1em .75em;font-size:1.05em}
+.lv-tiles .lv-opt .lv-l{position:absolute;top:.7em;inset-inline-end:.75em}
+.lv-tiles .lv-ic{font-size:1.9em;line-height:1}
+.lv-tiles .lv-t{display:flex;flex-direction:column;gap:.15em;flex:1}
+.lv-tiles .lv-t b{font-size:1.2em}
+.lv-tiles .lv-t small{font-weight:500;color:var(--ink-2);line-height:1.45;font-size:.88em}
+.lv-tiles .lv-v{align-self:stretch;display:flex;align-items:baseline;justify-content:space-between;gap:.4em;border-top:1px dashed var(--line);padding-top:.3em;margin-top:auto}
+.lv-tiles .lv-fill{inset:auto 0 0 0;width:100%!important;height:var(--h,0%);transition:height .6s cubic-bezier(.2,.8,.2,1)}
+@media (max-width:640px){.lv-inl .lv-opts[class]{grid-template-columns:1fr}.lv-tiles .lv-opts[class]{grid-template-columns:1fr 1fr}.lv-inl .lv-q{font-size:1.45em}.lv-inl .lv-opt{font-size:1.05em}.lv-tiles .lv-opts{grid-template-columns:1fr 1fr}.lv-tiles .lv-opt{min-height:0}.lv-inl .lv-qrin{display:none}}
 /* باركود المشاركة */
 .lv-qrc{text-align:center}.lv-qr-t{font-family:var(--f-display);font-weight:700;color:var(--ink-2);margin-bottom:8px}
 .lv-qr-big{margin:6px auto;width:min(340px,72vw);aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:18px;padding:10px;border:1px solid var(--line)}.lv-qr-big svg{width:100%;height:100%}
